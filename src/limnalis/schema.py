@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+from importlib.abc import Traversable
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
 
@@ -27,6 +29,23 @@ def schemas_dir() -> Path:
 
 def fixtures_dir() -> Path:
     return repo_root() / "fixtures"
+
+
+def _resource_candidates(*parts: str) -> list[Traversable | Path]:
+    return [
+        files("limnalis").joinpath("_data", *parts),
+        repo_root().joinpath(*parts),
+    ]
+
+
+def _read_resource_text(*parts: str) -> str:
+    candidates = _resource_candidates(*parts)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8")
+    attempted = ", ".join(str(candidate) for candidate in candidates)
+    joined = "/".join(parts)
+    raise FileNotFoundError(f"Unable to locate bundled resource {joined}; looked in {attempted}")
 
 
 def load_json_or_yaml(path: str | Path) -> Any:
@@ -57,8 +76,7 @@ def _repair_ast_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_schema(name: SchemaName, *, repair_ast_refs: bool = True) -> dict[str, Any]:
-    path = schemas_dir() / _SCHEMA_FILES[name]
-    schema = json.loads(path.read_text(encoding="utf-8"))
+    schema = json.loads(_read_resource_text("schemas", _SCHEMA_FILES[name]))
     if name == "ast" and repair_ast_refs:
         schema = _repair_ast_schema_refs(schema)
     return schema
@@ -68,6 +86,8 @@ def make_validator(name: SchemaName, *, repair_ast_refs: bool = True) -> Draft20
     return Draft202012Validator(load_schema(name, repair_ast_refs=repair_ast_refs))
 
 
-def validate_payload(payload: Any, schema_name: SchemaName, *, repair_ast_refs: bool = True) -> None:
+def validate_payload(
+    payload: Any, schema_name: SchemaName, *, repair_ast_refs: bool = True
+) -> None:
     validator = make_validator(schema_name, repair_ast_refs=repair_ast_refs)
     validator.validate(payload)

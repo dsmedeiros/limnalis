@@ -5,7 +5,6 @@ from pathlib import Path
 from limnalis.loader import load_fixture_corpus
 from limnalis.schema import load_schema, make_validator
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

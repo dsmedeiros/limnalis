@@ -472,6 +472,15 @@ class JointAdequacyNode(LimnalisModel):
             raise ValueError("JointAdequacy anchors must be unique")
         return value
 
+    @field_validator("assessments")
+    @classmethod
+    def _validate_assessments(
+        cls, value: list[AdequacyAssessmentNode]
+    ) -> list[AdequacyAssessmentNode]:
+        if not value:
+            raise ValueError("JointAdequacy assessments must contain at least one item")
+        return value
+
 
 class TransportNode(LimnalisModel):
     node: Literal["Transport"] = "Transport"
@@ -482,17 +491,38 @@ class TransportNode(LimnalisModel):
     dstEvaluators: list[str] | None = None
     dstResolutionPolicy: str | None = None
 
+    @field_validator("dstEvaluators")
+    @classmethod
+    def _validate_dst_evaluators(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and not value:
+            raise ValueError("dstEvaluators must contain at least one item when provided")
+        return value
+
     @model_validator(mode="after")
     def _enforce_transport_shape(self) -> "TransportNode":
         if self.mode == "metadata_only":
             if any(
-                value is not None and value != []
-                for value in [self.claimMap, self.truthPolicy, self.dstEvaluators, self.dstResolutionPolicy]
+                value is not None
+                for value in [
+                    self.claimMap,
+                    self.truthPolicy,
+                    self.dstEvaluators,
+                    self.dstResolutionPolicy,
+                ]
             ):
-                raise ValueError("metadata_only transport forbids claimMap, truthPolicy, dstEvaluators, dstResolutionPolicy")
+                raise ValueError(
+                    "metadata_only transport forbids claimMap, truthPolicy, "
+                    "dstEvaluators, dstResolutionPolicy"
+                )
         elif self.mode in {"preserve", "degrade"}:
-            if self.claimMap is not None or self.dstEvaluators is not None or self.dstResolutionPolicy is not None:
-                raise ValueError(f"{self.mode} transport forbids claimMap, dstEvaluators, dstResolutionPolicy")
+            if (
+                self.claimMap is not None
+                or self.dstEvaluators is not None
+                or self.dstResolutionPolicy is not None
+            ):
+                raise ValueError(
+                    f"{self.mode} transport forbids claimMap, dstEvaluators, dstResolutionPolicy"
+                )
         elif self.mode == "remap_recompute":
             if self.claimMap is None:
                 raise ValueError("remap_recompute transport requires claimMap")
@@ -510,7 +540,9 @@ class BridgeNode(LimnalisModel):
     preserve: list[str]
     lose: list[str]
     gain: list[str] = Field(default_factory=list)
-    risk: list[Literal["aggregation_reversal", "aliasing", "temporal_smear", "observer_shift"]] = Field(default_factory=list)
+    risk: list[Literal["aggregation_reversal", "aliasing", "temporal_smear", "observer_shift"]] = (
+        Field(default_factory=list)
+    )
     transport: TransportNode
 
 
@@ -648,3 +680,4 @@ __all__ = [
     "UnboundRefTermNode",
     "UriTermNode",
 ]
+

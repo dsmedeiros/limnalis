@@ -10,3 +10,7 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+
+.venv311/
+.tmp/
+

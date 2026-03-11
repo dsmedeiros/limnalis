@@ -5,7 +5,7 @@ from typing import Any
 
 from lark import Lark
 
-from .schema import repo_root
+from .schema import _read_resource_text
 
 
 class LimnalisParser:
@@ -18,9 +18,8 @@ class LimnalisParser:
     """
 
     def __init__(self) -> None:
-        grammar_path = repo_root() / "grammar" / "limnalis.lark"
-        self._grammar_path = grammar_path
-        self._lark = Lark.open(str(grammar_path), start="start", parser="earley")
+        grammar = _read_resource_text("grammar", "limnalis.lark")
+        self._lark = Lark(grammar, start="start", parser="earley")
 
     def parse_text(self, source: str) -> Any:
         return self._lark.parse(source)
