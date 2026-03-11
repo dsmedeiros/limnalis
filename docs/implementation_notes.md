@@ -17,5 +17,6 @@ That is the right trade-off at the current Limnalis stage.
 
 ## Scope of this scaffold
 
-This repo does **not** yet implement the authored surface parser or the canonical normalizer.
-It gives those stages a stable target.
+This repo now implements the authored surface parser at a permissive Milestone 1 level: it
+produces a raw parse tree for bundle documents and nested authored blocks. The canonical normalizer
+is still not implemented.

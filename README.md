@@ -14,14 +14,14 @@ That gives you:
 
 Current scope:
 
-- ✅ Canonical AST classes as **Pydantic models**
-- ✅ Vendored v0.2.2 schemas and fixture corpus
-- ✅ JSON/YAML loaders
-- ✅ JSON Schema validation helpers
-- ✅ Parser / normalizer entry points and CLI stubs
-- ❌ Surface-language parser implementation
-- ❌ AST normalizer implementation
-- ❌ Evaluator implementation
+- [x] Canonical AST classes as **Pydantic models**
+- [x] Vendored v0.2.2 schemas and fixture corpus
+- [x] JSON/YAML loaders
+- [x] JSON Schema validation helpers
+- [x] Parser / normalizer entry points and CLI stubs
+- [x] Surface-language parser implementation (Milestone 1 raw parse tree)
+- [ ] AST normalizer implementation
+- [ ] Evaluator implementation
 
 ## Why Pydantic now?
 
@@ -77,8 +77,8 @@ limnalis/
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
-pytest
+python -m pip install -e .[dev]
+python -m pytest
 ```
 
 Validate the fixture corpus:
@@ -95,7 +95,6 @@ limnalis validate-ast examples/minimal_bundle_ast.json
 
 ## Next implementation milestones
 
-1. implement the surface parser in `src/limnalis/parser.py` using Lark
-2. implement normalization into the canonical Pydantic AST in `src/limnalis/normalizer.py`
-3. validate normalized ASTs against the vendored schema package
-4. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
+1. implement normalization into the canonical Pydantic AST in `src/limnalis/normalizer.py`
+2. validate normalized ASTs against the vendored schema package
+3. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests

@@ -9,12 +9,11 @@ from .schema import _read_resource_text
 
 
 class LimnalisParser:
-    """Surface-language parser stub.
+    """Surface-language parser (Milestone 1).
 
-    The next implementation pass should:
-    - expand the grammar in `grammar/limnalis.lark`
-    - return a raw parse tree or raw AST preserving spans
-    - feed the normalizer into canonical Pydantic AST models
+    This milestone returns a permissive raw parse tree from the authored
+    surface language. Semantic interpretation and canonical AST normalization
+    are intentionally deferred to later milestones.
     """
 
     def __init__(self) -> None:

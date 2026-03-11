@@ -1,26 +1,35 @@
-// Limnalis surface-language grammar stub.
+// Limnalis surface-language grammar (Milestone 1).
 //
-// This file is intentionally incomplete in the starter scaffold.
-// The next implementation pass should cover:
-// - bundle declarations
-// - frame / frame-pattern authored syntax
-// - evaluator panels and resolution policies
-// - baselines, anchors, joint adequacy, bridges / transport
-// - claim blocks / claims
-// - operator aliases and judged_by
+// Scope for this milestone:
+// - parse `bundle ... { ... }` documents,
+// - support nested blocks used by authored sections (`evaluator`, `local`, etc.),
+// - accept statement-level tokens without enforcing full semantic constraints yet.
 //
-// Keeping the grammar file in place now avoids repo churn later.
+// This intentionally builds a permissive raw parse tree that the normalizer can
+// refine into canonical AST types in later milestones.
 
 start: bundle
 
-bundle: "bundle" NAME "{" _NL* item* "}"
+bundle: "bundle" ATOM block
 
-?item: /[^}]+/
+block: "{" block_item* "}"
 
-NAME: /[A-Za-z_][A-Za-z0-9_\-]*/
+?block_item: statement
+           | nested_block
 
-%import common.NEWLINE -> _NL
+nested_block: atom+ block
+statement: atom+ ";"
+
+?atom: ATOM
+     | STRING
+
+ATOM: /[^{}\s;"']+/
+
+%import common.ESCAPED_STRING -> STRING
+%import common.NEWLINE
 %import common.WS_INLINE
+
 %ignore WS_INLINE
+%ignore NEWLINE
 %ignore /#[^\n]*/
 %ignore /\/\/[^\n]*/
