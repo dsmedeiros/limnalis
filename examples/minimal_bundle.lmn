@@ -1,0 +1,12 @@
+bundle minimal_bundle {
+  frame @Test:Minimal::nominal;
+
+  evaluator ev0 {
+    kind model;
+    binding test://eval/atoms_v1;
+  }
+
+  local {
+    c1: p;
+  }
+}

@@ -1,0 +1,1978 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://limnalis.local/schema/v0.2.2/ast.json",
+  "title": "Limnalis v0.2.2 canonical AST schema",
+  "type": "object",
+  "$defs": {
+    "FrameNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Frame"
+        },
+        "system": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "regime": {
+          "type": "string"
+        },
+        "observer": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "facetPolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "system",
+        "namespace",
+        "scale",
+        "task",
+        "regime"
+      ]
+    },
+    "FacetValueMap": {
+      "type": "object",
+      "properties": {
+        "system": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "regime": {
+          "type": "string"
+        },
+        "observer": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "FramePatternNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "FramePattern"
+        },
+        "facets": {
+          "$ref": "#/$defs/FacetValueMap"
+        },
+        "facetPolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "facets"
+      ]
+    },
+    "FrameOrPatternNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FrameNode"
+        },
+        {
+          "$ref": "#/$defs/FramePatternNode"
+        }
+      ]
+    },
+    "ResolutionPolicyNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "ResolutionPolicy"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "single",
+            "paraconsistent_union",
+            "priority_order",
+            "adjudicated"
+          ]
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "binding": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "single"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "members"
+            ],
+            "properties": {
+              "members": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "order"
+                  ]
+                },
+                {
+                  "required": [
+                    "binding"
+                  ]
+                }
+              ]
+            },
+            "$comment": "single requires exactly one member; order and binding are forbidden."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "paraconsistent_union"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "members"
+            ],
+            "properties": {
+              "members": {
+                "minItems": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "order"
+                  ]
+                },
+                {
+                  "required": [
+                    "binding"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "priority_order"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "order"
+            ],
+            "properties": {
+              "order": {
+                "minItems": 1
+              }
+            },
+            "not": {
+              "required": [
+                "binding"
+              ]
+            },
+            "$comment": "If members is present, custom validation must ensure it names the same set as order."
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "adjudicated"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "members",
+              "binding"
+            ],
+            "properties": {
+              "members": {
+                "minItems": 1
+              }
+            },
+            "not": {
+              "required": [
+                "order"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "TimeCtxNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "TimeCtx"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "point",
+            "interval",
+            "window"
+          ]
+        },
+        "t": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "lag": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "kind"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "point"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "t"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "interval",
+                  "window"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "start",
+              "end"
+            ]
+          }
+        }
+      ]
+    },
+    "EvaluatorNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Evaluator"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "model",
+            "human",
+            "agent",
+            "institution",
+            "ensemble",
+            "process"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "adversarial",
+            "audit",
+            "auxiliary"
+          ]
+        },
+        "binding": {
+          "type": "string"
+        },
+        "evidencePolicy": {
+          "type": "string"
+        },
+        "inferencePolicy": {
+          "type": "string"
+        },
+        "provenancePolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind",
+        "binding"
+      ]
+    },
+    "BindingNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Binding"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "equation",
+            "dataset",
+            "code",
+            "model",
+            "document",
+            "policy",
+            "ontology"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind",
+        "target"
+      ]
+    },
+    "FacetPair": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "enum": [
+            "system",
+            "namespace",
+            "scale",
+            "task",
+            "regime",
+            "observer",
+            "version"
+          ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "system",
+            "namespace",
+            "scale",
+            "task",
+            "regime",
+            "observer",
+            "version"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "FrameFacetPolicyNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "FrameFacetPolicy"
+        },
+        "id": {
+          "type": "string"
+        },
+        "order": {
+          "type": "object",
+          "properties": {
+            "system": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "namespace": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "scale": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "task": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "regime": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "observer": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "version": {
+              "oneOf": [
+                {
+                  "const": "eq"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "system",
+            "namespace",
+            "scale",
+            "task",
+            "regime",
+            "observer",
+            "version"
+          ]
+        },
+        "independent": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FacetPair"
+          }
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FacetPair"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "order"
+      ]
+    },
+    "AssumptionNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Assumption"
+        },
+        "id": {
+          "type": "string"
+        },
+        "expr": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "suspended",
+            "counterfactual"
+          ]
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "expr",
+        "status"
+      ]
+    },
+    "CriterionSpecNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "expr"
+            },
+            "expr": {
+              "$ref": "#/$defs/ExprNode"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "expr"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "ref"
+            },
+            "ref": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "ref"
+          ]
+        }
+      ]
+    },
+    "BaselineNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Baseline"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "point",
+            "set",
+            "manifold",
+            "moving"
+          ]
+        },
+        "criterion": {
+          "$ref": "#/$defs/CriterionSpecNode"
+        },
+        "frame": {
+          "$ref": "#/$defs/FrameOrPatternNode"
+        },
+        "evaluationMode": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "on_reference",
+            "tracked"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind",
+        "criterion",
+        "frame",
+        "evaluationMode"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "moving"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evaluationMode": {
+                "const": "tracked"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "EvidenceNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Evidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "measurement",
+            "dataset",
+            "testimony",
+            "simulation",
+            "audit",
+            "derived"
+          ]
+        },
+        "binding": {
+          "type": "string"
+        },
+        "observer": {
+          "type": "string"
+        },
+        "time": {
+          "$ref": "#/$defs/FixtureTimeSpec"
+        },
+        "completeness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "internalConflict": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind",
+        "binding"
+      ]
+    },
+    "EvidenceRelationNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "EvidenceRelation"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lhs": {
+          "type": "string"
+        },
+        "rhs": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "corroborates",
+            "conflicts",
+            "depends_on",
+            "duplicate_of"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "lhs",
+        "rhs",
+        "kind"
+      ]
+    },
+    "AdequacyAssessmentNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "AdequacyAssessment"
+        },
+        "id": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "score": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "const": "N"
+            }
+          ]
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "method": {
+          "type": "string"
+        },
+        "basis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "failureModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "task",
+        "producer",
+        "threshold",
+        "method"
+      ],
+      "$comment": "score is intentionally optional; unresolved methods and method conflicts are semantic constraints enforced by the evaluator."
+    },
+    "AnchorTermNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "symbol"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "claim"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "expr"
+            },
+            "expr": {
+              "$ref": "#/$defs/ExprNode"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "expr"
+          ]
+        }
+      ]
+    },
+    "AnchorNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Anchor"
+        },
+        "id": {
+          "type": "string"
+        },
+        "term": {
+          "$ref": "#/$defs/AnchorTermNode"
+        },
+        "subtype": {
+          "type": "string",
+          "enum": [
+            "idealization",
+            "placeholder",
+            "proxy",
+            "aggregate"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive",
+            "counterfactual"
+          ]
+        },
+        "adequacyPolicy": {
+          "type": "string"
+        },
+        "adequacy": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AdequacyAssessmentNode"
+          }
+        },
+        "requiresJointWith": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "term",
+        "subtype",
+        "status",
+        "adequacy"
+      ]
+    },
+    "JointAdequacyNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "JointAdequacy"
+        },
+        "id": {
+          "type": "string"
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "adequacyPolicy": {
+          "type": "string"
+        },
+        "assessments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AdequacyAssessmentNode"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "anchors",
+        "assessments"
+      ]
+    },
+    "TransportNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Transport"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "metadata_only",
+            "preserve",
+            "degrade",
+            "remap_recompute"
+          ]
+        },
+        "claimMap": {
+          "type": "string"
+        },
+        "truthPolicy": {
+          "type": "string"
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dstEvaluators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "dstResolutionPolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "mode"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "metadata_only"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "claimMap"
+                  ]
+                },
+                {
+                  "required": [
+                    "truthPolicy"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstEvaluators"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstResolutionPolicy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "preserve"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "claimMap"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstEvaluators"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstResolutionPolicy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "degrade"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "claimMap"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstEvaluators"
+                  ]
+                },
+                {
+                  "required": [
+                    "dstResolutionPolicy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "remap_recompute"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "claimMap"
+            ],
+            "not": {
+              "required": [
+                "truthPolicy"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "BridgeNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Bridge"
+        },
+        "id": {
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/FramePatternNode"
+        },
+        "to": {
+          "$ref": "#/$defs/FramePatternNode"
+        },
+        "via": {
+          "type": "string"
+        },
+        "preserve": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lose": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "risk": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "aggregation_reversal",
+              "aliasing",
+              "temporal_smear",
+              "observer_shift"
+            ]
+          }
+        },
+        "transport": {
+          "$ref": "#/$defs/TransportNode"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "from",
+        "to",
+        "via",
+        "preserve",
+        "lose",
+        "transport"
+      ]
+    },
+    "ScalarValue": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "SymbolTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "SymbolTerm"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "value"
+      ]
+    },
+    "NumberTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "NumberTerm"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "value"
+      ]
+    },
+    "StringTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "StringTerm"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "value"
+      ]
+    },
+    "BooleanTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "BooleanTerm"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "value"
+      ]
+    },
+    "UriTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "UriTerm"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "value"
+      ]
+    },
+    "BaselineRefTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "BaselineRefTerm"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id"
+      ]
+    },
+    "UnboundRefTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "UnboundRefTerm"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "kind"
+      ]
+    },
+    "NullTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "NullTerm"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node"
+      ]
+    },
+    "ListTermNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "ListTerm"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArgNode"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "items"
+      ]
+    },
+    "TermNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SymbolTermNode"
+        },
+        {
+          "$ref": "#/$defs/NumberTermNode"
+        },
+        {
+          "$ref": "#/$defs/StringTermNode"
+        },
+        {
+          "$ref": "#/$defs/BooleanTermNode"
+        },
+        {
+          "$ref": "#/$defs/UriTermNode"
+        },
+        {
+          "$ref": "#/$defs/ListTermNode"
+        },
+        {
+          "$ref": "#/$defs/BaselineRefTermNode"
+        },
+        {
+          "$ref": "#/$defs/UnboundRefTermNode"
+        },
+        {
+          "$ref": "#/$defs/NullTermNode"
+        }
+      ]
+    },
+    "PredicateExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "PredicateExpr"
+        },
+        "name": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArgNode"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "name",
+        "args"
+      ]
+    },
+    "LogicalExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "LogicalExpr"
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "not",
+            "and",
+            "or",
+            "implies",
+            "iff"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExprNode"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "op",
+        "args"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "not"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "and",
+                  "or",
+                  "implies",
+                  "iff"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "minItems": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "CausalExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "CausalExpr"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "obs",
+            "do"
+          ]
+        },
+        "lhs": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "rhs": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "intervention": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/ExprNode"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "mode",
+        "lhs",
+        "rhs"
+      ]
+    },
+    "DynamicExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "DynamicExpr"
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "approaches",
+            "diverges",
+            "oscillates",
+            "cycles",
+            "transforms",
+            "crosses"
+          ]
+        },
+        "subject": {
+          "$ref": "#/$defs/TermNode"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TermNode"
+            },
+            {
+              "$ref": "#/$defs/ExprNode"
+            }
+          ]
+        },
+        "qualifiers": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array"
+              },
+              {
+                "type": "object"
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "op",
+        "subject"
+      ]
+    },
+    "EmergenceExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "EmergenceExpr"
+        },
+        "property": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "onset": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "persistsWhile": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "dissolvesWhen": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "hysteresis": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "witness": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "property",
+        "onset",
+        "witness"
+      ]
+    },
+    "DeclarationExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "DeclarationExpr"
+        },
+        "term": {
+          "$ref": "#/$defs/TermNode"
+        },
+        "declaredAs": {
+          "type": "string"
+        },
+        "within": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/FramePatternNode"
+            },
+            {
+              "$ref": "#/$defs/ExprNode"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "term",
+        "declaredAs"
+      ]
+    },
+    "JudgedExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "JudgedExpr"
+        },
+        "expr": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "criterionRef": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "expr",
+        "criterionRef"
+      ]
+    },
+    "NoteExprNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "NoteExpr"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "text"
+      ]
+    },
+    "ExprNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PredicateExprNode"
+        },
+        {
+          "$ref": "#/$defs/LogicalExprNode"
+        },
+        {
+          "$ref": "#/$defs/CausalExprNode"
+        },
+        {
+          "$ref": "#/$defs/DynamicExprNode"
+        },
+        {
+          "$ref": "#/$defs/EmergenceExprNode"
+        },
+        {
+          "$ref": "#/$defs/DeclarationExprNode"
+        },
+        {
+          "$ref": "#/$defs/JudgedExprNode"
+        },
+        {
+          "$ref": "#/$defs/NoteExprNode"
+        }
+      ]
+    },
+    "ArgNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TermNode"
+        },
+        {
+          "$ref": "#/$defs/ExprNode"
+        }
+      ]
+    },
+    "ClaimNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "Claim"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "atomic",
+            "causal",
+            "dynamic",
+            "emergence",
+            "declaration",
+            "judgment",
+            "note",
+            "logical"
+          ]
+        },
+        "expr": {
+          "$ref": "#/$defs/ExprNode"
+        },
+        "usesAnchors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "semanticRequirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array"
+              },
+              {
+                "type": "object"
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "kind",
+        "expr"
+      ]
+    },
+    "ClaimBlockNode": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "const": "ClaimBlock"
+        },
+        "id": {
+          "type": "string"
+        },
+        "stratum": {
+          "type": "string",
+          "enum": [
+            "local",
+            "systemic",
+            "meta"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClaimNode"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "id",
+        "stratum",
+        "claims"
+      ]
+    }
+  },
+  "required": [
+    "node",
+    "id",
+    "frame",
+    "evaluators",
+    "resolutionPolicy",
+    "claimBlocks"
+  ],
+  "properties": {
+    "node": {
+      "const": "Bundle"
+    },
+    "id": {
+      "type": "string"
+    },
+    "frame": {
+      "$ref": "#/$defs/FrameOrPatternNode"
+    },
+    "evaluators": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvaluatorNode"
+      },
+      "minItems": 1
+    },
+    "resolutionPolicy": {
+      "$ref": "#/$defs/ResolutionPolicyNode"
+    },
+    "time": {
+      "$ref": "#/$defs/FixtureTimeSpec"
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BindingNode"
+      }
+    },
+    "facetPolicies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FrameFacetPolicyNode"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AssumptionNode"
+      }
+    },
+    "baselines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BaselineNode"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceNode"
+      }
+    },
+    "evidenceRelations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceRelationNode"
+      }
+    },
+    "anchors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AnchorNode"
+      }
+    },
+    "jointAdequacies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/JointAdequacyNode"
+      }
+    },
+    "bridges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BridgeNode"
+      }
+    },
+    "claimBlocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ClaimBlockNode"
+      },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "Bundle.frame may remain a FramePatternNode before resolution. Bridge endpoints remain patterns. Some cross-field constraints (e.g. unique ids across namespaces) require additional semantic validation beyond JSON Schema."
+}

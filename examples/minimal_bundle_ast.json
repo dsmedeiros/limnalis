@@ -1,0 +1,45 @@
+{
+  "node": "Bundle",
+  "id": "minimal_bundle",
+  "frame": {
+    "node": "Frame",
+    "system": "Test",
+    "namespace": "Minimal",
+    "scale": "unit",
+    "task": "check",
+    "regime": "nominal"
+  },
+  "evaluators": [
+    {
+      "node": "Evaluator",
+      "id": "ev0",
+      "kind": "model",
+      "binding": "test://eval/atoms_v1"
+    }
+  ],
+  "resolutionPolicy": {
+    "node": "ResolutionPolicy",
+    "id": "rp0",
+    "kind": "single",
+    "members": ["ev0"]
+  },
+  "claimBlocks": [
+    {
+      "node": "ClaimBlock",
+      "id": "local#1",
+      "stratum": "local",
+      "claims": [
+        {
+          "node": "Claim",
+          "id": "c1",
+          "kind": "atomic",
+          "expr": {
+            "node": "PredicateExpr",
+            "name": "p",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

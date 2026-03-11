@@ -1,0 +1,1241 @@
+version: v0.2.2-draft
+meta:
+  name: Limnalis conformance corpus
+  purpose: Golden-bundle corpus for parser, normalizer, evaluator, and conformance testing before schema freeze.
+  phase_order:
+  - resolve references and policies
+  - resolve active frame and evaluator panel
+  - initialize or reuse session baseline service
+  - evaluate adequacy assessments and joint adequacy groups
+  - materialize evidence views per evaluator
+  - evaluate each claim per evaluator
+  - synthesize support per evaluator
+  - aggregate claim results under the resolution policy
+  - fold blocks per evaluator, then aggregate block results
+  - execute transport queries
+ast_decisions:
+- topic: ResolutionPolicyNode
+  status: settled
+  canonical_shape:
+    node: ResolutionPolicy
+    id: string
+    kind:
+    - single
+    - paraconsistent_union
+    - priority_order
+    - adjudicated
+    members:
+    - string
+    order:
+    - string
+    binding: string
+  validation:
+    single:
+      members: required, length=1
+      order: forbidden
+      binding: forbidden
+    paraconsistent_union:
+      members: required, length>=1
+      order: forbidden
+      binding: forbidden
+    priority_order:
+      members: optional; if present must equal same set as order
+      order: required, length>=1
+      binding: forbidden
+    adjudicated:
+      members: required, length>=1
+      order: forbidden
+      binding: required
+  corpus_support:
+  - A8
+  - A9
+  - A14
+- topic: TransportNode
+  status: settled
+  canonical_shape:
+    node: Transport
+    mode:
+    - metadata_only
+    - preserve
+    - degrade
+    - remap_recompute
+    claimMap: string
+    truthPolicy: string
+    preconditions:
+    - string
+    dstEvaluators:
+    - string
+    dstResolutionPolicy: string
+  validation:
+    metadata_only:
+      claimMap: forbidden
+      truthPolicy: forbidden
+      dstEvaluators: forbidden
+      dstResolutionPolicy: forbidden
+    preserve:
+      claimMap: forbidden
+      truthPolicy: optional
+      preconditions: optional
+      dstEvaluators: forbidden
+      dstResolutionPolicy: forbidden
+    degrade:
+      claimMap: forbidden
+      truthPolicy: optional
+      preconditions: optional
+      dstEvaluators: forbidden
+      dstResolutionPolicy: forbidden
+    remap_recompute:
+      claimMap: required
+      truthPolicy: forbidden
+      preconditions: optional
+      dstEvaluators: optional
+      dstResolutionPolicy: optional
+  corpus_support:
+  - A7
+  - A10
+  - B1
+- topic: AdequacyAssessmentNode.score
+  status: settled
+  canonical_shape:
+    node: AdequacyAssessment
+    id: string
+    task: string
+    producer: string
+    score: number | 'N' | omitted
+    threshold: number
+    method: string
+    basis:
+    - string
+    confidence: number
+    failureModes:
+    - string
+  validation:
+    score_present: treated as an attested output of method
+    score_omitted: allowed; method must be executable and compute the score
+    score_and_method_disagree: assessment -> B[method_conflict]
+    unresolved_method: assessment -> N[missing_binding]
+  corpus_support:
+  - A12
+  - B1
+  - B2
+- topic: ClaimResult / BlockResult per_evaluator maps
+  status: settled
+  canonical_shape:
+    ClaimResult:
+      claimId: string
+      per_evaluator:
+        EvaluatorId: EvalNode
+      aggregate: EvalNode
+      license: LicenseResult
+    BlockResult:
+      blockId: string
+      stratum:
+      - local
+      - systemic
+      - meta
+      per_evaluator:
+        EvaluatorId: T|F|B|N
+      aggregate: T|F|B|N
+      claimIds:
+      - string
+  validation:
+    evaluable_claims: per_evaluator and aggregate required
+    note_claims: per_evaluator and aggregate omitted
+    keys: must match effective evaluator panel after any transport override
+  corpus_support:
+  - A8
+  - A9
+  - A14
+  - B1
+  - B2
+fixtures:
+- id: test://eval/declaration_v1
+  type: evaluator_binding
+  behavior: Uses the reference-evaluator default declaration semantics for DeclarationExpr, including within FramePattern matching.
+  used_by:
+  - A1
+- id: test://eval/atoms_v1
+  type: evaluator_binding
+  behavior:
+    predicates:
+      p:
+        truth: T
+      q:
+        truth: T
+      b:
+        truth: B
+        reason: source_conflict
+      n:
+        truth: N
+        reason: undefined_term
+  used_by:
+  - A3
+  - A5
+  - A7
+  - A8
+  - A14
+- id: test://eval/baseline_v1
+  type: evaluator_binding
+  behavior: Returns T for baseline comparison predicates when the referenced baseline resolves successfully.
+  used_by:
+  - A4
+  - A11
+- id: test://eval/auth_truth_v1
+  type: evaluator_binding
+  behavior: Returns T for all world predicates in A6. Isolates licensing semantics from truth.
+  used_by:
+  - A6
+- id: test://eval/grid_v1
+  type: evaluator_binding
+  behavior: Domain fixture for B1. overload(line_B)=T; causal c2=B[source_conflict]; c3=T.
+  used_by:
+  - B1
+- id: test://eval/jwt_gateway_v1
+  type: evaluator_binding
+  behavior: Domain fixture for B2. Returns T for c1-c4. Support is determined by the declared evidence policy.
+  used_by:
+  - B2
+- id: test://policy/auth_access_v3
+  type: criterion_binding
+  behavior: Criterion binding for B2.c3. Returns T under the fixture.
+  used_by:
+  - B2
+- id: test://policy/jwt_support_v1
+  type: evidence_policy
+  behavior:
+    rule: reference-default-support-policy-v0.2.1
+    details:
+    - conflicted if any relevant conflicts relation is present
+    - otherwise partial if any relevant evidence has completeness < 1 or internal_conflict > 0
+    - otherwise supported
+  used_by:
+  - B2
+- id: test://bridge/pattern_only
+  type: bridge_binding
+  behavior: No transportClaim handler. Truth requests return metadata_only / transport_missing as appropriate.
+  used_by:
+  - A7
+  - B1
+- id: test://bridge/pass_through
+  type: bridge_binding
+  behavior: Trivial transportClaim handler. Preserves truth and provenance when transport preconditions are met.
+  used_by:
+  - A7
+- id: test://bridge/degrade_v1
+  type: bridge_binding
+  behavior: Transport handler implementing degrade mode with the default degradation rules.
+  used_by:
+  - A10
+- id: test://bridge/remap_v1
+  type: bridge_binding
+  behavior: Transport handler implementing remap_recompute. Remaps source claim to destination frame and re-evaluates.
+  used_by:
+  - A10
+- id: test://baseline/const10
+  type: baseline_source
+  behavior: Scalar 10.
+  used_by:
+  - A4
+  - A11
+- id: test://baseline/series_9_10_11
+  type: baseline_source
+  behavior: Tracked trajectory [9,10,11] over the active time index.
+  used_by:
+  - A4
+- id: test://baseline/reactive_margin_zero
+  type: baseline_source
+  behavior: Reactive-margin zero reference used in B1.
+  used_by:
+  - B1
+- id: test://eval/adversarial_v1
+  type: evaluator_binding
+  behavior: Returns F for all predicates under the adversarial evaluator fixture.
+  used_by:
+  - A8
+  - A14
+- id: test://eval/audit_n_v1
+  type: evaluator_binding
+  behavior: Returns N[missing_evidence] for p.
+  used_by:
+  - A9
+- id: test://eval/model_true_v1
+  type: evaluator_binding
+  behavior: Returns T for p.
+  used_by:
+  - A9
+- id: test://eval/fallback_false_v1
+  type: evaluator_binding
+  behavior: Returns F for p.
+  used_by:
+  - A9
+- id: test://resolution/adjudicated_v1
+  type: resolution_binding
+  behavior:
+    input: '{ evaluator_id -> EvalNode }'
+    rules:
+    - if primary.truth = T and adversarial.truth = F, return {truth=B, reason=evaluator_conflict, support=conflicted}
+    - if all listed member truths agree, return the agreed truth
+    - 'when truths agree, merge support conservatively: conflicted > partial > supported > inapplicable > absent'
+    - provenance is the union of member provenances plus the adjudication binding
+    block_rule: for block aggregation, the binding receives synthetic EvalNodes with truth = evaluator-local block truth, support = inapplicable, and provenance containing evaluator id + block id
+  used_by:
+  - A14
+- id: test://adequacy/recompute_v1
+  type: adequacy_method
+  behavior: Executable adequacy method. Recomputes score to 0.88, disagreeing with a declared 0.95 beyond tolerance.
+  used_by:
+  - A12
+- id: test://adequacy/compute_pass_v1
+  type: adequacy_method
+  behavior: Executable adequacy method. Computes score = 0.92.
+  used_by:
+  - A12
+- id: test://eval/judged_inner_v1
+  type: criterion_binding
+  behavior: Two-stage JudgedExpr criterion. Receives innerTruth=T and returns T under fixture.
+  used_by:
+  - A13
+cases:
+- track: A
+  id: A1
+  name: Resolved shorthand frame
+  focus:
+  - shorthand_frame
+  - frame_resolution
+  - declaration
+  source: "bundle A1_resolved_frame {\n  frame @PowerGrid:ACLoadFlow::contingency;\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/declaration_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  meta {\n    c1: declare Nminus1 as idealization within @{system=PowerGrid, namespace=ACLoadFlow, regime=contingency};\n    c2: declare Nminus1 as idealization within @{system=PowerGrid, namespace=ACLoadFlow, task=planning};\n  }\n}"
+  environment:
+    frame_resolver:
+      bundle_frame_completion:
+        system: PowerGrid
+        namespace: ACLoadFlow
+        scale: micro
+        task: operations
+        regime: contingency
+        version: v2
+  normalized_ast_expectations:
+  - bundle.frame -> FramePatternNode
+  - frame resolver completes bundle frame to full FrameNode before direct evaluation
+  - c1, c2 -> DeclarationExprNode
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: inapplicable
+            aggregate:
+              truth: T
+              support: inapplicable
+          c2:
+            per_evaluator:
+              ev0:
+                truth: F
+                support: inapplicable
+            aggregate:
+              truth: F
+              support: inapplicable
+        blocks:
+          meta:
+            per_evaluator:
+              ev0: F
+            aggregate: F
+    diagnostics:
+    - severity: info
+      code: frame_pattern_completed
+- track: A
+  id: A2
+  name: Unresolved shorthand frame
+  focus:
+  - shorthand_frame
+  - frame_resolution_failure
+  source: "bundle A2_unresolved_frame {\n  frame @PowerGrid:ACLoadFlow::contingency;\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: p;\n  }\n}"
+  environment:
+    frame_resolver: null
+  normalized_ast_expectations:
+  - bundle.frame remains FramePatternNode
+  - no full FrameNode available for direct evaluation
+  expected:
+    sessions: []
+    diagnostics:
+    - severity: error
+      code: frame_unresolved_for_evaluation
+- track: A
+  id: A3
+  name: Logical composition and block folding
+  focus:
+  - logical_expr
+  - block_folding
+  - B_and_N_equals_F
+  source: "bundle A3_logic_block {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: b;\n    c2: n;\n  }\n\n  systemic {\n    c3: p;\n    c4: b;\n  }\n\n  meta {\n    c5: (p AND b);\n    c6: (b AND n);\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - b, n, p in expression position -> zero-arity PredicateExprNode
+  - c5, c6 -> LogicalExprNode
+  - local/systemic/meta -> ClaimBlockNode
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: B
+                reason: source_conflict
+                support: absent
+            aggregate:
+              truth: B
+              reason: source_conflict
+              support: absent
+          c2:
+            per_evaluator:
+              ev0:
+                truth: N
+                reason: undefined_term
+                support: absent
+            aggregate:
+              truth: N
+              reason: undefined_term
+              support: absent
+          c3:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c4:
+            per_evaluator:
+              ev0:
+                truth: B
+                reason: source_conflict
+                support: absent
+            aggregate:
+              truth: B
+              reason: source_conflict
+              support: absent
+          c5:
+            per_evaluator:
+              ev0:
+                truth: B
+                reason: source_conflict
+                support: absent
+            aggregate:
+              truth: B
+              reason: source_conflict
+              support: absent
+          c6:
+            per_evaluator:
+              ev0:
+                truth: F
+                support: absent
+            aggregate:
+              truth: F
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev0: F
+            aggregate: F
+          systemic:
+            per_evaluator:
+              ev0: B
+            aggregate: B
+          meta:
+            per_evaluator:
+              ev0: F
+            aggregate: F
+    diagnostics:
+    - severity: info
+      subject: c6
+      code: logical_composition
+- track: A
+  id: A4
+  name: Baseline modes
+  focus:
+  - baseline_modes
+  - tracked_validation
+  source: "bundle A4_baseline_modes {\n  frame {\n    system Test;\n    namespace Baseline;\n    scale service;\n    task compare;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/baseline_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  baseline b_fixed {\n    kind point;\n    criterion ref test://baseline/const10;\n    frame @{system=Test, namespace=Baseline, regime=nominal};\n    evaluation_mode fixed;\n  }\n\n  baseline b_lazy {\n    kind point;\n    criterion ref test://baseline/const10;\n    frame @{system=Test, namespace=Baseline, regime=nominal};\n    evaluation_mode on_reference;\n  }\n\n  baseline b_tracked {\n    kind moving;\n    criterion ref test://baseline/series_9_10_11;\n    frame @{system=Test, namespace=Baseline, regime=nominal};\n    evaluation_mode tracked;\n  }\n\n  baseline b_invalid {\n    kind moving;\n    criterion ref test://baseline/series_9_10_11;\n    frame @{system=Test, namespace=Baseline,\
+    \ regime=nominal};\n    evaluation_mode fixed;\n  }\n\n  local {\n    c1: matches_baseline(sensor_A, |0:b_fixed|);\n    c2: matches_baseline(sensor_A, |0:b_lazy|);\n    c3: within_band(sensor_A, |0:b_tracked|);\n    c4: within_band(sensor_A, |0:b_invalid|);\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - '|0:*| -> BaselineRefTermNode'
+  - b_invalid is syntactically valid but semantically invalid
+  expected:
+    baseline_states:
+      b_fixed: ready
+      b_lazy: deferred
+      b_tracked: ready
+      b_invalid: unresolved
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c2:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c3:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c4:
+            per_evaluator:
+              ev0:
+                truth: N
+                reason: undefined_term
+                support: absent
+            aggregate:
+              truth: N
+              reason: undefined_term
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev0: N
+            aggregate: N
+    diagnostics:
+    - severity: error
+      subject: b_invalid
+      code: baseline_mode_invalid
+- track: A
+  id: A5
+  name: Evidence conflict vs partial support
+  focus:
+  - evidence_conflict
+  - support_classification
+  source: "bundle A5_evidence_conflict {\n  frame {\n    system Test;\n    namespace Evidence;\n    scale service;\n    task assess;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  evidence e1 {\n    kind measurement;\n    binding test://evidence/e1;\n    completeness 1.0;\n  }\n\n  evidence e2 {\n    kind measurement;\n    binding test://evidence/e2;\n    completeness 1.0;\n  }\n\n  evidence e3 {\n    kind measurement;\n    binding test://evidence/e3;\n    completeness 0.60;\n    internal_conflict 0.10;\n  }\n\n  evidence_relation er12 {\n    lhs e1;\n    rhs e2;\n    kind conflicts;\n    score 0.80;\n  }\n\n  local {\n    c1: p refs [e1, e2];\n    c2: q refs [e3];\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - claim refs resolve to EvidenceNode ids
+  - er12 -> EvidenceRelationNode(kind=conflicts)
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: conflicted
+            aggregate:
+              truth: T
+              support: conflicted
+          c2:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: partial
+            aggregate:
+              truth: T
+              support: partial
+        blocks:
+          local:
+            per_evaluator:
+              ev0: T
+            aggregate: T
+    diagnostics: []
+- track: A
+  id: A6
+  name: Individual and joint adequacy
+  focus:
+  - individual_adequacy
+  - joint_adequacy
+  - exact_set_match
+  source: "bundle A6_anchor_licenses {\n  frame {\n    system Auth;\n    namespace Fixture;\n    scale service;\n    task access;\n    regime steady;\n  }\n\n  evaluator ev0 {\n    kind institution;\n    binding test://eval/auth_truth_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  anchor a_stateless {\n    term symbol stateless_session;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      task access;\n      producer sim_team;\n      score 0.97;\n      threshold 0.90;\n      method test://method/a_stateless_access;\n    }\n\n    adequacy {\n      task revocation;\n      producer sim_team;\n      score 0.40;\n      threshold 0.90;\n      method test://method/a_stateless_revocation;\n    }\n  }\n\n  anchor a_clock {\n    term symbol bounded_clock_skew;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      task access;\n      producer sim_team;\n      score 0.95;\n      threshold 0.90;\n      method test://method/a_clock_access;\n\
+    \    }\n  }\n\n  anchor a_cache {\n    term symbol cache_visibility;\n    subtype proxy;\n    status active;\n    requires_joint_with [a_stateless];\n\n    adequacy {\n      task access;\n      producer sim_team;\n      score 0.93;\n      threshold 0.90;\n      method test://method/a_cache_access;\n    }\n  }\n\n  joint_adequacy ja_access {\n    anchors [a_stateless, a_clock];\n    assessment {\n      task access;\n      producer sim_team;\n      score 0.92;\n      threshold 0.90;\n      method test://method/ja_access;\n    }\n  }\n\n  local {\n    c1: gateway_allows(tok_A) uses [a_stateless] annotations {\"license_task\": \"access\"};\n    c2: gateway_allows(tok_A) uses [a_stateless, a_clock] annotations {\"license_task\": \"access\"};\n    c3: revocation_visible(tok_A) uses [a_stateless] annotations {\"license_task\": \"revocation\"};\n    c4: cache_consistent(tok_A) uses [a_stateless, a_cache] annotations {\"license_task\": \"access\"};\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - uses [...] -> ClaimNode.usesAnchors
+  - annotations["license_task"] is reserved
+  - JointAdequacy exact-set matching uses claim-local usesAnchors set
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: T
+          c2:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: T
+          c3:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: F
+                reason: threshold_not_met
+          c4:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: N
+                reason: missing_joint_adequacy
+        blocks:
+          local:
+            per_evaluator:
+              ev0: T
+            aggregate: T
+    diagnostics:
+    - severity: warning
+      subject: c4
+      code: missing_joint_adequacy
+- track: A
+  id: A7
+  name: 'Bridge transport: metadata_only vs preserve'
+  focus:
+  - bridge_patterns
+  - transport_plumbing
+  source: "bundle A7_bridge_transport {\n  frame {\n    system Test;\n    namespace Scope;\n    scale micro;\n    task ops;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  bridge b_pattern {\n    from @{system=Test, namespace=Scope, scale=micro, task=ops};\n    to @{system=Test, namespace=Scope, scale=macro, task=planning};\n    via test://bridge/pattern_only;\n    preserve [mass_balance];\n    lose [phase_detail];\n    transport {\n      mode metadata_only;\n    }\n  }\n\n  bridge b_exec {\n    from @{system=Test, namespace=Scope, scale=micro, task=ops};\n    to @{system=Test, namespace=Scope, scale=macro, task=planning, regime=nominal};\n    via test://bridge/pass_through;\n    preserve [mass_balance];\n    lose [phase_detail];\n    transport {\n      mode preserve;\n    }\n  }\n\n  local {\n    c1: p;\n  }\n}"
+  environment:
+    transport_queries:
+    - id: q1
+      claimId: c1
+      bridgeId: b_pattern
+    - id: q2
+      claimId: c1
+      bridgeId: b_exec
+      dstCompletion:
+        facets:
+          observer: planner_A
+          version: v1
+  normalized_ast_expectations:
+  - bridge.from and bridge.to remain FramePatternNode
+  - transport block -> TransportNode
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev0: T
+            aggregate: T
+        transports:
+          q1:
+            status: metadata_only
+            sourceAggregate:
+              truth: T
+          q2:
+            status: preserved
+            sourceAggregate:
+              truth: T
+            dstAggregate:
+              truth: T
+    diagnostics: []
+- track: A
+  id: A8
+  name: Multi-evaluator conflict
+  focus:
+  - multi_evaluator
+  - paraconsistent_union
+  - block_fold_order
+  source: "bundle A8_multi_evaluator_conflict {\n  frame {\n    system Test;\n    namespace Panel;\n    scale service;\n    task review;\n    regime nominal;\n  }\n\n  evaluator ev_primary {\n    kind model;\n    role primary;\n    binding test://eval/atoms_v1;\n  }\n\n  evaluator ev_adversarial {\n    kind model;\n    role adversarial;\n    binding test://eval/adversarial_v1;\n  }\n\n  resolution_policy rp_panel {\n    kind paraconsistent_union;\n    members [ev_primary, ev_adversarial];\n  }\n\n  local {\n    c1: p;\n    c2: q;\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - two EvaluatorNodes
+  - ResolutionPolicyNode(kind=paraconsistent_union)
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev_primary:
+                truth: T
+                support: absent
+              ev_adversarial:
+                truth: F
+                support: absent
+            aggregate:
+              truth: B
+              reason: evaluator_conflict
+              support: conflicted
+          c2:
+            per_evaluator:
+              ev_primary:
+                truth: T
+                support: absent
+              ev_adversarial:
+                truth: F
+                support: absent
+            aggregate:
+              truth: B
+              reason: evaluator_conflict
+              support: conflicted
+        blocks:
+          local:
+            per_evaluator:
+              ev_primary: T
+              ev_adversarial: F
+            aggregate: B
+    diagnostics: []
+- track: A
+  id: A9
+  name: Priority-order resolution
+  focus:
+  - priority_order
+  - first_non_N
+  source: "bundle A9_priority_order {\n  frame {\n    system Test;\n    namespace Priority;\n    scale service;\n    task review;\n    regime nominal;\n  }\n\n  evaluator ev_audit {\n    kind audit;\n    role audit;\n    binding test://eval/audit_n_v1;\n  }\n\n  evaluator ev_model {\n    kind model;\n    role primary;\n    binding test://eval/model_true_v1;\n  }\n\n  evaluator ev_fallback {\n    kind model;\n    role auxiliary;\n    binding test://eval/fallback_false_v1;\n  }\n\n  resolution_policy rp_priority {\n    kind priority_order;\n    members [ev_audit, ev_model, ev_fallback];\n    order [ev_audit, ev_model, ev_fallback];\n  }\n\n  local {\n    c1: p;\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - ResolutionPolicyNode(kind=priority_order) with explicit order
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev_audit:
+                truth: N
+                reason: missing_evidence
+                support: absent
+              ev_model:
+                truth: T
+                support: absent
+              ev_fallback:
+                truth: F
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev_audit: N
+              ev_model: T
+              ev_fallback: F
+            aggregate: T
+    diagnostics: []
+- track: A
+  id: A10
+  name: Transport truth modes
+  focus:
+  - preserve
+  - degrade
+  - remap_recompute
+  - semantic_requirements
+  source: "bundle A10_transport_truth_modes {\n  frame {\n    system Test;\n    namespace Scope;\n    scale micro;\n    task ops;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  bridge b_preserve {\n    from @{system=Test, namespace=Scope, scale=micro, task=ops};\n    to @{system=Test, namespace=Scope, scale=macro, task=planning, regime=nominal};\n    via test://bridge/pass_through;\n    preserve [mass_balance];\n    lose [switching_order];\n    transport {\n      mode preserve;\n    }\n  }\n\n  bridge b_degrade {\n    from @{system=Test, namespace=Scope, scale=micro, task=ops};\n    to @{system=Test, namespace=Scope, scale=macro, task=planning, regime=nominal};\n    via test://bridge/degrade_v1;\n    preserve [mass_balance];\n    lose [phase_angle];\n    transport {\n      mode degrade;\n    }\n  }\n\n  bridge b_remap {\n    from @{system=Test, namespace=Scope,\
+    \ scale=micro, task=ops};\n    to @{system=Test, namespace=Scope, scale=macro, task=planning, regime=nominal};\n    via test://bridge/remap_v1;\n    preserve [mass_balance];\n    lose [phase_detail];\n    transport {\n      mode remap_recompute;\n      claim_map test://bridge/remap_v1;\n    }\n  }\n\n  local {\n    c1: p requires [phase_angle];\n  }\n}"
+  environment:
+    transport_queries:
+    - id: q_preserve
+      claimId: c1
+      bridgeId: b_preserve
+    - id: q_degrade
+      claimId: c1
+      bridgeId: b_degrade
+    - id: q_remap
+      claimId: c1
+      bridgeId: b_remap
+  normalized_ast_expectations:
+  - Claim.semanticRequirements populated from requires[...]
+  - Three BridgeNodes with distinct TransportNode.mode values
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev0: T
+            aggregate: T
+        transports:
+          q_preserve:
+            status: preserved
+            dstAggregate:
+              truth: T
+              support: absent
+          q_degrade:
+            status: degraded
+            dstAggregate:
+              truth: N
+              reason: transport_loss
+              support: partial
+          q_remap:
+            status: transported
+            dstAggregate:
+              truth: F
+              support: absent
+    diagnostics: []
+- track: A
+  id: A11
+  name: Session-based baseline timing
+  focus:
+  - session_evaluation
+  - fixed_vs_on_reference
+  - temporal_observability
+  source: "bundle A11_baseline_timing {\n  frame {\n    system Test;\n    namespace Baseline;\n    scale service;\n    task compare;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/baseline_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  baseline b_fixed {\n    kind point;\n    criterion ref test://baseline/const10;\n    frame @{system=Test, namespace=Baseline, regime=nominal};\n    evaluation_mode fixed;\n  }\n\n  baseline b_step {\n    kind point;\n    criterion ref test://baseline/const10;\n    frame @{system=Test, namespace=Baseline, regime=nominal};\n    evaluation_mode on_reference;\n  }\n\n  local {\n    c1: matches_baseline(sensor_A, |0:b_fixed|);\n    c2: matches_baseline(sensor_A, |0:b_step|);\n  }\n}"
+  environment:
+    sessions:
+    - id: s1
+      shared_state: true
+      steps:
+      - id: s1_t0
+        time:
+          kind: point
+          t: '2026-03-06T09:00:00Z'
+        history_binding: test://baseline/const10
+      - id: s1_t1
+        time:
+          kind: point
+          t: '2026-03-06T09:05:00Z'
+        history_binding: test://baseline/series_9_10_11
+  normalized_ast_expectations:
+  - EvaluationRequest uses one session with two steps
+  - fixed baseline cache is session-scoped; on_reference resolves per step
+  expected:
+    sessions:
+    - id: s1
+      steps:
+      - id: s1_t0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c2:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+      - id: s1_t1
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c2:
+            per_evaluator:
+              ev0:
+                truth: F
+                support: absent
+            aggregate:
+              truth: F
+              support: absent
+    diagnostics: []
+- track: A
+  id: A12
+  name: Adequacy method conflict and circularity
+  focus:
+  - adequacy_assessment
+  - optional_score
+  - method_conflict
+  - circular_dependency
+  source: "bundle A12_adequacy_assessment {\n  frame {\n    system Test;\n    namespace Adequacy;\n    scale service;\n    task prediction;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/auth_truth_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  resolution_policy rp_adequacy {\n    kind paraconsistent_union;\n    members [sim_team, audit_team];\n  }\n\n  anchor a_model {\n    term symbol model_fit;\n    subtype idealization;\n    status active;\n    adequacy_policy rp_adequacy;\n\n    adequacy {\n      id aa1;\n      task prediction;\n      producer sim_team;\n      score 0.95;\n      threshold 0.90;\n      method test://adequacy/recompute_v1;\n    }\n\n    adequacy {\n      id aa2;\n      task prediction;\n      producer audit_team;\n      threshold 0.90;\n      method test://adequacy/compute_pass_v1;\n    }\n  }\n\n  anchor a_circular {\n    term symbol circular_fit;\n    subtype idealization;\n    status active;\n\
+    \n    adequacy {\n      id aa_circular;\n      task prediction;\n      producer audit_team;\n      threshold 0.90;\n      method test://adequacy/compute_pass_v1;\n      basis [c_dependent];\n    }\n  }\n\n  local {\n    c1: model_ok(sample_1) uses [a_model] annotations {\"license_task\": \"prediction\"};\n    c_dependent: dependent_claim(sample_1) uses [a_circular] annotations {\"license_task\": \"prediction\"};\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - AdequacyAssessmentNode.score is optional; aa2 exercises method-computed score path
+  - a_model.adequacy_policy aggregates same-task assessments
+  - basis [c_dependent] creates a circular adequacy dependency for a_circular
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: B
+                reason: adequacy_conflict
+          c_dependent:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+            license:
+              overall:
+                truth: N
+                reason: circular_dependency
+        blocks:
+          local:
+            per_evaluator:
+              ev0: T
+            aggregate: T
+    adequacy_expectations:
+      aa1:
+        truth: B
+        reason: method_conflict
+      aa2:
+        truth: T
+      a_model:prediction:
+        truth: B
+        reason: adequacy_conflict
+      aa_circular:
+        truth: N
+        reason: circular_dependency
+    diagnostics:
+    - severity: warning
+      subject: aa1
+      code: method_conflict
+    - severity: error
+      subject: aa_circular
+      code: circular_dependency
+- track: A
+  id: A13
+  name: Core JudgedExpr
+  focus:
+  - judged_expr
+  - criterion_binding
+  - missing_criterion
+  source: "bundle A13_core_judged_expr {\n  frame {\n    system Test;\n    namespace Judgment;\n    scale service;\n    task review;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind institution;\n    binding test://eval/auth_truth_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: safe(grid_state) judged_by test://eval/judged_inner_v1;\n    c2: valid(token_A) judged_by test://missing_criterion;\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - c1, c2 -> JudgedExprNode wrapping PredicateExprNode
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev0:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c2:
+            per_evaluator:
+              ev0:
+                truth: N
+                reason: missing_binding
+                support: absent
+            aggregate:
+              truth: N
+              reason: missing_binding
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev0: N
+            aggregate: N
+    diagnostics:
+    - severity: error
+      subject: c2
+      code: missing_binding
+- track: A
+  id: A14
+  name: Adjudicated resolution
+  focus:
+  - adjudicated
+  - governance_stack
+  - claim_and_block_adjudication
+  source: "bundle A14_adjudicated_resolution {\n  frame {\n    system Test;\n    namespace Governance;\n    scale service;\n    task review;\n    regime nominal;\n  }\n\n  evaluator ev_primary {\n    kind model;\n    role primary;\n    binding test://eval/atoms_v1;\n  }\n\n  evaluator ev_adversarial {\n    kind model;\n    role adversarial;\n    binding test://eval/adversarial_v1;\n  }\n\n  resolution_policy rp_adj {\n    kind adjudicated;\n    members [ev_primary, ev_adversarial];\n    binding test://resolution/adjudicated_v1;\n  }\n\n  local {\n    c1: p;\n    c2: (b AND n);\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - ResolutionPolicyNode(kind=adjudicated, binding=test://resolution/adjudicated_v1)
+  - Claim and block aggregation both route through adjudication binding
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev_primary:
+                truth: T
+                support: absent
+              ev_adversarial:
+                truth: F
+                support: absent
+            aggregate:
+              truth: B
+              reason: evaluator_conflict
+              support: conflicted
+          c2:
+            per_evaluator:
+              ev_primary:
+                truth: F
+                support: absent
+              ev_adversarial:
+                truth: F
+                support: absent
+            aggregate:
+              truth: F
+              support: absent
+        blocks:
+          local:
+            per_evaluator:
+              ev_primary: F
+              ev_adversarial: F
+            aggregate: F
+    diagnostics: []
+- track: B
+  id: B1
+  name: Grid contingency bundle
+  focus:
+  - grid
+  - causal
+  - emergence
+  - baseline
+  - transport
+  source: "bundle B1_grid_contingency {\n  frame {\n    system PowerGrid;\n    namespace ACLoadFlow;\n    scale micro;\n    task operations;\n    regime contingency;\n    version v2;\n  }\n\n  evaluator ev_grid {\n    kind model;\n    binding test://eval/grid_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev_grid];\n  }\n\n  baseline margin {\n    kind point;\n    criterion ref test://baseline/reactive_margin_zero;\n    frame @{system=PowerGrid, namespace=ACLoadFlow, scale=micro, task=operations, regime=contingency};\n    evaluation_mode on_reference;\n  }\n\n  evidence scada_bus7 {\n    kind measurement;\n    binding test://data/scada_bus7;\n    completeness 0.93;\n    internal_conflict 0.02;\n  }\n\n  evidence pmu_bus7 {\n    kind measurement;\n    binding test://data/pmu_bus7;\n    completeness 0.96;\n    internal_conflict 0.01;\n  }\n\n  evidence_relation er_bus7 {\n    lhs scada_bus7;\n    rhs pmu_bus7;\n    kind conflicts;\n    score 0.72;\n    refs [test://audit/bus7_disagreement];\n\
+    \  }\n\n  anchor a_nminus1 {\n    term symbol Nminus1;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      id aa_n1_pred;\n      task prediction;\n      producer ev_grid;\n      score 0.98;\n      threshold 0.95;\n      method sim://checks/n1_pred;\n    }\n\n    adequacy {\n      id aa_n1_ctrl;\n      task control;\n      producer ev_grid;\n      score 0.91;\n      threshold 0.90;\n      method sim://checks/n1_ctrl;\n    }\n\n    adequacy {\n      id aa_n1_expl;\n      task explanation;\n      producer ev_grid;\n      score 0.63;\n      threshold 0.75;\n      method audit://postmortem/n1_expl;\n    }\n  }\n\n  bridge b_micro_to_regional {\n    from @{system=PowerGrid, namespace=ACLoadFlow, scale=micro, task=operations, regime=contingency};\n    to @{system=PowerGrid, namespace=PlanningModel, scale=regional, task=planning, regime=n-1};\n    via test://bridge/pattern_only;\n    preserve [power_balance];\n    lose [phase_angle, switching_order];\n    risk [aggregation_reversal];\n\
+    \    transport {\n      mode metadata_only;\n    }\n  }\n\n  local {\n    c1: overload(line_B);\n    c2: overload(line_B) =>[obs] voltage_drop(bus_7) refs [scada_bus7, pmu_bus7];\n  }\n\n  systemic {\n    c3: voltage_instability EMRG when reactive_margin --> |0:margin| while demand_ramp_gt(0.02_pu_per_min) until load_shed(zone_2) uses [a_nminus1] refs [scada_bus7] annotations {\"license_task\": \"control\"};\n  }\n\n  meta {\n    c4: declare Nminus1 as idealization within @{system=PowerGrid, namespace=ACLoadFlow, regime=contingency};\n    c5: note \"N-1 is acceptable for dispatch prediction but weak as a restoration explanation model.\";\n  }\n}"
+  environment:
+    transport_queries:
+    - id: q1
+      claimId: c3
+      bridgeId: b_micro_to_regional
+  normalized_ast_expectations:
+  - c2 -> CausalExprNode(mode=obs)
+  - c3 -> EmergenceExprNode
+  - c5 -> NoteExprNode
+  - a_nminus1 adequacy entries -> AdequacyAssessmentNode with producer
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev_grid:
+                truth: T
+                support: absent
+            aggregate:
+              truth: T
+              support: absent
+          c2:
+            per_evaluator:
+              ev_grid:
+                truth: B
+                reason: source_conflict
+                support: conflicted
+            aggregate:
+              truth: B
+              reason: source_conflict
+              support: conflicted
+          c3:
+            per_evaluator:
+              ev_grid:
+                truth: T
+                support: partial
+            aggregate:
+              truth: T
+              support: partial
+            license:
+              overall:
+                truth: T
+          c4:
+            per_evaluator:
+              ev_grid:
+                truth: T
+                support: inapplicable
+            aggregate:
+              truth: T
+              support: inapplicable
+        blocks:
+          local:
+            per_evaluator:
+              ev_grid: B
+            aggregate: B
+          systemic:
+            per_evaluator:
+              ev_grid: T
+            aggregate: T
+          meta:
+            per_evaluator:
+              ev_grid: T
+            aggregate: T
+        transports:
+          q1:
+            status: metadata_only
+            sourceAggregate:
+              truth: T
+    adequacy_expectations:
+      a_nminus1:prediction:
+        truth: T
+      a_nminus1:control:
+        truth: T
+      a_nminus1:explanation:
+        truth: F
+        reason: threshold_not_met
+    diagnostics: []
+- track: B
+  id: B2
+  name: JWT access / adequacy bundle
+  focus:
+  - jwt
+  - judged_expr
+  - institutional_evaluator
+  - fiction_layer
+  source: "bundle B2_jwt_access {\n  frame {\n    system Auth;\n    namespace JWTGateway;\n    scale service;\n    task access_decision;\n    regime steady_state;\n    version v1;\n  }\n\n  evaluator ev_gateway {\n    kind institution;\n    binding test://eval/jwt_gateway_v1;\n    evidence_policy test://policy/jwt_support_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev_gateway];\n  }\n\n  evidence e_sig {\n    kind measurement;\n    binding test://auth/siglog_tok_A;\n    completeness 1.0;\n  }\n\n  evidence e_clock {\n    kind measurement;\n    binding test://auth/clock_tok_A;\n    completeness 1.0;\n  }\n\n  evidence e_rev {\n    kind dataset;\n    binding test://auth/revocation_cache_tok_A;\n    completeness 0.70;\n    internal_conflict 0.10;\n  }\n\n  anchor a_stateless {\n    term symbol stateless_session;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      id aa_stateless_access;\n      task access_decision;\n      producer ev_gateway;\n\
+    \      score 0.96;\n      threshold 0.90;\n      method test://method/stateless_access;\n    }\n\n    adequacy {\n      id aa_stateless_revocation;\n      task revocation;\n      producer ev_gateway;\n      score 0.41;\n      threshold 0.90;\n      method test://method/stateless_revocation;\n    }\n  }\n\n  anchor a_clock {\n    term symbol bounded_clock_skew;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      id aa_clock_access;\n      task access_decision;\n      producer ev_gateway;\n      score 0.93;\n      threshold 0.90;\n      method test://method/clock_access;\n    }\n  }\n\n  joint_adequacy ja_access {\n    anchors [a_stateless, a_clock];\n    assessment {\n      id ja_access_assess;\n      task access_decision;\n      producer ev_gateway;\n      score 0.92;\n      threshold 0.90;\n      method test://method/jwt_joint_access;\n    }\n  }\n\n  local {\n    c1: sig_valid(tok_A) refs [e_sig];\n    c2: token_not_expired(tok_A) refs [e_clock] uses [a_clock] annotations\
+    \ {\"license_task\": \"access_decision\"};\n    c3: access_allowed(tok_A) judged_by test://policy/auth_access_v3 uses [a_stateless, a_clock] refs [e_sig, e_clock, e_rev] annotations {\"license_task\": \"access_decision\"};\n    c4: revocation_immediate(tok_A) refs [e_rev] uses [a_stateless] annotations {\"license_task\": \"revocation\"};\n  }\n\n  meta {\n    c5: declare stateless_session as idealization within @{system=Auth, namespace=JWTGateway, task=access_decision};\n  }\n}"
+  environment: {}
+  normalized_ast_expectations:
+  - c3 -> JudgedExprNode
+  - adequacy entries -> AdequacyAssessmentNode with explicit producer
+  expected:
+    sessions:
+    - id: default
+      steps:
+      - id: step0
+        claims:
+          c1:
+            per_evaluator:
+              ev_gateway:
+                truth: T
+                support: supported
+            aggregate:
+              truth: T
+              support: supported
+          c2:
+            per_evaluator:
+              ev_gateway:
+                truth: T
+                support: supported
+            aggregate:
+              truth: T
+              support: supported
+            license:
+              overall:
+                truth: T
+          c3:
+            per_evaluator:
+              ev_gateway:
+                truth: T
+                support: partial
+            aggregate:
+              truth: T
+              support: partial
+            license:
+              overall:
+                truth: T
+          c4:
+            per_evaluator:
+              ev_gateway:
+                truth: T
+                support: partial
+            aggregate:
+              truth: T
+              support: partial
+            license:
+              overall:
+                truth: F
+                reason: threshold_not_met
+          c5:
+            per_evaluator:
+              ev_gateway:
+                truth: T
+                support: inapplicable
+            aggregate:
+              truth: T
+              support: inapplicable
+        blocks:
+          local:
+            per_evaluator:
+              ev_gateway: T
+            aggregate: T
+          meta:
+            per_evaluator:
+              ev_gateway: T
+            aggregate: T
+    diagnostics: []

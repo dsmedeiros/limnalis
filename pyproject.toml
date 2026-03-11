@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "limnalis"
+version = "0.1.0"
+description = "Reference Python scaffold for the Limnalis v0.2.2 parser/normalizer stack"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary / internal draft" }
+authors = [
+  { name = "OpenAI scaffold for Dave" }
+]
+dependencies = [
+  "pydantic>=2.12,<3",
+  "lark>=1.2.2,<2",
+  "jsonschema>=4.25,<5",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<0.12",
+  "mypy>=1.11,<2",
+]
+
+[project.scripts]
+limnalis = "limnalis.cli:main"
+
+[tool.hatch.build]
+include = [
+  "/src/limnalis",
+  "/schemas",
+  "/fixtures",
+  "/grammar",
+  "/README.md",
+  "/docs",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["limnalis"]
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true

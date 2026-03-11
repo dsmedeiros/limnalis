@@ -1,0 +1,26 @@
+// Limnalis surface-language grammar stub.
+//
+// This file is intentionally incomplete in the starter scaffold.
+// The next implementation pass should cover:
+// - bundle declarations
+// - frame / frame-pattern authored syntax
+// - evaluator panels and resolution policies
+// - baselines, anchors, joint adequacy, bridges / transport
+// - claim blocks / claims
+// - operator aliases and judged_by
+//
+// Keeping the grammar file in place now avoids repo churn later.
+
+start: bundle
+
+bundle: "bundle" NAME "{" _NL* item* "}"
+
+?item: /[^}]+/
+
+NAME: /[A-Za-z_][A-Za-z0-9_\-]*/
+
+%import common.NEWLINE -> _NL
+%import common.WS_INLINE
+%ignore WS_INLINE
+%ignore /#[^\n]*/
+%ignore /\/\/[^\n]*/
