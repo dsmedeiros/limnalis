@@ -1,0 +1,101 @@
+{
+  "bundle_id": "A1_resolved_frame",
+  "canonical_ast": {
+    "anchors": [],
+    "assumptions": [],
+    "baselines": [],
+    "bindings": [],
+    "bridges": [],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "declaredAs": "idealization",
+              "node": "DeclarationExpr",
+              "term": {
+                "node": "SymbolTerm",
+                "value": "Nminus1"
+              },
+              "within": {
+                "facets": {
+                  "namespace": "ACLoadFlow",
+                  "regime": "contingency",
+                  "system": "PowerGrid"
+                },
+                "node": "FramePattern"
+              }
+            },
+            "id": "c1",
+            "kind": "declaration",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "declaredAs": "idealization",
+              "node": "DeclarationExpr",
+              "term": {
+                "node": "SymbolTerm",
+                "value": "Nminus1"
+              },
+              "within": {
+                "facets": {
+                  "namespace": "ACLoadFlow",
+                  "system": "PowerGrid",
+                  "task": "planning"
+                },
+                "node": "FramePattern"
+              }
+            },
+            "id": "c2",
+            "kind": "declaration",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "meta#1",
+        "node": "ClaimBlock",
+        "stratum": "meta"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/declaration_v1",
+        "id": "ev0",
+        "kind": "model",
+        "node": "Evaluator"
+      }
+    ],
+    "evidence": [],
+    "evidenceRelations": [],
+    "facetPolicies": [],
+    "frame": {
+      "facets": {
+        "namespace": "ACLoadFlow",
+        "regime": "contingency",
+        "system": "PowerGrid"
+      },
+      "node": "FramePattern"
+    },
+    "id": "A1_resolved_frame",
+    "jointAdequacies": [],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "id": "rp0",
+      "kind": "single",
+      "members": [
+        "ev0"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "A1",
+  "diagnostics": []
+}

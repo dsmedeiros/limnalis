@@ -134,5 +134,6 @@ limnalis validate-ast examples/minimal_bundle_ast.json
 
 ## Next implementation milestones
 
-1. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
-2. implement the evaluator and conformance pipeline
+1. [x] wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
+2. [ ] implement the evaluator and conformance pipeline
+3. [ ] expose evaluator/conformance execution through the CLI

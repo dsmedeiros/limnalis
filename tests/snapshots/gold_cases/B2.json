@@ -1,0 +1,293 @@
+{
+  "bundle_id": "B2_jwt_access",
+  "canonical_ast": {
+    "anchors": [
+      {
+        "adequacy": [
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_stateless_access",
+            "method": "test://method/stateless_access",
+            "node": "AdequacyAssessment",
+            "producer": "ev_gateway",
+            "score": 0.96,
+            "task": "access_decision",
+            "threshold": 0.9
+          },
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_stateless_revocation",
+            "method": "test://method/stateless_revocation",
+            "node": "AdequacyAssessment",
+            "producer": "ev_gateway",
+            "score": 0.41,
+            "task": "revocation",
+            "threshold": 0.9
+          }
+        ],
+        "id": "a_stateless",
+        "node": "Anchor",
+        "requiresJointWith": [],
+        "status": "active",
+        "subtype": "idealization",
+        "term": {
+          "kind": "symbol",
+          "value": "stateless_session"
+        }
+      },
+      {
+        "adequacy": [
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_clock_access",
+            "method": "test://method/clock_access",
+            "node": "AdequacyAssessment",
+            "producer": "ev_gateway",
+            "score": 0.93,
+            "task": "access_decision",
+            "threshold": 0.9
+          }
+        ],
+        "id": "a_clock",
+        "node": "Anchor",
+        "requiresJointWith": [],
+        "status": "active",
+        "subtype": "idealization",
+        "term": {
+          "kind": "symbol",
+          "value": "bounded_clock_skew"
+        }
+      }
+    ],
+    "assumptions": [],
+    "baselines": [],
+    "bindings": [],
+    "bridges": [],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "tok_A"
+                }
+              ],
+              "name": "sig_valid",
+              "node": "PredicateExpr"
+            },
+            "id": "c1",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [
+              "e_sig"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {
+              "license_task": "access_decision"
+            },
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "tok_A"
+                }
+              ],
+              "name": "token_not_expired",
+              "node": "PredicateExpr"
+            },
+            "id": "c2",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [
+              "e_clock"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": [
+              "a_clock"
+            ]
+          },
+          {
+            "annotations": {
+              "license_task": "access_decision"
+            },
+            "expr": {
+              "criterionRef": "test://policy/auth_access_v3",
+              "expr": {
+                "args": [
+                  {
+                    "node": "SymbolTerm",
+                    "value": "tok_A"
+                  }
+                ],
+                "name": "access_allowed",
+                "node": "PredicateExpr"
+              },
+              "node": "JudgedExpr"
+            },
+            "id": "c3",
+            "kind": "judgment",
+            "node": "Claim",
+            "refs": [
+              "e_sig",
+              "e_clock",
+              "e_rev"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": [
+              "a_stateless",
+              "a_clock"
+            ]
+          },
+          {
+            "annotations": {
+              "license_task": "revocation"
+            },
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "tok_A"
+                }
+              ],
+              "name": "revocation_immediate",
+              "node": "PredicateExpr"
+            },
+            "id": "c4",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [
+              "e_rev"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": [
+              "a_stateless"
+            ]
+          }
+        ],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      },
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "declaredAs": "idealization",
+              "node": "DeclarationExpr",
+              "term": {
+                "node": "SymbolTerm",
+                "value": "stateless_session"
+              },
+              "within": {
+                "facets": {
+                  "namespace": "JWTGateway",
+                  "system": "Auth",
+                  "task": "access_decision"
+                },
+                "node": "FramePattern"
+              }
+            },
+            "id": "c5",
+            "kind": "declaration",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "meta#1",
+        "node": "ClaimBlock",
+        "stratum": "meta"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/jwt_gateway_v1",
+        "evidencePolicy": "test://policy/jwt_support_v1",
+        "id": "ev_gateway",
+        "kind": "institution",
+        "node": "Evaluator"
+      }
+    ],
+    "evidence": [
+      {
+        "binding": "test://auth/siglog_tok_A",
+        "completeness": 1.0,
+        "id": "e_sig",
+        "kind": "measurement",
+        "node": "Evidence"
+      },
+      {
+        "binding": "test://auth/clock_tok_A",
+        "completeness": 1.0,
+        "id": "e_clock",
+        "kind": "measurement",
+        "node": "Evidence"
+      },
+      {
+        "binding": "test://auth/revocation_cache_tok_A",
+        "completeness": 0.7,
+        "id": "e_rev",
+        "internalConflict": 0.1,
+        "kind": "dataset",
+        "node": "Evidence"
+      }
+    ],
+    "evidenceRelations": [],
+    "facetPolicies": [],
+    "frame": {
+      "namespace": "JWTGateway",
+      "node": "Frame",
+      "regime": "steady_state",
+      "scale": "service",
+      "system": "Auth",
+      "task": "access_decision",
+      "version": "v1"
+    },
+    "id": "B2_jwt_access",
+    "jointAdequacies": [
+      {
+        "anchors": [
+          "a_stateless",
+          "a_clock"
+        ],
+        "assessments": [
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "ja_access_assess",
+            "method": "test://method/jwt_joint_access",
+            "node": "AdequacyAssessment",
+            "producer": "ev_gateway",
+            "score": 0.92,
+            "task": "access_decision",
+            "threshold": 0.9
+          }
+        ],
+        "id": "ja_access",
+        "node": "JointAdequacy"
+      }
+    ],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "id": "rp0",
+      "kind": "single",
+      "members": [
+        "ev_gateway"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "B2",
+  "diagnostics": []
+}

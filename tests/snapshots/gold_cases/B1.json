@@ -1,0 +1,354 @@
+{
+  "bundle_id": "B1_grid_contingency",
+  "canonical_ast": {
+    "anchors": [
+      {
+        "adequacy": [
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_n1_pred",
+            "method": "sim://checks/n1_pred",
+            "node": "AdequacyAssessment",
+            "producer": "ev_grid",
+            "score": 0.98,
+            "task": "prediction",
+            "threshold": 0.95
+          },
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_n1_ctrl",
+            "method": "sim://checks/n1_ctrl",
+            "node": "AdequacyAssessment",
+            "producer": "ev_grid",
+            "score": 0.91,
+            "task": "control",
+            "threshold": 0.9
+          },
+          {
+            "basis": [],
+            "failureModes": [],
+            "id": "aa_n1_expl",
+            "method": "audit://postmortem/n1_expl",
+            "node": "AdequacyAssessment",
+            "producer": "ev_grid",
+            "score": 0.63,
+            "task": "explanation",
+            "threshold": 0.75
+          }
+        ],
+        "id": "a_nminus1",
+        "node": "Anchor",
+        "requiresJointWith": [],
+        "status": "active",
+        "subtype": "idealization",
+        "term": {
+          "kind": "symbol",
+          "value": "Nminus1"
+        }
+      }
+    ],
+    "assumptions": [],
+    "baselines": [
+      {
+        "criterion": {
+          "kind": "ref",
+          "ref": "test://baseline/reactive_margin_zero"
+        },
+        "evaluationMode": "on_reference",
+        "frame": {
+          "facets": {
+            "namespace": "ACLoadFlow",
+            "regime": "contingency",
+            "scale": "micro",
+            "system": "PowerGrid",
+            "task": "operations"
+          },
+          "node": "FramePattern"
+        },
+        "id": "margin",
+        "kind": "point",
+        "node": "Baseline"
+      }
+    ],
+    "bindings": [],
+    "bridges": [
+      {
+        "from": {
+          "facets": {
+            "namespace": "ACLoadFlow",
+            "regime": "contingency",
+            "scale": "micro",
+            "system": "PowerGrid",
+            "task": "operations"
+          },
+          "node": "FramePattern"
+        },
+        "gain": [],
+        "id": "b_micro_to_regional",
+        "lose": [
+          "phase_angle",
+          "switching_order"
+        ],
+        "node": "Bridge",
+        "preserve": [
+          "power_balance"
+        ],
+        "risk": [
+          "aggregation_reversal"
+        ],
+        "to": {
+          "facets": {
+            "namespace": "PlanningModel",
+            "regime": "n-1",
+            "scale": "regional",
+            "system": "PowerGrid",
+            "task": "planning"
+          },
+          "node": "FramePattern"
+        },
+        "transport": {
+          "mode": "metadata_only",
+          "node": "Transport",
+          "preconditions": []
+        },
+        "via": "test://bridge/pattern_only"
+      }
+    ],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "line_B"
+                }
+              ],
+              "name": "overload",
+              "node": "PredicateExpr"
+            },
+            "id": "c1",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "lhs": {
+                "args": [
+                  {
+                    "node": "SymbolTerm",
+                    "value": "line_B"
+                  }
+                ],
+                "name": "overload",
+                "node": "PredicateExpr"
+              },
+              "mode": "obs",
+              "node": "CausalExpr",
+              "rhs": {
+                "args": [
+                  {
+                    "node": "SymbolTerm",
+                    "value": "bus_7"
+                  }
+                ],
+                "name": "voltage_drop",
+                "node": "PredicateExpr"
+              }
+            },
+            "id": "c2",
+            "kind": "causal",
+            "node": "Claim",
+            "refs": [
+              "scada_bus7",
+              "pmu_bus7"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      },
+      {
+        "claims": [
+          {
+            "annotations": {
+              "license_task": "control"
+            },
+            "expr": {
+              "dissolvesWhen": {
+                "args": [
+                  {
+                    "node": "SymbolTerm",
+                    "value": "zone_2"
+                  }
+                ],
+                "name": "load_shed",
+                "node": "PredicateExpr"
+              },
+              "node": "EmergenceExpr",
+              "onset": {
+                "node": "DynamicExpr",
+                "op": "approaches",
+                "subject": {
+                  "node": "SymbolTerm",
+                  "value": "reactive_margin"
+                },
+                "target": {
+                  "id": "margin",
+                  "node": "BaselineRefTerm"
+                }
+              },
+              "persistsWhile": {
+                "args": [
+                  {
+                    "node": "SymbolTerm",
+                    "value": "0.02_pu_per_min"
+                  }
+                ],
+                "name": "demand_ramp_gt",
+                "node": "PredicateExpr"
+              },
+              "property": {
+                "args": [],
+                "name": "voltage_instability",
+                "node": "PredicateExpr"
+              },
+              "witness": []
+            },
+            "id": "c3",
+            "kind": "emergence",
+            "node": "Claim",
+            "refs": [
+              "scada_bus7"
+            ],
+            "semanticRequirements": [],
+            "usesAnchors": [
+              "a_nminus1"
+            ]
+          }
+        ],
+        "id": "systemic#1",
+        "node": "ClaimBlock",
+        "stratum": "systemic"
+      },
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "declaredAs": "idealization",
+              "node": "DeclarationExpr",
+              "term": {
+                "node": "SymbolTerm",
+                "value": "Nminus1"
+              },
+              "within": {
+                "facets": {
+                  "namespace": "ACLoadFlow",
+                  "regime": "contingency",
+                  "system": "PowerGrid"
+                },
+                "node": "FramePattern"
+              }
+            },
+            "id": "c4",
+            "kind": "declaration",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "node": "NoteExpr",
+              "text": "N-1 is acceptable for dispatch prediction but weak as a restoration explanation model."
+            },
+            "id": "c5",
+            "kind": "note",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "meta#1",
+        "node": "ClaimBlock",
+        "stratum": "meta"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/grid_v1",
+        "id": "ev_grid",
+        "kind": "model",
+        "node": "Evaluator"
+      }
+    ],
+    "evidence": [
+      {
+        "binding": "test://data/scada_bus7",
+        "completeness": 0.93,
+        "id": "scada_bus7",
+        "internalConflict": 0.02,
+        "kind": "measurement",
+        "node": "Evidence"
+      },
+      {
+        "binding": "test://data/pmu_bus7",
+        "completeness": 0.96,
+        "id": "pmu_bus7",
+        "internalConflict": 0.01,
+        "kind": "measurement",
+        "node": "Evidence"
+      }
+    ],
+    "evidenceRelations": [
+      {
+        "id": "er_bus7",
+        "kind": "conflicts",
+        "lhs": "scada_bus7",
+        "node": "EvidenceRelation",
+        "refs": [
+          "test://audit/bus7_disagreement"
+        ],
+        "rhs": "pmu_bus7",
+        "score": 0.72
+      }
+    ],
+    "facetPolicies": [],
+    "frame": {
+      "namespace": "ACLoadFlow",
+      "node": "Frame",
+      "regime": "contingency",
+      "scale": "micro",
+      "system": "PowerGrid",
+      "task": "operations",
+      "version": "v2"
+    },
+    "id": "B1_grid_contingency",
+    "jointAdequacies": [],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "id": "rp0",
+      "kind": "single",
+      "members": [
+        "ev_grid"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "B1",
+  "diagnostics": []
+}
