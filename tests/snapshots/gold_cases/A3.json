@@ -1,0 +1,171 @@
+{
+  "bundle_id": "A3_logic_block",
+  "canonical_ast": {
+    "anchors": [],
+    "assumptions": [],
+    "baselines": [],
+    "bindings": [],
+    "bridges": [],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [],
+              "name": "b",
+              "node": "PredicateExpr"
+            },
+            "id": "c1",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "args": [],
+              "name": "n",
+              "node": "PredicateExpr"
+            },
+            "id": "c2",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      },
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [],
+              "name": "p",
+              "node": "PredicateExpr"
+            },
+            "id": "c3",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "args": [],
+              "name": "b",
+              "node": "PredicateExpr"
+            },
+            "id": "c4",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "systemic#1",
+        "node": "ClaimBlock",
+        "stratum": "systemic"
+      },
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "args": [],
+                  "name": "p",
+                  "node": "PredicateExpr"
+                },
+                {
+                  "args": [],
+                  "name": "b",
+                  "node": "PredicateExpr"
+                }
+              ],
+              "node": "LogicalExpr",
+              "op": "and"
+            },
+            "id": "c5",
+            "kind": "logical",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "args": [],
+                  "name": "b",
+                  "node": "PredicateExpr"
+                },
+                {
+                  "args": [],
+                  "name": "n",
+                  "node": "PredicateExpr"
+                }
+              ],
+              "node": "LogicalExpr",
+              "op": "and"
+            },
+            "id": "c6",
+            "kind": "logical",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "meta#1",
+        "node": "ClaimBlock",
+        "stratum": "meta"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/atoms_v1",
+        "id": "ev0",
+        "kind": "model",
+        "node": "Evaluator"
+      }
+    ],
+    "evidence": [],
+    "evidenceRelations": [],
+    "facetPolicies": [],
+    "frame": {
+      "namespace": "Logic",
+      "node": "Frame",
+      "regime": "nominal",
+      "scale": "unit",
+      "system": "Test",
+      "task": "check"
+    },
+    "id": "A3_logic_block",
+    "jointAdequacies": [],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "id": "rp0",
+      "kind": "single",
+      "members": [
+        "ev0"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "A3",
+  "diagnostics": []
+}

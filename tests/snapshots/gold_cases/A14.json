@@ -1,0 +1,100 @@
+{
+  "bundle_id": "A14_adjudicated_resolution",
+  "canonical_ast": {
+    "anchors": [],
+    "assumptions": [],
+    "baselines": [],
+    "bindings": [],
+    "bridges": [],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [],
+              "name": "p",
+              "node": "PredicateExpr"
+            },
+            "id": "c1",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "args": [],
+                  "name": "b",
+                  "node": "PredicateExpr"
+                },
+                {
+                  "args": [],
+                  "name": "n",
+                  "node": "PredicateExpr"
+                }
+              ],
+              "node": "LogicalExpr",
+              "op": "and"
+            },
+            "id": "c2",
+            "kind": "logical",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/atoms_v1",
+        "id": "ev_primary",
+        "kind": "model",
+        "node": "Evaluator",
+        "role": "primary"
+      },
+      {
+        "binding": "test://eval/adversarial_v1",
+        "id": "ev_adversarial",
+        "kind": "model",
+        "node": "Evaluator",
+        "role": "adversarial"
+      }
+    ],
+    "evidence": [],
+    "evidenceRelations": [],
+    "facetPolicies": [],
+    "frame": {
+      "namespace": "Governance",
+      "node": "Frame",
+      "regime": "nominal",
+      "scale": "service",
+      "system": "Test",
+      "task": "review"
+    },
+    "id": "A14_adjudicated_resolution",
+    "jointAdequacies": [],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "binding": "test://resolution/adjudicated_v1",
+      "id": "rp_adj",
+      "kind": "adjudicated",
+      "members": [
+        "ev_primary",
+        "ev_adversarial"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "A14",
+  "diagnostics": []
+}

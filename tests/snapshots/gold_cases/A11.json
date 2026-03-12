@@ -1,0 +1,134 @@
+{
+  "bundle_id": "A11_baseline_timing",
+  "canonical_ast": {
+    "anchors": [],
+    "assumptions": [],
+    "baselines": [
+      {
+        "criterion": {
+          "kind": "ref",
+          "ref": "test://baseline/const10"
+        },
+        "evaluationMode": "fixed",
+        "frame": {
+          "facets": {
+            "namespace": "Baseline",
+            "regime": "nominal",
+            "system": "Test"
+          },
+          "node": "FramePattern"
+        },
+        "id": "b_fixed",
+        "kind": "point",
+        "node": "Baseline"
+      },
+      {
+        "criterion": {
+          "kind": "ref",
+          "ref": "test://baseline/const10"
+        },
+        "evaluationMode": "on_reference",
+        "frame": {
+          "facets": {
+            "namespace": "Baseline",
+            "regime": "nominal",
+            "system": "Test"
+          },
+          "node": "FramePattern"
+        },
+        "id": "b_step",
+        "kind": "point",
+        "node": "Baseline"
+      }
+    ],
+    "bindings": [],
+    "bridges": [],
+    "claimBlocks": [
+      {
+        "claims": [
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "sensor_A"
+                },
+                {
+                  "id": "b_fixed",
+                  "node": "BaselineRefTerm"
+                }
+              ],
+              "name": "matches_baseline",
+              "node": "PredicateExpr"
+            },
+            "id": "c1",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          },
+          {
+            "annotations": {},
+            "expr": {
+              "args": [
+                {
+                  "node": "SymbolTerm",
+                  "value": "sensor_A"
+                },
+                {
+                  "id": "b_step",
+                  "node": "BaselineRefTerm"
+                }
+              ],
+              "name": "matches_baseline",
+              "node": "PredicateExpr"
+            },
+            "id": "c2",
+            "kind": "atomic",
+            "node": "Claim",
+            "refs": [],
+            "semanticRequirements": [],
+            "usesAnchors": []
+          }
+        ],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      }
+    ],
+    "evaluators": [
+      {
+        "binding": "test://eval/baseline_v1",
+        "id": "ev0",
+        "kind": "model",
+        "node": "Evaluator"
+      }
+    ],
+    "evidence": [],
+    "evidenceRelations": [],
+    "facetPolicies": [],
+    "frame": {
+      "namespace": "Baseline",
+      "node": "Frame",
+      "regime": "nominal",
+      "scale": "service",
+      "system": "Test",
+      "task": "compare"
+    },
+    "id": "A11_baseline_timing",
+    "jointAdequacies": [],
+    "node": "Bundle",
+    "resolutionPolicy": {
+      "id": "rp0",
+      "kind": "single",
+      "members": [
+        "ev0"
+      ],
+      "node": "ResolutionPolicy"
+    }
+  },
+  "case_id": "A11",
+  "diagnostics": []
+}
