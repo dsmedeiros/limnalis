@@ -25,6 +25,18 @@ def test_parse_cli_smoke(capsys) -> None:
     assert "nested_block" in captured.out
 
 
+def test_normalize_cli_smoke(capsys) -> None:
+    code = main(["normalize", str(ROOT / "examples" / "minimal_bundle.lmn")])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert code == 0
+    assert payload["id"] == "minimal_bundle"
+    assert payload["frame"]["node"] == "FramePattern"
+    assert payload["resolutionPolicy"]["members"] == ["ev0"]
+
+
 def test_print_schema_cli_smoke(capsys) -> None:
     code = main(["print-schema", "ast"])
 

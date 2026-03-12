@@ -20,7 +20,7 @@ Current scope:
 - [x] JSON Schema validation helpers
 - [x] Parser / normalizer entry points and CLI stubs
 - [x] Surface-language parser implementation (Milestone 1 raw parse tree)
-- [ ] AST normalizer implementation
+- [x] AST normalizer implementation (Milestone 2 core subset)
 - [ ] Evaluator implementation
 
 ## Why Pydantic now?
@@ -32,6 +32,24 @@ objects and serialization path.
 It also keeps a clean path open for later schema-driven work. I am **not** claiming direct LinkML
 support here; the point is that the AST is now validated, serializable, and schema-emitting by
 construction.
+
+## Current normalizer coverage
+
+The Milestone 2 normalizer currently handles:
+
+- bundle ids and block ordering
+- `frame { ... }` blocks and shorthand `frame @System:Namespace::regime` patterns
+- `evaluator` blocks
+- explicit `resolution_policy` blocks and synthetic single-evaluator defaulting
+- `local`, `systemic`, and `meta` claim blocks with synthetic ids like `local#1`
+- claim expressions for atomic predicates, predicate calls, logical expressions, `judged_by`, and `note`
+
+The following authored forms are still intentionally out of scope and raise a normalization error:
+
+- baselines, evidence, anchors, joint adequacy, and bridges
+- claim metadata such as `refs`, `uses`, `requires`, and `annotations`
+- declaration, causal, dynamic, and emergence authored expressions
+- inline facet patterns such as `@{...}`
 
 ## Known vendored-schema issue
 
@@ -81,6 +99,12 @@ python -m pip install -e .[dev]
 python -m pytest
 ```
 
+Normalize authored surface syntax into canonical AST JSON:
+
+```bash
+limnalis normalize examples/minimal_bundle.lmn
+```
+
 Validate the fixture corpus:
 
 ```bash
@@ -95,6 +119,6 @@ limnalis validate-ast examples/minimal_bundle_ast.json
 
 ## Next implementation milestones
 
-1. implement normalization into the canonical Pydantic AST in `src/limnalis/normalizer.py`
-2. validate normalized ASTs against the vendored schema package
-3. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
+1. expand parser/normalizer coverage to the remaining authored constructs and inline pattern/object forms
+2. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
+3. implement the evaluator and conformance pipeline

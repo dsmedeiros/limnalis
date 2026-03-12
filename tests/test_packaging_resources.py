@@ -41,13 +41,16 @@ def test_wheel_install_loads_packaged_resources(tmp_path: Path) -> None:
 from pathlib import Path
 
 from limnalis.loader import load_ast_bundle
+from limnalis.normalizer import Normalizer
 from limnalis.parser import LimnalisParser
 
 root = Path({str(ROOT)!r})
 bundle = load_ast_bundle(root / \"examples\" / \"minimal_bundle_ast.json\")
 assert bundle.id == \"minimal_bundle\"
-tree = LimnalisParser().parse_text(\"bundle smoke {{}}\")
-assert tree.data == \"start\"
+source = (root / \"examples\" / \"minimal_bundle.lmn\").read_text(encoding=\"utf-8\")
+result = Normalizer().normalize(LimnalisParser().parse_text(source))
+assert result.canonical_ast is not None
+assert result.canonical_ast.claimBlocks[0].id == \"local#1\"
 """
 
     installed_env = env.copy()

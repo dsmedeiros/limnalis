@@ -1,0 +1,60 @@
+{
+  "node": "Bundle",
+  "id": "minimal_bundle",
+  "frame": {
+    "node": "FramePattern",
+    "facets": {
+      "system": "Test",
+      "namespace": "Minimal",
+      "regime": "nominal"
+    }
+  },
+  "evaluators": [
+    {
+      "node": "Evaluator",
+      "id": "ev0",
+      "kind": "model",
+      "binding": "test://eval/atoms_v1"
+    }
+  ],
+  "resolutionPolicy": {
+    "node": "ResolutionPolicy",
+    "id": "rp0",
+    "kind": "single",
+    "members": [
+      "ev0"
+    ]
+  },
+  "bindings": [],
+  "facetPolicies": [],
+  "assumptions": [],
+  "baselines": [],
+  "evidence": [],
+  "evidenceRelations": [],
+  "anchors": [],
+  "jointAdequacies": [],
+  "bridges": [],
+  "claimBlocks": [
+    {
+      "node": "ClaimBlock",
+      "id": "local#1",
+      "stratum": "local",
+      "claims": [
+        {
+          "node": "Claim",
+          "id": "c1",
+          "kind": "atomic",
+          "expr": {
+            "node": "PredicateExpr",
+            "name": "p",
+            "args": []
+          },
+          "usesAnchors": [],
+          "semanticRequirements": [],
+          "refs": [],
+          "annotations": {}
+        }
+      ]
+    }
+  ]
+}

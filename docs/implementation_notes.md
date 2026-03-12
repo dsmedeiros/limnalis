@@ -17,6 +17,11 @@ That is the right trade-off at the current Limnalis stage.
 
 ## Scope of this scaffold
 
-This repo now implements the authored surface parser at a permissive Milestone 1 level: it
-produces a raw parse tree for bundle documents and nested authored blocks. The canonical normalizer
-is still not implemented.
+This repo now implements the authored surface parser at a permissive Milestone 1 level and a
+Milestone 2 normalizer for the current core authored subset. The normalizer covers frame blocks and
+shorthand frame patterns, evaluator panels, explicit or synthetic single resolution policies, and
+`local` / `systemic` / `meta` claim blocks containing atomic predicates, predicate calls, logical
+expressions, `judged_by`, and `note`.
+
+Remaining authored constructs such as baselines, evidence, anchors, bridges, inline facet patterns,
+and claim metadata are still intentionally unsupported and fail fast during normalization.
