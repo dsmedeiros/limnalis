@@ -21,6 +21,7 @@ Current scope:
 - [x] Parser / normalizer entry points and CLI stubs
 - [x] Surface-language parser implementation (Milestone 1 raw parse tree)
 - [x] AST normalizer implementation (Milestone 2 core subset)
+- [x] Normalized AST schema validation against the vendored schema package (Milestone 3)
 - [ ] Evaluator implementation
 
 ## Why Pydantic now?
@@ -33,9 +34,12 @@ It also keeps a clean path open for later schema-driven work. I am **not** claim
 support here; the point is that the AST is now validated, serializable, and schema-emitting by
 construction.
 
-## Current normalizer coverage
+## Current normalized source coverage
 
-The Milestone 2 normalizer currently handles:
+The authored-source pipeline now supports parsing, normalizing, and schema-validating the current
+Milestone 2 core subset end-to-end.
+
+That subset includes:
 
 - bundle ids and block ordering
 - `frame { ... }` blocks and shorthand `frame @System:Namespace::regime` patterns
@@ -103,6 +107,12 @@ Normalize authored surface syntax into canonical AST JSON:
 
 ```bash
 limnalis normalize examples/minimal_bundle.lmn
+```
+
+Validate authored surface syntax end to end:
+
+```bash
+limnalis validate-source examples/minimal_bundle.lmn
 ```
 
 Validate the fixture corpus:

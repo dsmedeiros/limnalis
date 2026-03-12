@@ -40,17 +40,16 @@ def test_wheel_install_loads_packaged_resources(tmp_path: Path) -> None:
     script = f"""
 from pathlib import Path
 
-from limnalis.loader import load_ast_bundle
-from limnalis.normalizer import Normalizer
-from limnalis.parser import LimnalisParser
+from limnalis.loader import load_ast_bundle, load_surface_bundle, normalize_surface_file
 
 root = Path({str(ROOT)!r})
 bundle = load_ast_bundle(root / \"examples\" / \"minimal_bundle_ast.json\")
 assert bundle.id == \"minimal_bundle\"
-source = (root / \"examples\" / \"minimal_bundle.lmn\").read_text(encoding=\"utf-8\")
-result = Normalizer().normalize(LimnalisParser().parse_text(source))
+result = normalize_surface_file(root / \"examples\" / \"minimal_bundle.lmn\")
 assert result.canonical_ast is not None
-assert result.canonical_ast.claimBlocks[0].id == \"local#1\"
+assert result.diagnostics[0][\"code\"] == \"resolution_policy_defaulted\"
+surface_bundle = load_surface_bundle(root / \"examples\" / \"minimal_bundle.lmn\")
+assert surface_bundle.claimBlocks[0].id == \"local#1\"
 """
 
     installed_env = env.copy()

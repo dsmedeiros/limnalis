@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Iterable
+from dataclasses import dataclass
 from importlib.abc import Traversable
 from importlib.resources import files
 from pathlib import Path
@@ -17,6 +19,28 @@ _SCHEMA_FILES = {
     "fixture_corpus": "limnalis_fixture_corpus_schema_v0.2.2.json",
     "conformance_result": "limnalis_conformance_result_schema_v0.2.2.json",
 }
+
+
+@dataclass(slots=True)
+class SchemaViolation:
+    path: str
+    schema_path: str
+    message: str
+
+
+class SchemaValidationError(ValueError):
+    def __init__(self, schema_name: SchemaName, violations: list[SchemaViolation]) -> None:
+        self.schema_name = schema_name
+        self.violations = violations
+        super().__init__(self._build_message())
+
+    def _build_message(self) -> str:
+        first = self.violations[0]
+        remaining = len(self.violations) - 1
+        suffix = f" (+{remaining} more)" if remaining else ""
+        return (
+            f"{self.schema_name} schema validation failed at {first.path}: {first.message}{suffix}"
+        )
 
 
 def repo_root() -> Path:
@@ -86,8 +110,37 @@ def make_validator(name: SchemaName, *, repair_ast_refs: bool = True) -> Draft20
     return Draft202012Validator(load_schema(name, repair_ast_refs=repair_ast_refs))
 
 
+def collect_validation_errors(
+    payload: Any, schema_name: SchemaName, *, repair_ast_refs: bool = True
+) -> list[SchemaViolation]:
+    validator = make_validator(schema_name, repair_ast_refs=repair_ast_refs)
+    errors = sorted(
+        validator.iter_errors(payload),
+        key=lambda error: (tuple(str(part) for part in error.path), error.message),
+    )
+    return [
+        SchemaViolation(
+            path=_format_path(error.path),
+            schema_path=_format_path(error.schema_path),
+            message=error.message,
+        )
+        for error in errors
+    ]
+
+
 def validate_payload(
     payload: Any, schema_name: SchemaName, *, repair_ast_refs: bool = True
 ) -> None:
-    validator = make_validator(schema_name, repair_ast_refs=repair_ast_refs)
-    validator.validate(payload)
+    violations = collect_validation_errors(payload, schema_name, repair_ast_refs=repair_ast_refs)
+    if violations:
+        raise SchemaValidationError(schema_name, violations)
+
+
+def _format_path(parts: Iterable[Any]) -> str:
+    rendered = "$"
+    for part in parts:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        else:
+            rendered += f".{part}"
+    return rendered
