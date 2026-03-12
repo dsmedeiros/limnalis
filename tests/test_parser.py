@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -60,3 +61,20 @@ def test_parser_rejects_unbalanced_block() -> None:
 
     with pytest.raises(UnexpectedInput):
         parser.parse_text("bundle broken { frame x;")
+
+def test_parser_accepts_all_fixture_corpus_sources() -> None:
+    parser = LimnalisParser()
+    corpus = json.loads(
+        (ROOT / "fixtures" / "limnalis_fixture_corpus_v0.2.2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    failures: list[str] = []
+
+    for case in corpus["cases"]:
+        try:
+            parser.parse_text(case["source"])
+        except UnexpectedInput as exc:
+            failures.append(f"{case['id']}: {exc}")
+
+    assert failures == []

@@ -52,27 +52,13 @@ def test_validate_source_cli_smoke(capsys) -> None:
 
 
 def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys) -> None:
-    source = """
-    bundle unsupported_claim_metadata {
-      frame {
-        system Test;
-        namespace Unsupported;
-        scale unit;
-        task check;
-        regime nominal;
-      }
-
-      evaluator ev0 {
-        kind model;
-        binding test://eval/atoms_v1;
-      }
-
-      local {
-        c1: p refs [e1];
-      }
-    }
-    """
-    path = tmp_path / "unsupported.lmn"
+    corpus = json.loads(
+        (ROOT / "fixtures" / "limnalis_fixture_corpus_v0.2.2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = next(case["source"] for case in corpus["cases"] if case["id"] == "A4")
+    path = tmp_path / "invalid_baseline.lmn"
     path.write_text(source, encoding="utf-8")
 
     code = main(["validate-source", str(path)])
@@ -83,7 +69,7 @@ def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys
     assert code == 1
     assert payload["status"] == "error"
     assert payload["phase"] == "normalize"
-    assert "claim metadata modifiers" in payload["message"]
+    assert "moving baselines require evaluationMode='tracked'" in payload["message"]
 
 
 def test_print_schema_cli_smoke(capsys) -> None:

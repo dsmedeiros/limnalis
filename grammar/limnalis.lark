@@ -1,12 +1,13 @@
-// Limnalis surface-language grammar (Milestone 1).
+// Limnalis surface-language grammar.
 //
-// Scope for this milestone:
+// Current scope:
 // - parse `bundle ... { ... }` documents,
-// - support nested blocks used by authored sections (`evaluator`, `local`, etc.),
-// - accept statement-level tokens without enforcing full semantic constraints yet.
+// - support nested authored blocks (`evaluator`, `baseline`, `anchor`, `local`, etc.),
+// - preserve inline authored forms such as `@{...}`, `[ ... ]`, `{"k": "v"}`, and
+//   parenthesized logical groups as single statement atoms where needed.
 //
-// This intentionally builds a permissive raw parse tree that the normalizer can
-// refine into canonical AST types in later milestones.
+// The grammar remains intentionally permissive. The normalizer is responsible for
+// interpreting the raw surface structure into canonical AST nodes.
 
 start: bundle
 
@@ -22,8 +23,16 @@ statement: atom+ ";"
 
 ?atom: ATOM
      | STRING
+     | GROUP
+     | INLINE_PATTERN
+     | INLINE_LIST
+     | INLINE_JSON_OBJECT
 
-ATOM: /[^{}\s;"']+/
+GROUP.2: /\([^()]*\)/
+INLINE_PATTERN.3: /@\{[^{}]*\}/
+INLINE_LIST.2: /\[[^\[\]]*\]/
+INLINE_JSON_OBJECT.2: /\{\s*"[^{}]*\}/
+ATOM: /[^{}\s;"']+/ 
 
 %import common.ESCAPED_STRING -> STRING
 %import common.NEWLINE

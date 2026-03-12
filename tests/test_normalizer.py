@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,12 @@ from limnalis.parser import LimnalisParser
 from limnalis.schema import validate_payload
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_CASES = {
+    case["id"]: case
+    for case in json.loads(
+        (ROOT / "fixtures" / "limnalis_fixture_corpus_v0.2.2.json").read_text(encoding="utf-8")
+    )["cases"]
+}
 
 
 def _normalize_source(source: str):
@@ -18,6 +25,10 @@ def _normalize_source(source: str):
     assert result.canonical_ast is not None
     validate_payload(result.canonical_ast.to_schema_data(), "ast")
     return result
+
+
+def _normalize_fixture(case_id: str):
+    return _normalize_source(FIXTURE_CASES[case_id]["source"])
 
 
 def test_normalizer_converts_minimal_bundle_into_canonical_ast() -> None:
@@ -82,108 +93,94 @@ def test_normalizer_handles_frame_blocks_and_logical_claims() -> None:
     assert [arg.name for arg in meta_claim.expr.args] == ["p", "b"]
 
 
-def test_normalizer_wraps_judged_claims() -> None:
-    source = """
-    bundle A13_core_judged_expr {
-      frame {
-        system Test;
-        namespace Judgment;
-        scale service;
-        task review;
-        regime nominal;
-      }
+@pytest.mark.parametrize(
+    "case_id",
+    sorted(case_id for case_id in FIXTURE_CASES if case_id != "A4"),
+)
+def test_fixture_corpus_cases_normalize_to_schema_valid_ast(case_id: str) -> None:
+    result = _normalize_fixture(case_id)
 
-      evaluator ev0 {
-        kind institution;
-        binding test://eval/auth_truth_v1;
-      }
+    assert result.canonical_ast.id == FIXTURE_CASES[case_id]["source"].split()[1]
 
-      local {
-        c1: safe(grid_state) judged_by test://eval/judged_inner_v1;
-      }
-    }
-    """
 
-    bundle = _normalize_source(source).canonical_ast
-    claim = bundle.claimBlocks[0].claims[0]
+def test_normalizer_rejects_invalid_moving_baseline_fixture() -> None:
+    tree = LimnalisParser().parse_text(FIXTURE_CASES["A4"]["source"])
+
+    with pytest.raises(
+        NormalizationError, match="moving baselines require evaluationMode='tracked'"
+    ):
+        Normalizer().normalize(tree)
+
+
+def test_normalizer_synthesizes_ids_for_authored_adequacy_blocks() -> None:
+    result = _normalize_fixture("A6")
+    bundle = result.canonical_ast
+    codes = Counter(diagnostic["code"] for diagnostic in result.diagnostics)
+
+    assert [assessment.id for assessment in bundle.anchors[0].adequacy] == [
+        "a_stateless#adequacy1",
+        "a_stateless#adequacy2",
+    ]
+    assert [assessment.id for assessment in bundle.anchors[1].adequacy] == ["a_clock#adequacy1"]
+    assert [assessment.id for assessment in bundle.anchors[2].adequacy] == ["a_cache#adequacy1"]
+    assert bundle.jointAdequacies[0].assessments[0].id == "ja_access#assessment1"
+    assert codes["adequacy_id_synthesized"] == 4
+    assert codes["assessment_id_synthesized"] == 1
+
+
+def test_normalizer_supports_causal_emergence_and_declaration_forms() -> None:
+    bundle = _normalize_fixture("B1").canonical_ast
+
+    local_claim = bundle.claimBlocks[0].claims[1]
+    systemic_claim = bundle.claimBlocks[1].claims[0]
+    declaration_claim = bundle.claimBlocks[2].claims[0]
+    note_claim = bundle.claimBlocks[2].claims[1]
+
+    assert local_claim.kind == "causal"
+    assert local_claim.expr.node == "CausalExpr"
+    assert local_claim.expr.mode == "obs"
+    assert local_claim.refs == ["scada_bus7", "pmu_bus7"]
+
+    assert systemic_claim.kind == "emergence"
+    assert systemic_claim.usesAnchors == ["a_nminus1"]
+    assert systemic_claim.refs == ["scada_bus7"]
+    assert systemic_claim.annotations == {"license_task": "control"}
+    assert systemic_claim.expr.node == "EmergenceExpr"
+    assert systemic_claim.expr.onset.node == "DynamicExpr"
+    assert systemic_claim.expr.onset.op == "approaches"
+    assert systemic_claim.expr.onset.target.node == "BaselineRefTerm"
+    assert systemic_claim.expr.onset.target.id == "margin"
+
+    assert declaration_claim.kind == "declaration"
+    assert declaration_claim.expr.node == "DeclarationExpr"
+    assert declaration_claim.expr.within.node == "FramePattern"
+    assert note_claim.kind == "note"
+    assert note_claim.expr.text.startswith("N-1 is acceptable")
+
+
+def test_normalizer_preserves_metadata_on_judged_claims() -> None:
+    bundle = _normalize_fixture("B2").canonical_ast
+    claim = bundle.claimBlocks[0].claims[2]
 
     assert claim.kind == "judgment"
     assert claim.expr.node == "JudgedExpr"
-    assert claim.expr.criterionRef == "test://eval/judged_inner_v1"
-    assert claim.expr.expr.node == "PredicateExpr"
-    assert claim.expr.expr.name == "safe"
-    assert claim.expr.expr.args[0].node == "SymbolTerm"
-    assert claim.expr.expr.args[0].value == "grid_state"
+    assert claim.expr.criterionRef == "test://policy/auth_access_v3"
+    assert claim.usesAnchors == ["a_stateless", "a_clock"]
+    assert claim.refs == ["e_sig", "e_clock", "e_rev"]
+    assert claim.annotations == {"license_task": "access_decision"}
 
 
-def test_normalizer_keeps_explicit_adjudicated_resolution_policy() -> None:
-    source = """
-    bundle A14_adjudicated_resolution {
-      frame {
-        system Test;
-        namespace Governance;
-        scale service;
-        task review;
-        regime nominal;
-      }
+def test_normalizer_emits_compatibility_diagnostics_for_surface_only_forms() -> None:
+    a9 = _normalize_fixture("A9")
+    a12 = _normalize_fixture("A12")
 
-      evaluator ev_primary {
-        kind model;
-        role primary;
-        binding test://eval/atoms_v1;
-      }
+    assert a9.canonical_ast.evaluators[0].id == "ev_audit"
+    assert a9.canonical_ast.evaluators[0].kind == "process"
+    assert a9.canonical_ast.evaluators[0].role == "audit"
+    assert [diagnostic["code"] for diagnostic in a9.diagnostics] == ["evaluator_kind_canonicalized"]
 
-      evaluator ev_adversarial {
-        kind model;
-        role adversarial;
-        binding test://eval/adversarial_v1;
-      }
-
-      resolution_policy rp_adj {
-        kind adjudicated;
-        members [ev_primary, ev_adversarial];
-        binding test://resolution/adjudicated_v1;
-      }
-
-      local {
-        c1: p;
-        c2: (b AND n);
-      }
-    }
-    """
-
-    bundle = _normalize_source(source).canonical_ast
-
-    assert [evaluator.id for evaluator in bundle.evaluators] == ["ev_primary", "ev_adversarial"]
-    assert [evaluator.role for evaluator in bundle.evaluators] == ["primary", "adversarial"]
-    assert bundle.resolutionPolicy.kind == "adjudicated"
-    assert bundle.resolutionPolicy.members == ["ev_primary", "ev_adversarial"]
-    assert bundle.resolutionPolicy.binding == "test://resolution/adjudicated_v1"
-
-
-def test_normalizer_rejects_unsupported_claim_metadata() -> None:
-    source = """
-    bundle unsupported_claim_metadata {
-      frame {
-        system Test;
-        namespace Unsupported;
-        scale unit;
-        task check;
-        regime nominal;
-      }
-
-      evaluator ev0 {
-        kind model;
-        binding test://eval/atoms_v1;
-      }
-
-      local {
-        c1: p refs [e1];
-      }
-    }
-    """
-
-    tree = LimnalisParser().parse_text(source)
-
-    with pytest.raises(NormalizationError, match="claim metadata modifiers"):
-        Normalizer().normalize(tree)
+    assert a12.canonical_ast.resolutionPolicy.id == "rp0"
+    assert a12.canonical_ast.anchors[0].adequacyPolicy == "rp_adequacy"
+    assert [diagnostic["code"] for diagnostic in a12.diagnostics] == [
+        "extra_resolution_policy_omitted"
+    ]

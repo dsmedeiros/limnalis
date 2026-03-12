@@ -20,7 +20,7 @@ Current scope:
 - [x] JSON Schema validation helpers
 - [x] Parser / normalizer entry points and CLI stubs
 - [x] Surface-language parser implementation (Milestone 1 raw parse tree)
-- [x] AST normalizer implementation (Milestone 2 core subset)
+- [x] AST normalizer implementation (Milestone 2 authored subset)
 - [x] Normalized AST schema validation against the vendored schema package (Milestone 3)
 - [ ] Evaluator implementation
 
@@ -36,24 +36,29 @@ construction.
 
 ## Current normalized source coverage
 
-The authored-source pipeline now supports parsing, normalizing, and schema-validating the current
-Milestone 2 core subset end-to-end.
+The authored-source pipeline now supports parsing, normalizing, and schema-validating the
+current authored subset exercised by the vendored fixture corpus.
 
-That subset includes:
+That coverage includes:
 
 - bundle ids and block ordering
-- `frame { ... }` blocks and shorthand `frame @System:Namespace::regime` patterns
-- `evaluator` blocks
-- explicit `resolution_policy` blocks and synthetic single-evaluator defaulting
+- `frame { ... }` blocks, shorthand `frame @System:Namespace::regime`, and inline facet patterns like `@{...}`
+- evaluator panels, explicit `resolution_policy` blocks, and synthetic single-evaluator defaulting
+- `baseline`, `evidence`, `evidence_relation`, `anchor`, `joint_adequacy`, `bridge`, `adequacy`, `assessment`, and `transport` blocks
 - `local`, `systemic`, and `meta` claim blocks with synthetic ids like `local#1`
-- claim expressions for atomic predicates, predicate calls, logical expressions, `judged_by`, and `note`
+- claim metadata for `refs`, `uses`, `requires`, and `annotations`
+- claim expressions for atomic predicates, predicate calls, logical expressions, `judged_by`, `note`, `declare ... within ...`, causal `=>[...]`, and `EMRG ... --> ...` authored forms
 
-The following authored forms are still intentionally out of scope and raise a normalization error:
+A few authored forms still normalize with explicit compatibility diagnostics because the canonical
+v0.2.2 bundle schema cannot represent them 1:1:
 
-- baselines, evidence, anchors, joint adequacy, and bridges
-- claim metadata such as `refs`, `uses`, `requires`, and `annotations`
-- declaration, causal, dynamic, and emergence authored expressions
-- inline facet patterns such as `@{...}`
+- extra authored `resolution_policy` blocks beyond the single bundle-level `resolutionPolicy` slot are omitted from the canonical bundle and reported via `extra_resolution_policy_omitted`
+- surface `evaluator kind audit` is canonicalized to AST `kind="process"` and reported via `evaluator_kind_canonicalized`
+- authored `adequacy` / `assessment` blocks without ids receive synthetic ids and matching diagnostics
+
+Semantically invalid authored input still fails fast during normalization. The fixture corpus case
+`A4` remains the concrete example: `BaselineNode(kind="moving")` requires
+`evaluationMode="tracked"`.
 
 ## Known vendored-schema issue
 
@@ -129,6 +134,5 @@ limnalis validate-ast examples/minimal_bundle_ast.json
 
 ## Next implementation milestones
 
-1. expand parser/normalizer coverage to the remaining authored constructs and inline pattern/object forms
-2. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
-3. implement the evaluator and conformance pipeline
+1. wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
+2. implement the evaluator and conformance pipeline
