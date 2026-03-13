@@ -48,7 +48,7 @@ class FacetValueMap(LimnalisModel):
 
     @model_validator(mode="after")
     def _at_least_one_facet(self) -> "FacetValueMap":
-        if not any(getattr(self, field) is not None for field in self.model_fields):
+        if not any(getattr(self, field) is not None for field in type(self).model_fields):
             raise ValueError("FacetValueMap must include at least one facet")
         return self
 

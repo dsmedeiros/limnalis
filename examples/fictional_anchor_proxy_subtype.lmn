@@ -1,0 +1,29 @@
+bundle fictional_anchor_proxy_subtype {
+  frame {
+    system Test;
+    namespace Cache;
+    scale service;
+    task observation;
+    regime nominal;
+  }
+
+  evaluator ev0 {
+    kind model;
+    binding test://eval/cache_v1;
+  }
+
+  resolution_policy rp0 {
+    kind single;
+    members [ev0];
+  }
+
+  fictional_anchor a_cache {
+    term symbol cache_visibility;
+    subtype proxy;
+    status active;
+  }
+
+  local {
+    c1: cache_visible(item_1);
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "node": "Bundle",
+  "id": "fictional_anchor_default_subtype",
+  "frame": {
+    "node": "Frame",
+    "system": "PowerGrid",
+    "namespace": "ACLoadFlow",
+    "scale": "micro",
+    "task": "operations",
+    "regime": "contingency"
+  },
+  "evaluators": [
+    {
+      "node": "Evaluator",
+      "id": "ev_grid_model",
+      "kind": "model",
+      "binding": "test://eval/grid_v1"
+    }
+  ],
+  "resolutionPolicy": {
+    "node": "ResolutionPolicy",
+    "id": "rp0",
+    "kind": "single",
+    "members": [
+      "ev_grid_model"
+    ]
+  },
+  "bindings": [],
+  "facetPolicies": [],
+  "assumptions": [],
+  "baselines": [],
+  "evidence": [],
+  "evidenceRelations": [],
+  "anchors": [
+    {
+      "node": "Anchor",
+      "id": "a_nminus1",
+      "term": {
+        "kind": "symbol",
+        "value": "Nminus1"
+      },
+      "subtype": "idealization",
+      "status": "active",
+      "adequacyPolicy": "rp_anchor_single",
+      "adequacy": [
+        {
+          "node": "AdequacyAssessment",
+          "id": "aa_pred",
+          "task": "prediction",
+          "producer": "ev_grid_model",
+          "score": 0.98,
+          "threshold": 0.95,
+          "method": "sim://checks/n1_pred",
+          "basis": [],
+          "failureModes": []
+        }
+      ],
+      "requiresJointWith": []
+    }
+  ],
+  "jointAdequacies": [],
+  "bridges": [],
+  "claimBlocks": [
+    {
+      "node": "ClaimBlock",
+      "id": "local#1",
+      "stratum": "local",
+      "claims": [
+        {
+          "node": "Claim",
+          "id": "c1",
+          "kind": "atomic",
+          "expr": {
+            "node": "PredicateExpr",
+            "name": "overload",
+            "args": [
+              {
+                "node": "SymbolTerm",
+                "value": "line_B"
+              }
+            ]
+          },
+          "usesAnchors": [],
+          "semanticRequirements": [],
+          "refs": [],
+          "annotations": {}
+        }
+      ]
+    }
+  ]
+}

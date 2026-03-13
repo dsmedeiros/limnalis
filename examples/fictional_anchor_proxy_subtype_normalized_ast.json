@@ -1,0 +1,78 @@
+{
+  "node": "Bundle",
+  "id": "fictional_anchor_proxy_subtype",
+  "frame": {
+    "node": "Frame",
+    "system": "Test",
+    "namespace": "Cache",
+    "scale": "service",
+    "task": "observation",
+    "regime": "nominal"
+  },
+  "evaluators": [
+    {
+      "node": "Evaluator",
+      "id": "ev0",
+      "kind": "model",
+      "binding": "test://eval/cache_v1"
+    }
+  ],
+  "resolutionPolicy": {
+    "node": "ResolutionPolicy",
+    "id": "rp0",
+    "kind": "single",
+    "members": [
+      "ev0"
+    ]
+  },
+  "bindings": [],
+  "facetPolicies": [],
+  "assumptions": [],
+  "baselines": [],
+  "evidence": [],
+  "evidenceRelations": [],
+  "anchors": [
+    {
+      "node": "Anchor",
+      "id": "a_cache",
+      "term": {
+        "kind": "symbol",
+        "value": "cache_visibility"
+      },
+      "subtype": "proxy",
+      "status": "active",
+      "adequacy": [],
+      "requiresJointWith": []
+    }
+  ],
+  "jointAdequacies": [],
+  "bridges": [],
+  "claimBlocks": [
+    {
+      "node": "ClaimBlock",
+      "id": "local#1",
+      "stratum": "local",
+      "claims": [
+        {
+          "node": "Claim",
+          "id": "c1",
+          "kind": "atomic",
+          "expr": {
+            "node": "PredicateExpr",
+            "name": "cache_visible",
+            "args": [
+              {
+                "node": "SymbolTerm",
+                "value": "item_1"
+              }
+            ]
+          },
+          "usesAnchors": [],
+          "semanticRequirements": [],
+          "refs": [],
+          "annotations": {}
+        }
+      ]
+    }
+  ]
+}

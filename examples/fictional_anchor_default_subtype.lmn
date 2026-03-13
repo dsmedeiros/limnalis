@@ -1,0 +1,37 @@
+bundle fictional_anchor_default_subtype {
+  frame {
+    system PowerGrid;
+    namespace ACLoadFlow;
+    scale micro;
+    task operations;
+    regime contingency;
+  }
+
+  evaluator ev_grid_model {
+    kind model;
+    binding test://eval/grid_v1;
+  }
+
+  resolution_policy rp0 {
+    kind single;
+    members [ev_grid_model];
+  }
+
+  fictional_anchor a_nminus1 {
+    term symbol Nminus1;
+    status active;
+    adequacy_policy rp_anchor_single;
+
+    assessment aa_pred {
+      task prediction;
+      producer ev_grid_model;
+      score 0.98;
+      threshold 0.95;
+      method sim://checks/n1_pred;
+    }
+  }
+
+  local {
+    c1: overload(line_B);
+  }
+}
