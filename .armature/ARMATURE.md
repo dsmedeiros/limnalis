@@ -493,7 +493,7 @@ Human → Orchestrator → Implementer → Reviewer → Accept
 
 **Fast path preserves:**
 - Scoped delegation (implementer reads its `agents.md`)
-- Reviewer check (never skipped)
+- Reviewer check (never skipped) — reviewer still writes a structured verdict to `.armature/reviews/{task-id}.md`, not just an inline report. This keeps the governance journal consistent regardless of which path was used.
 - Structured commit message
 - Session state update
 - Journal entry if governance-relevant
@@ -802,10 +802,10 @@ For small, well-scoped work that doesn't warrant a PRD, the orchestrator can cre
 Taskmaster is the preferred task management tool, but the orchestrator must degrade gracefully when it is not installed or its MCP server is not registered. The fallback protocol:
 
 1. **Detection:** At session start, the orchestrator checks whether Taskmaster MCP tools are available. If they are not, it proceeds in lightweight mode.
-2. **Lightweight task tracking:** The orchestrator uses its built-in TodoWrite tool (or a markdown task list in `.armature/session/state.md` under a `## Task Status` section) to track tasks, dependencies, and status.
-3. **No PRD parsing:** Without Taskmaster, the orchestrator decomposes work conversationally and records tasks directly.
+2. **Lightweight task tracking:** The orchestrator uses its built-in TodoWrite tool (or a markdown task list in `.armature/session/state.md` under a `## Task Status` section) to track tasks, dependencies, and status. Each task entry must use the Taskmaster-compatible schema: `{ id, title, description, status, dependencies[], priority, complexity }`. This ensures tasks can be migrated to Taskmaster without reformatting when it becomes available.
+3. **No PRD parsing:** Without Taskmaster, the orchestrator decomposes work conversationally and records tasks directly using the same schema fields.
 4. **Complexity assessment:** The orchestrator estimates task complexity using judgment rather than Taskmaster's `analyze_project_complexity`. Tasks the orchestrator judges as complex still route through the planner.
-5. **Upgrade path:** When Taskmaster becomes available, the orchestrator can backfill the task graph from session state and resume with full Taskmaster integration.
+5. **Upgrade path:** When Taskmaster becomes available, the orchestrator can backfill the task graph from session state and resume with full Taskmaster integration. Because fallback tasks use the same schema, migration is a direct import — no reformatting required.
 
 The lightweight mode preserves all other governance guarantees: delegation boundaries, reviewer checks, session state, journal logging, and build candidates. Only persistent task graph management degrades.
 
