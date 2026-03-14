@@ -79,8 +79,8 @@ def _step(id="step1"):
 
 
 EXPECTED_PRIMITIVES = [
-    "resolve_ref",
     "build_step_context",
+    "resolve_ref",
     "resolve_baseline",
     "evaluate_adequacy_set",
     "build_evidence_view",

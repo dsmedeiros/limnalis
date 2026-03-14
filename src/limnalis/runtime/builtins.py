@@ -2,6 +2,11 @@
 
 Implements the 6 fully internal primitives and provides stubs for the 7 that
 require domain/external logic.
+
+NOTE on section numbering: Section numbers in this file (e.g. "2. build_step_context",
+"7. classify_claim") follow the Protocol numbering defined in primitives.py (1-13),
+NOT the runner phase numbering (1-12). The runner has 12 phases because compose_license
+(Protocol #5) has no assigned runner phase yet.
 """
 
 from __future__ import annotations
@@ -115,6 +120,16 @@ def build_step_context(
 
     # --- frame merge ---
     merged_facets = _merge_frame_facets(bundle.frame, session.base_frame, step.frame_override)
+
+    # Emit diagnostic if all merged facets are None (degenerate case)
+    if all(v is None for v in merged_facets.values()):
+        diags.append({
+            "severity": "warning",
+            "code": "empty_effective_frame",
+            "message": "All frame facets are None after merging bundle, session, and step frames; "
+                       "falling back to degenerate frame. This may indicate misconfiguration.",
+        })
+
     effective_frame = _facets_to_frame(merged_facets)
 
     # --- time precedence ---
@@ -353,16 +368,27 @@ def apply_resolution_policy(
         if not per_evaluator:
             return EvalNode(truth="N", reason="no_evaluators")
 
-        evals = list(per_evaluator.values())
+        # Filter to declared policy members if specified
+        if policy.members:
+            filtered = {k: v for k, v in per_evaluator.items() if k in policy.members}
+        else:
+            filtered = per_evaluator
+
+        if not filtered:
+            return EvalNode(truth="N", reason="no_evaluators")
+
+        evals = list(filtered.values())
         truths = [e.truth for e in evals]
         agg_truth = _aggregate_truth(truths)
         agg_support = _aggregate_support(evals)
 
-        # Determine reason
+        # Determine reason and conflict support
         reason: str | None = None
         truth_set = set(truths)
         if "T" in truth_set and "F" in truth_set:
             reason = "evaluator_conflict"
+            # When evaluators disagree (truth=B), mark support as conflicted
+            agg_support = "conflicted"
         else:
             # Preserve unique inherited reason
             reasons = [e.reason for e in evals if e.reason is not None]
@@ -511,6 +537,7 @@ def evaluate_adequacy_set(
     raise NotImplementedError("evaluate_adequacy_set requires domain-specific implementation")
 
 
+# Protocol #5: compose_license — no assigned runner phase (deferred to future milestone)
 def compose_license(
     claim_id: str,
     step_ctx: StepContext,

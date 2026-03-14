@@ -74,6 +74,8 @@ class PrimitiveSet:
     build_step_context: Callable[..., StepContext] = _build_step_context
     resolve_baseline: Callable[..., Any] = _resolve_baseline
     evaluate_adequacy_set: Callable[..., Any] = _evaluate_adequacy_set
+    # NOTE: compose_license is part of the Protocol contract (primitives.py #5)
+    # but is not yet scheduled in any runner phase. Deferred to a future milestone.
     compose_license: Callable[..., Any] = _compose_license
     build_evidence_view: Callable[..., Any] = _build_evidence_view
     classify_claim: Callable[..., ClaimClassification] = _classify_claim
@@ -172,8 +174,8 @@ def run_step(
     """Execute the normative 12-phase evaluation order for a single step.
 
     Phases:
-        1. resolve refs/policies
-        2. build step context
+        1. build step context
+        2. resolve refs/policies
         3. baseline service init/reuse (stubbed)
         4. adequacy evaluation (stubbed)
         5. evidence view construction
@@ -205,9 +207,34 @@ def run_step(
     policy: ResolutionPolicyNode = bundle.resolutionPolicy
 
     # ------------------------------------------------------------------
-    # Phase 1: resolve refs/policies
+    # Phase 1: build step context
     # ------------------------------------------------------------------
     phase = 1
+    try:
+        step_ctx = primitives.build_step_context(bundle, session, step, env)
+        diags.extend(step_ctx.diagnostics)
+        trace.append(_trace(
+            phase, "build_step_context",
+            inputs_summary=f"step={step.id}",
+            result_summary="ok",
+        ))
+    except NotImplementedError as exc:
+        diags.append(_stubbed_diag(phase, "build_step_context", exc))
+        trace.append(_trace(phase, "build_step_context", result_summary="stubbed"))
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "phase_error",
+            "phase": phase,
+            "primitive": "build_step_context",
+            "message": str(exc),
+        })
+        trace.append(_trace(phase, "build_step_context", result_summary=f"error: {exc}"))
+
+    # ------------------------------------------------------------------
+    # Phase 2: resolve refs/policies
+    # ------------------------------------------------------------------
+    phase = 2
     try:
         # Resolve each claim ref and each baseline ref
         refs_to_resolve: list[str] = []
@@ -242,31 +269,6 @@ def run_step(
             "message": str(exc),
         })
         trace.append(_trace(phase, "resolve_ref", result_summary=f"error: {exc}"))
-
-    # ------------------------------------------------------------------
-    # Phase 2: build step context
-    # ------------------------------------------------------------------
-    phase = 2
-    try:
-        step_ctx = primitives.build_step_context(bundle, session, step, env)
-        diags.extend(step_ctx.diagnostics)
-        trace.append(_trace(
-            phase, "build_step_context",
-            inputs_summary=f"step={step.id}",
-            result_summary="ok",
-        ))
-    except NotImplementedError as exc:
-        diags.append(_stubbed_diag(phase, "build_step_context", exc))
-        trace.append(_trace(phase, "build_step_context", result_summary="stubbed"))
-    except Exception as exc:
-        diags.append({
-            "severity": "error",
-            "code": "phase_error",
-            "phase": phase,
-            "primitive": "build_step_context",
-            "message": str(exc),
-        })
-        trace.append(_trace(phase, "build_step_context", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
     # Phase 3: baseline service init/reuse (stubbed)
