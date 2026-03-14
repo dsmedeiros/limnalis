@@ -1,0 +1,42 @@
+project:
+  name: "Limnalis"
+  description: >
+    Python reference implementation for the Limnalis parser/normalizer workstream.
+    Parses authored Limnalis surface syntax (.lmn files) into permissive raw parse
+    trees, normalizes them into canonical Pydantic-validated AST nodes, and validates
+    the resulting AST against vendored JSON Schemas. Provides CLI tooling for the
+    full parse-normalize-validate pipeline.
+  domain: "language parsing, AST normalization, and schema-validated canonical output"
+
+stack:
+  languages: ["Python 3.11+"]
+  frameworks: ["Pydantic 2.x", "Lark", "jsonschema", "PyYAML", "hatchling"]
+  databases: []
+  infrastructure: []
+  ci: "GitHub Actions"
+
+topology:
+  components:
+    - path: "src/limnalis"
+      responsibility: "Core package: parser, normalizer, loader, schema validation, CLI, diagnostics"
+      adrs: []
+    - path: "src/limnalis/models"
+      responsibility: "Pydantic AST node definitions (~50+ types), conformance result models, base model config"
+      adrs: []
+    - path: "grammar"
+      responsibility: "Lark Earley parser grammar for permissive surface syntax"
+      adrs: []
+    - path: "schemas"
+      responsibility: "Vendored JSON Schema definitions for AST, fixture corpus, and conformance results"
+      adrs: []
+    - path: "fixtures"
+      responsibility: "Test fixture corpus (YAML/JSON) for regression and conformance testing"
+      adrs: []
+    - path: "tests"
+      responsibility: "Pytest test suite: parser, normalizer, AST models, schema validation, CLI smoke, packaging"
+      adrs: []
+
+governance:
+  build-candidate-prefix: "bc"
+  circuit-breaker-threshold: 3
+  reviewer-required: true

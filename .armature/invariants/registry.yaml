@@ -1,0 +1,167 @@
+# Armature Invariant Registry
+# Machine-readable registry of all hard constraints.
+# Each entry maps to an enforcement mechanism and is referenced by governance files.
+
+invariants:
+  # --- Schema Governance ---
+  SCHEMA-001:
+    rule: "Every normalized AST must validate against the vendored limnalis_ast_schema before acceptance."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/schema.py
+      - tests/test_schema_validation.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  SCHEMA-002:
+    rule: "Vendored schemas must be version-pinned with version string in filename."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/schema.py
+      - tests/test_packaging_resources.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  SCHEMA-003:
+    rule: "Schema changes require version bump in pyproject.toml and updated filenames in schemas/."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by: []  # Process invariant, enforced by review
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  SCHEMA-004:
+    rule: "Fixture corpus must validate against limnalis_fixture_corpus_schema."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_schema_validation.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  # --- Grammar & Parser ---
+  PARSER-001:
+    rule: "The Lark grammar must accept all valid Limnalis surface syntax. Parser is permissive; normalizer enforces constraints."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_parser.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  PARSER-002:
+    rule: "grammar/limnalis.lark is the single source of truth for surface syntax. No inline grammar definitions."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/parser.py
+      - tests/test_packaging_resources.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  PARSER-003:
+    rule: "Grammar changes must not silently alter parse tree structure for existing valid inputs."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_parser.py
+      - tests/test_normalizer.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  # --- AST Models ---
+  MODEL-001:
+    rule: "All AST node types must be Pydantic BaseModel subclasses inheriting from LimnalisModel."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/models/base.py
+      - src/limnalis/models/ast.py
+      - tests/test_ast_models.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  MODEL-002:
+    rule: "All AST models must use extra='forbid'. Unknown fields must cause validation errors."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/models/base.py
+      - tests/test_ast_models.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  MODEL-003:
+    rule: "Pydantic model definitions must remain consistent with vendored JSON Schema."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_schema_validation.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  # --- Normalization ---
+  NORM-001:
+    rule: "Normalizer must be deterministic — identical parse trees must produce identical canonical AST output."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_normalizer.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  NORM-002:
+    rule: "Every non-trivial normalization decision must produce a structured diagnostic."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/normalizer.py
+      - tests/test_normalizer.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  NORM-003:
+    rule: "Normalizer must produce canonical AST output. One input, one output. No optional formatting."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_normalizer.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  # --- Fixture Corpus ---
+  FIXTURE-001:
+    rule: "Fixture corpus expected outputs are the conformance authority. Normalizer must match exactly."
+    severity: critical
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_normalizer.py
+      - .github/workflows/ci.yml
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  FIXTURE-002:
+    rule: "Fixture corpus version must match schema version and project version."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_packaging_resources.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+
+  FIXTURE-003:
+    rule: "JSON fixture files must be equivalent representations of their YAML counterparts."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_loader.py
+    referenced-in:
+      - .armature/invariants/invariants.md
