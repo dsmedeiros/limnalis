@@ -40,8 +40,10 @@ from .builtins import (
     synthesize_support as _synthesize_support,
 )
 from .models import (
+    BlockResult,
     ClaimClassification,
     ClaimEvidenceView,
+    ClaimResult,
     EvalNode,
     EvaluationEnvironment,
     LicenseResult,
@@ -53,6 +55,7 @@ from .models import (
     SupportResult,
     TransportResult,
     TruthCore,
+    sort_diagnostics,
 )
 
 Diagnostics = list[dict[str, Any]]
@@ -109,16 +112,24 @@ class StepResult(BaseModel):
         default_factory=dict
     )
     per_block_aggregates: dict[str, EvalNode] = Field(default_factory=dict)
+    claim_results: list[ClaimResult] = Field(default_factory=list)
+    block_results: list[BlockResult] = Field(default_factory=list)
     transport_results: dict[str, TransportResult] = Field(default_factory=dict)
     trace: list[PrimitiveTraceEvent] = Field(default_factory=list)
     diagnostics: Diagnostics = Field(default_factory=list)
 
 
 class SessionResult(BaseModel):
-    """Result of executing all steps in a session."""
+    """Result of executing all steps in a session.
+
+    Contains session-level state artifacts (baselines, adequacy store) aggregated
+    from the final step's machine state.
+    """
 
     session_id: str
     step_results: list[StepResult] = Field(default_factory=list)
+    baseline_states: dict[str, Any] = Field(default_factory=dict)
+    adequacy_store: dict[str, Any] = Field(default_factory=dict)
     diagnostics: Diagnostics = Field(default_factory=list)
 
 
@@ -128,6 +139,10 @@ class BundleResult(BaseModel):
     bundle_id: str
     session_results: list[SessionResult] = Field(default_factory=list)
     diagnostics: Diagnostics = Field(default_factory=list)
+
+
+# Alias: EvaluationResult is the top-level result type
+EvaluationResult = BundleResult
 
 
 # ---------------------------------------------------------------------------
@@ -666,8 +681,37 @@ def run_step(
         trace.append(_trace(phase, "execute_transport", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
-    # Assemble final result
+    # Assemble structured ClaimResult objects (deterministic claim order)
     # ------------------------------------------------------------------
+    claim_results: list[ClaimResult] = []
+    for claim in all_claims:
+        cc = classifications.get(claim.id)
+        claim_results.append(ClaimResult(
+            claim_id=claim.id,
+            classification=cc,
+            per_evaluator=per_claim_per_evaluator.get(claim.id, {}),
+            aggregate=per_claim_aggregates.get(claim.id),
+            license=per_claim_licenses.get(claim.id),
+            is_evaluable=cc.evaluable if cc is not None else True,
+        ))
+
+    # ------------------------------------------------------------------
+    # Assemble structured BlockResult objects (deterministic block order)
+    # ------------------------------------------------------------------
+    block_results: list[BlockResult] = []
+    for block in bundle.claimBlocks:
+        block_results.append(BlockResult(
+            block_id=block.id,
+            per_evaluator=per_block_per_evaluator.get(block.id, {}),
+            aggregate=per_block_aggregates.get(block.id),
+            claims=[c.id for c in block.claims],
+        ))
+
+    # ------------------------------------------------------------------
+    # Sort diagnostics deterministically and assemble final result
+    # ------------------------------------------------------------------
+    sorted_diags = sort_diagnostics(diags)
+
     return StepResult(
         step_id=step.id,
         step_context=step_ctx,
@@ -678,9 +722,11 @@ def run_step(
         per_claim_licenses=per_claim_licenses,
         per_block_per_evaluator=per_block_per_evaluator,
         per_block_aggregates=per_block_aggregates,
+        claim_results=claim_results,
+        block_results=block_results,
         transport_results=transport_results,
         trace=trace,
-        diagnostics=diags,
+        diagnostics=sorted_diags,
     )
 
 
@@ -718,10 +764,22 @@ def run_session(
         result = run_step(bundle, session, step, env, primitives, services, adjudicator)
         step_results.append(result)
 
+    # Extract session-level state artifacts from final step's machine state
+    baseline_states: dict[str, Any] = {}
+    adequacy_store: dict[str, Any] = {}
+    if step_results:
+        final_machine = step_results[-1].machine_state
+        baseline_states = {
+            bid: bs.model_dump() for bid, bs in final_machine.baseline_store.items()
+        }
+        adequacy_store = dict(final_machine.adequacy_store)
+
     return SessionResult(
         session_id=session.id,
         step_results=step_results,
-        diagnostics=diags,
+        baseline_states=baseline_states,
+        adequacy_store=adequacy_store,
+        diagnostics=sort_diagnostics(diags),
     )
 
 
@@ -757,5 +815,5 @@ def run_bundle(
     return BundleResult(
         bundle_id=bundle.id,
         session_results=session_results,
-        diagnostics=diags,
+        diagnostics=sort_diagnostics(diags),
     )

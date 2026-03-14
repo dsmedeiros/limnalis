@@ -229,6 +229,36 @@ class TransportResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Claim result (per-claim structured output)
+# ---------------------------------------------------------------------------
+
+
+class ClaimResult(BaseModel):
+    """Structured per-claim evaluation result."""
+
+    claim_id: str
+    classification: ClaimClassification | None = None
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    aggregate: EvalNode | None = None
+    license: LicenseResult | None = None
+    is_evaluable: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Block result (per-block structured output)
+# ---------------------------------------------------------------------------
+
+
+class BlockResult(BaseModel):
+    """Structured per-block evaluation result."""
+
+    block_id: str
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    aggregate: EvalNode | None = None
+    claims: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Baseline state
 # ---------------------------------------------------------------------------
 
@@ -281,6 +311,26 @@ class PrimitiveTraceEvent(BaseModel):
     primitive: str
     inputs_summary: str = ""
     result_summary: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics sorting helper
+# ---------------------------------------------------------------------------
+
+
+def sort_diagnostics(diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort diagnostics deterministically by (phase, code, subject).
+
+    Missing keys sort as empty string to ensure stable ordering.
+    """
+    return sorted(
+        diagnostics,
+        key=lambda d: (
+            d.get("phase", 0),
+            d.get("code", ""),
+            d.get("subject", d.get("claim_id", d.get("block_id", d.get("primitive", "")))),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
