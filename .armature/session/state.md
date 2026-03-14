@@ -9,26 +9,26 @@ Milestone 3B: Broaden Limnalis evaluator — transport semantics, policy overrid
 ## Task Status
 | Task | Status | Scope |
 |------|--------|-------|
-| T1 eval_expr delegated leaf dispatch | IN PROGRESS | runtime |
-| T2 synthesize_support + policy override | BLOCKED on T1 | runtime |
-| T3 evaluate_adequacy_set expansion | IN PROGRESS | runtime |
-| T4 compose_license | BLOCKED on T3 | runtime |
-| T5 execute_transport | BLOCKED on T1,T2 | runtime |
-| T6 apply_resolution_policy metadata | IN PROGRESS | runtime |
-| T7 EvaluationResult shaping | BLOCKED on T1-T6 | runtime |
-| T8 Conformance harness + CLI | BLOCKED on T7 | core+conformance |
-| T9 Unit tests for primitives | BLOCKED on T1-T6 | tests |
-| T10 Corpus conformance execution | BLOCKED on T8,T9 | tests |
-| T11 Docs note | BLOCKED on T10 | docs |
+| T1 eval_expr delegated leaf dispatch | DONE | runtime |
+| T2 synthesize_support + policy override | DONE | runtime |
+| T3 evaluate_adequacy_set expansion | DONE | runtime |
+| T4 compose_license | DONE | runtime |
+| T5 execute_transport | DONE | runtime |
+| T6 apply_resolution_policy metadata | DONE | runtime |
+| T7 EvaluationResult shaping | DONE | runtime |
+| T8 Conformance harness + CLI | DONE | core+conformance |
+| T9 Unit tests for primitives | DONE | tests |
+| T10 Corpus conformance execution | DONE | tests |
+| T11 Docs note | DONE | docs |
 
 ## Active Delegation
-Wave 1: T1, T3, T6 (parallel)
+{none — milestone 3B complete}
 
 ## Pending Reviews
 {none}
 
 ## Invariants Touched
-{none}
+RUNTIME-001 (phase count 12→13, compose_license added as phase 5)
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->
