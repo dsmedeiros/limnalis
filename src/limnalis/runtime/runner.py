@@ -577,6 +577,10 @@ def run_step(
                 "block_id": block.id,
                 "message": str(exc),
             })
+            per_block_aggregates[block.id] = EvalNode(
+                truth="N", reason=f"fold_error: {exc}"
+            )
+            per_block_per_evaluator[block.id] = {}
     trace.append(_trace(
         phase, "fold_block",
         inputs_summary=f"blocks={len(bundle.claimBlocks)}",
