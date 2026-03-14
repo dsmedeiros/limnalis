@@ -9,6 +9,7 @@ from typing import Any
 from lark import Token, Tree
 from pydantic import ValidationError
 
+from .diagnostics import Diagnostic, SourcePosition, SourceSpan
 from .models.ast import (
     AdequacyAssessmentNode,
     AnchorNode,
@@ -124,7 +125,7 @@ class Normalizer:
 
         frame: FrameNode | FramePatternNode | None = None
         evaluators: list[EvaluatorNode] = []
-        resolution_policies: list[ResolutionPolicyNode] = []
+        resolution_policies: list[tuple[ResolutionPolicyNode, Tree[Any]]] = []
         baselines: list[BaselineNode] = []
         evidence: list[EvidenceNode] = []
         evidence_relations: list[EvidenceRelationNode] = []
@@ -150,10 +151,17 @@ class Normalizer:
                 self._ensure_not_set(frame, "frame")
                 frame = self._normalize_frame_block(block_tree)
             elif head == "evaluator":
-                evaluators.append(self._normalize_evaluator(head_tokens, block_tree, diagnostics))
+                evaluators.append(
+                    self._normalize_evaluator(
+                        head_tokens,
+                        block_tree,
+                        diagnostics,
+                        source_tree=tree_item,
+                    )
+                )
             elif head == "resolution_policy":
                 resolution_policies.append(
-                    self._normalize_resolution_policy(head_tokens, block_tree)
+                    (self._normalize_resolution_policy(head_tokens, block_tree), tree_item)
                 )
             elif head == "baseline":
                 baselines.append(self._normalize_baseline(head_tokens, block_tree))
@@ -163,14 +171,21 @@ class Normalizer:
                 evidence_relations.append(
                     self._normalize_evidence_relation(head_tokens, block_tree)
                 )
-            elif head == "anchor":
+            elif head in {"anchor", "fictional_anchor"}:
                 anchors.append(self._normalize_anchor(head_tokens, block_tree, diagnostics))
             elif head == "joint_adequacy":
                 joint_adequacies.append(
                     self._normalize_joint_adequacy(head_tokens, block_tree, diagnostics)
                 )
             elif head == "bridge":
-                bridges.append(self._normalize_bridge(head_tokens, block_tree))
+                bridges.append(
+                    self._normalize_bridge(
+                        head_tokens,
+                        block_tree,
+                        diagnostics,
+                        source_tree=tree_item,
+                    )
+                )
             elif head in self._CLAIM_BLOCK_STRATA:
                 block_counts[head] += 1
                 claim_blocks.append(
@@ -190,6 +205,7 @@ class Normalizer:
 
         resolution_policy = self._select_bundle_resolution_policy(
             bundle_id,
+            bundle_tree,
             resolution_policies,
             evaluators,
             diagnostics,
@@ -262,6 +278,8 @@ class Normalizer:
         head_tokens: list[str],
         block_tree: Tree[Any],
         diagnostics: list[dict[str, Any]],
+        *,
+        source_tree: Tree[Any],
     ) -> EvaluatorNode:
         if len(head_tokens) != 2:
             raise NormalizationError(
@@ -275,18 +293,17 @@ class Normalizer:
             target = self._EVALUATOR_FIELD_MAP[key]
             if key == "kind" and value == "audit":
                 value = "process"
-                diagnostics.append(
-                    {
-                        "severity": "warning",
-                        "phase": "normalize",
-                        "subject": evaluator_id,
-                        "code": "evaluator_kind_canonicalized",
-                        "message": (
-                            "Canonicalized authored evaluator kind 'audit' to canonical "
-                            "AST kind 'process' because schema v0.2.2 does not admit "
-                            "'audit' as an Evaluator.kind value."
-                        ),
-                    }
+                self._append_diagnostic(
+                    diagnostics,
+                    severity="warning",
+                    subject=evaluator_id,
+                    code="evaluator_kind_canonicalized",
+                    message=(
+                        "Canonicalized authored evaluator kind 'audit' to canonical "
+                        "AST kind 'process' because schema v0.2.2 does not admit "
+                        "'audit' as an Evaluator.kind value."
+                    ),
+                    source_node=source_tree,
                 )
             payload[target] = value
         return self._build_model(
@@ -429,7 +446,11 @@ class Normalizer:
         diagnostics: list[dict[str, Any]],
     ) -> AnchorNode:
         if len(head_tokens) != 2:
-            raise NormalizationError("anchor blocks must be declared as 'anchor <id> { ... }'")
+            raise NormalizationError(
+                "anchor blocks must be declared as 'anchor <id> { ... }' or "
+                "'fictional_anchor <id> { ... }'"
+            )
+        anchor_kind = head_tokens[0]
         anchor_id = head_tokens[1]
         payload: dict[str, Any] = {}
         adequacy: list[AdequacyAssessmentNode] = []
@@ -460,7 +481,8 @@ class Normalizer:
                 continue
 
             head, nested_block = self._split_nested_block(tree)
-            if head != ["adequacy"]:
+            block_head = head[0]
+            if block_head not in {"adequacy", "assessment"}:
                 raise NormalizationError(
                     "normalization for nested block "
                     f"'{self._join_tokens(head)}' inside anchor blocks is not implemented yet"
@@ -473,12 +495,28 @@ class Normalizer:
                     index=len(adequacy) + 1,
                     block_tree=nested_block,
                     diagnostics=diagnostics,
+                    source_tree=tree,
+                    inline_id=self._extract_nested_block_id(head, block_head, "anchor"),
                 )
+            )
+
+        if anchor_kind == "fictional_anchor" and "subtype" not in payload:
+            payload["subtype"] = "idealization"
+            self._append_diagnostic(
+                diagnostics,
+                severity="info",
+                subject=anchor_id,
+                code="fictional_anchor_subtype_defaulted",
+                message=(
+                    f"Defaulted fictional_anchor '{anchor_id}' subtype to 'idealization' "
+                    "because the authored block omitted an explicit subtype."
+                ),
+                source_node=None,
             )
 
         return self._build_model(
             AnchorNode,
-            f"anchor '{anchor_id}'",
+            f"{anchor_kind} '{anchor_id}'",
             node="Anchor",
             id=anchor_id,
             adequacy=adequacy,
@@ -531,6 +569,7 @@ class Normalizer:
                     index=len(assessments) + 1,
                     block_tree=nested_block,
                     diagnostics=diagnostics,
+                    source_tree=tree,
                 )
             )
 
@@ -543,7 +582,14 @@ class Normalizer:
             **payload,
         )
 
-    def _normalize_bridge(self, head_tokens: list[str], block_tree: Tree[Any]) -> BridgeNode:
+    def _normalize_bridge(
+        self,
+        head_tokens: list[str],
+        block_tree: Tree[Any],
+        diagnostics: list[dict[str, Any]],
+        *,
+        source_tree: Tree[Any],
+    ) -> BridgeNode:
         if len(head_tokens) != 2:
             raise NormalizationError("bridge blocks must be declared as 'bridge <id> { ... }'")
         bridge_id = head_tokens[1]
@@ -584,7 +630,23 @@ class Normalizer:
             transport = self._normalize_transport(nested_block)
 
         if transport is None:
-            raise NormalizationError("bridge blocks must define a transport block")
+            transport = self._build_model(
+                TransportNode,
+                f"bridge '{bridge_id}' synthesized transport",
+                node="Transport",
+                mode="metadata_only",
+            )
+            self._append_diagnostic(
+                diagnostics,
+                severity="info",
+                subject=bridge_id,
+                code="bridge_transport_defaulted",
+                message=(
+                    "Synthesized Transport(mode='metadata_only') for bridge "
+                    f"'{bridge_id}' because the authored bridge omitted a transport block."
+                ),
+                source_node=source_tree,
+            )
 
         return self._build_model(
             BridgeNode,
@@ -633,6 +695,8 @@ class Normalizer:
         index: int,
         block_tree: Tree[Any],
         diagnostics: list[dict[str, Any]],
+        source_tree: Tree[Any],
+        inline_id: str | None = None,
     ) -> AdequacyAssessmentNode:
         fields = self._collect_flat_fields(
             block_tree,
@@ -659,20 +723,27 @@ class Normalizer:
             elif key == "basis":
                 payload["basis"] = self._parse_list(value_text)
 
+        if inline_id is not None:
+            if "id" in payload and payload["id"] != inline_id:
+                raise NormalizationError(
+                    f"{block_label} block for {parent_kind} '{parent_id}' defines "
+                    f"conflicting ids '{inline_id}' and '{payload['id']}'"
+                )
+            payload["id"] = inline_id
+
         if "id" not in payload:
             synth_id = f"{parent_id}#{block_label}{index}"
             payload["id"] = synth_id
-            diagnostics.append(
-                {
-                    "severity": "info",
-                    "phase": "normalize",
-                    "subject": parent_id,
-                    "code": f"{block_label}_id_synthesized",
-                    "message": (
-                        f"Synthesized {block_label} id '{synth_id}' for {parent_kind} "
-                        f"'{parent_id}' because the authored block omitted an explicit id."
-                    ),
-                }
+            self._append_diagnostic(
+                diagnostics,
+                severity="info",
+                subject=parent_id,
+                code=f"{block_label}_id_synthesized",
+                message=(
+                    f"Synthesized {block_label} id '{synth_id}' for {parent_kind} "
+                    f"'{parent_id}' because the authored block omitted an explicit id."
+                ),
+                source_node=source_tree,
             )
 
         return self._build_model(
@@ -1145,7 +1216,8 @@ class Normalizer:
     def _select_bundle_resolution_policy(
         self,
         bundle_id: str,
-        policies: list[ResolutionPolicyNode],
+        bundle_tree: Tree[Any],
+        policies: list[tuple[ResolutionPolicyNode, Tree[Any]]],
         evaluators: list[EvaluatorNode],
         diagnostics: list[dict[str, Any]],
     ) -> ResolutionPolicyNode:
@@ -1155,17 +1227,16 @@ class Normalizer:
                     "bundle without resolution_policy must have exactly one evaluator"
                 )
             evaluator_id = evaluators[0].id
-            diagnostics.append(
-                {
-                    "severity": "info",
-                    "phase": "normalize",
-                    "subject": bundle_id,
-                    "code": "resolution_policy_defaulted",
-                    "message": (
-                        "Synthesized ResolutionPolicy(id='rp0', kind='single') from the "
-                        f"lone evaluator '{evaluator_id}'."
-                    ),
-                }
+            self._append_diagnostic(
+                diagnostics,
+                severity="info",
+                subject=bundle_id,
+                code="resolution_policy_defaulted",
+                message=(
+                    "Synthesized ResolutionPolicy(id='rp0', kind='single') from the "
+                    f"lone evaluator '{evaluator_id}'."
+                ),
+                source_node=bundle_tree,
             )
             return self._build_model(
                 ResolutionPolicyNode,
@@ -1175,23 +1246,74 @@ class Normalizer:
                 kind="single",
                 members=[evaluator_id],
             )
-        primary = policies[0]
+        primary, _primary_tree = policies[0]
         if len(policies) > 1:
-            omitted_ids = [policy.id for policy in policies[1:]]
-            diagnostics.append(
-                {
-                    "severity": "warning",
-                    "phase": "normalize",
-                    "subject": bundle_id,
-                    "code": "extra_resolution_policy_omitted",
-                    "message": (
-                        "Canonical AST stores one bundle-level resolutionPolicy; "
-                        f"kept '{primary.id}' "
-                        f"and omitted additional authored resolution_policy blocks {omitted_ids}."
-                    ),
-                }
+            omitted_ids = [policy.id for policy, _tree in policies[1:]]
+            self._append_diagnostic(
+                diagnostics,
+                severity="warning",
+                subject=bundle_id,
+                code="extra_resolution_policy_omitted",
+                message=(
+                    "Canonical AST stores one bundle-level resolutionPolicy; "
+                    f"kept '{primary.id}' "
+                    f"and omitted additional authored resolution_policy blocks {omitted_ids}."
+                ),
+                source_node=policies[1][1],
             )
         return primary
+
+    def _append_diagnostic(
+        self,
+        diagnostics: list[dict[str, Any]],
+        *,
+        severity: str,
+        subject: str,
+        code: str,
+        message: str,
+        source_node: Tree[Any] | Token | None = None,
+    ) -> None:
+        diagnostics.append(
+            Diagnostic(
+                severity=severity,
+                phase="normalize",
+                subject=subject,
+                code=code,
+                message=message,
+                span=self._build_source_span(source_node),
+            ).model_dump(mode="json", exclude_none=True)
+        )
+
+    def _build_source_span(self, source_node: Tree[Any] | Token | None) -> SourceSpan | None:
+        if source_node is None:
+            return None
+
+        meta = source_node.meta if isinstance(source_node, Tree) else source_node
+        line = getattr(meta, "line", None)
+        column = getattr(meta, "column", None)
+        end_line = getattr(meta, "end_line", None)
+        end_column = getattr(meta, "end_column", None)
+        start_pos = getattr(meta, "start_pos", None)
+        end_pos = getattr(meta, "end_pos", None)
+
+        if None in {line, column, end_line, end_column, start_pos, end_pos}:
+            return None
+
+        return SourceSpan(
+            start=SourcePosition(line=line, column=column, offset=start_pos),
+            end=SourcePosition(line=end_line, column=end_column, offset=end_pos),
+        )
+
+    def _extract_nested_block_id(
+        self, head_tokens: list[str], block_kind: str, parent_label: str
+    ) -> str | None:
+        if len(head_tokens) == 1:
+            return None
+        if len(head_tokens) == 2:
+            return head_tokens[1]
+        raise NormalizationError(
+            f"{block_kind} blocks inside {parent_label} blocks may specify at most one id"
+        )
 
     def _collect_flat_fields(
         self,

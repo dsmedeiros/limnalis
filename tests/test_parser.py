@@ -78,3 +78,22 @@ def test_parser_accepts_all_fixture_corpus_sources() -> None:
             failures.append(f"{case['id']}: {exc}")
 
     assert failures == []
+
+
+def test_parser_accepts_fictional_anchor_examples() -> None:
+    parser = LimnalisParser()
+
+    default_tree = parser.parse_file(ROOT / "examples" / "fictional_anchor_default_subtype.lmn")
+    proxy_tree = parser.parse_file(ROOT / "examples" / "fictional_anchor_proxy_subtype.lmn")
+
+    default_bundle = default_tree.children[0].children[1]
+    proxy_bundle = proxy_tree.children[0].children[1]
+
+    assert any(
+        child.data == "nested_block" and child.children[0] == "fictional_anchor"
+        for child in default_bundle.children
+    )
+    assert any(
+        child.data == "nested_block" and child.children[0] == "fictional_anchor"
+        for child in proxy_bundle.children
+    )

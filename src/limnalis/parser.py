@@ -18,7 +18,7 @@ class LimnalisParser:
 
     def __init__(self) -> None:
         grammar = _read_resource_text("grammar", "limnalis.lark")
-        self._lark = Lark(grammar, start="start", parser="earley")
+        self._lark = Lark(grammar, start="start", parser="earley", propagate_positions=True)
 
     def parse_text(self, source: str) -> Any:
         return self._lark.parse(source)
