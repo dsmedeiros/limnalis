@@ -114,3 +114,27 @@ Enforcement: `test_packaging_resources.py`, review process.
 Rule: JSON fixture files must be equivalent representations of their YAML counterparts. Format drift is a defect.
 Rationale: Both formats must be usable interchangeably for testing.
 Enforcement: `test_loader.py`, review process.
+
+---
+
+## Runtime Execution
+
+**RUNTIME-001 — Phase Ordering** (high)
+Rule: The step runner must execute all 12 phases in strict ascending order (1-12). Phase ordering must not be altered without a spec change.
+Rationale: The evaluation model depends on phase ordering — evidence views must exist before claim classification, classification before expression evaluation, etc. Out-of-order execution produces incorrect results.
+Enforcement: `test_runtime_runner.py` phase trace assertions.
+
+**RUNTIME-002 — Primitive Uniform Shape** (high)
+Rule: All primitive operations must follow the uniform shape: `op(inputs, step_ctx, machine_state, services) -> (output, machine_state, diagnostics)` where practical.
+Rationale: Uniform shape enables injectable primitives, consistent tracing, and predictable error handling. Deviations create special cases in the runner.
+Enforcement: `primitives.py` Protocol definitions, `test_runtime_primitives.py`.
+
+**RUNTIME-003 — NoteExpr Bypass** (high)
+Rule: Non-evaluable NoteExpr claims must bypass eval_expr and support synthesis phases. The runner must not attempt to evaluate them.
+Rationale: NoteExpr claims are annotations, not truth-bearing claims. Evaluating them wastes resources and produces meaningless results.
+Enforcement: `test_runtime_runner.py` NoteExpr bypass tests, `test_runtime_primitives.py` classify_claim tests.
+
+**RUNTIME-004 — Injectable Primitives** (standard)
+Rule: PrimitiveSet must accept injected implementations for all 13 primitives. Stubbed primitives must raise NotImplementedError, not return silently.
+Rationale: Silent stubs mask missing implementations. NotImplementedError makes the gap visible in diagnostics and traces.
+Enforcement: `test_runtime_runner.py` custom injection tests.

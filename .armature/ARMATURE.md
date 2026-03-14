@@ -250,7 +250,7 @@ invariants:
 **Registry Rules:**
 
 - Every invariant must have a unique ID using the pattern `{CATEGORY}-{NNN}`
-- Every invariant must trace to at least one ADR (`defined-in`)
+- Every invariant should trace to at least one ADR (`defined-in`). For pre-1.0 projects where formal ADRs have not yet been written, invariants may reference `invariants.md` as their `defined-in` source. This is a bootstrap accommodation — once the project stabilizes, invariants should be backfilled with proper ADR references. The registry entry's `defined-in` field must never be empty.
 - Every critical-severity invariant must have at least one CI enforcement (`enforced-by.ci`)
 - Exceptions must include a rationale and reference a justifying ADR
 - The registry is the source of truth for which invariants exist; `invariants.md` is the human-readable rendering
@@ -342,6 +342,46 @@ Conversation → PRD → Task Graph → Delegation → Review → Acceptance
 - Do not read application source code — delegate exploration tasks instead
 - Checkpoint proactively at milestone boundaries; prefer fresh sessions over extended runs
 
+**Subagent spawning protocol:**
+
+Claude Code's Agent tool does not automatically load `.claude/agents/` files. The orchestrator must explicitly construct each delegation. The canonical pattern:
+
+1. **Read the subagent definition:** Read `.claude/agents/{name}.md` to get the subagent's instructions.
+2. **Read the scoped agents.md frontmatter:** Read the YAML frontmatter of the target scope's `agents.md` to identify invariants, ADRs, authority, and restrictions.
+3. **Compose the delegation prompt:** Combine the subagent instructions, scope context, and task-specific details into a single prompt for the Agent tool.
+4. **Spawn:** Use the Agent tool with `subagent_type: "general-purpose"` and the composed prompt.
+
+**Implementer delegation template:**
+```
+You are the {component} implementer. Read and follow your instructions:
+
+[paste content of .claude/agents/{component}-impl.md]
+
+Your task: {task description}
+
+Scope: {agents.md path}
+Invariants to respect: {invariant IDs from frontmatter}
+Files you may modify: {file list}
+
+When done, report: files changed, invariants touched, any discovered context.
+```
+
+**Reviewer delegation template:**
+```
+You are the reviewer. Read and follow your instructions:
+
+[paste content of .claude/agents/reviewer.md]
+
+Review this changeset:
+- Files modified: {list}
+- Declared scope: {scope}
+- Invariants touched: {list}
+
+Write your verdict to .armature/reviews/{task-id}.md
+```
+
+This explicit construction is intentional — it forces the orchestrator to think about scope and context before each delegation, preventing accidental scope creep.
+
 ### 4.3 Implementer
 
 **Template:** `.armature/personas/implementers/{component}.md`
@@ -430,6 +470,35 @@ Human ←→ Orchestrator → PRD → Taskmaster → [Planner?] → Implementer 
               ↑                                                                        ↓
               └──────────────────────── Accept / Reject / Escalate ────────────────────┘
 ```
+
+**Fast path (complexity ≤ 3):**
+
+Not every change warrants the full pipeline. For small, well-scoped work — bug fixes, config tweaks, single-file changes with clear scope — the orchestrator uses a streamlined flow:
+
+```
+Human → Orchestrator → Implementer → Reviewer → Accept
+```
+
+**Fast path criteria (all must hold):**
+- Change touches a single component scope (one `agents.md` boundary)
+- No new invariants or ADRs are involved
+- The human's intent is unambiguous — no discovery conversation needed
+- Estimated complexity ≤ 3 (trivial to straightforward)
+
+**Fast path skips:**
+- PRD generation
+- Taskmaster task creation (uses TodoWrite or inline tracking instead)
+- Planner involvement
+- Milestone decomposition
+
+**Fast path preserves:**
+- Scoped delegation (implementer reads its `agents.md`)
+- Reviewer check (never skipped) — reviewer still writes a structured verdict to `.armature/reviews/{task-id}.md`, not just an inline report. This keeps the governance journal consistent regardless of which path was used.
+- Structured commit message
+- Session state update
+- Journal entry if governance-relevant
+
+The orchestrator decides which path to use. When in doubt, use the full pipeline. The fast path is an optimization, not an escape hatch.
 
 **Phase A — Requirements:**
 1. Human describes intent conversationally to the orchestrator
@@ -727,6 +796,18 @@ The human never interacts with Taskmaster directly. The orchestrator manages the
 14. On `/checkpoint`, ensure all Taskmaster statuses are current
 
 For small, well-scoped work that doesn't warrant a PRD, the orchestrator can create tasks directly via `add_task` from conversation.
+
+**Fallback: When Taskmaster is unavailable:**
+
+Taskmaster is the preferred task management tool, but the orchestrator must degrade gracefully when it is not installed or its MCP server is not registered. The fallback protocol:
+
+1. **Detection:** At session start, the orchestrator checks whether Taskmaster MCP tools are available. If they are not, it proceeds in lightweight mode.
+2. **Lightweight task tracking:** The orchestrator uses its built-in TodoWrite tool (or a markdown task list in `.armature/session/state.md` under a `## Task Status` section) to track tasks, dependencies, and status. Each task entry must use the Taskmaster-compatible schema: `{ id, title, description, status, dependencies[], priority, complexity }`. This ensures tasks can be migrated to Taskmaster without reformatting when it becomes available.
+3. **No PRD parsing:** Without Taskmaster, the orchestrator decomposes work conversationally and records tasks directly using the same schema fields.
+4. **Complexity assessment:** The orchestrator estimates task complexity using judgment rather than Taskmaster's `analyze_project_complexity`. Tasks the orchestrator judges as complex still route through the planner.
+5. **Upgrade path:** When Taskmaster becomes available, the orchestrator can backfill the task graph from session state and resume with full Taskmaster integration. Because fallback tasks use the same schema, migration is a direct import — no reformatting required.
+
+The lightweight mode preserves all other governance guarantees: delegation boundaries, reviewer checks, session state, journal logging, and build candidates. Only persistent task graph management degrades.
 
 When the human changes direction mid-flight, the orchestrator updates affected tasks, adds/removes tasks, and confirms the revised plan — all through Taskmaster's MCP tools.
 

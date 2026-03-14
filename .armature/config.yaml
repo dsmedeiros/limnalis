@@ -21,7 +21,10 @@ topology:
       responsibility: "Core package: parser, normalizer, loader, schema validation, CLI, diagnostics"
       adrs: []
     - path: "src/limnalis/models"
-      responsibility: "Pydantic AST node definitions (~50+ types), conformance result models, base model config"
+      responsibility: "Pydantic AST node definitions (~60+ types), conformance result models, base model config"
+      adrs: []
+    - path: "src/limnalis/runtime"
+      responsibility: "Runtime execution layer: abstract machine models, primitive operations, step runner"
       adrs: []
     - path: "grammar"
       responsibility: "Lark Earley parser grammar for permissive surface syntax"
