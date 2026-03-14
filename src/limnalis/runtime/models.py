@@ -16,7 +16,7 @@ from ..models.ast import (
     FramePatternNode,
     TimeCtxNode,
 )
-from ..models.conformance import EvalSnapshot, SupportValue, TruthValue
+from ..models.conformance import EvalSnapshot, SupportValue, TransportStatus, TruthValue
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +175,56 @@ class JointAdequacyResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AnchorLicenseEntry(BaseModel):
+    """Per-anchor adequacy result within a license evaluation."""
+
+    anchor_id: str
+    task: str
+    truth: TruthValue
+    reason: str | None = None
+
+
+class JointLicenseEntry(BaseModel):
+    """Per-joint-group adequacy result within a license evaluation."""
+
+    joint_id: str
+    anchors: list[str]
+    truth: TruthValue
+    reason: str | None = None
+
+
+class LicenseOverall(BaseModel):
+    """Overall license truth and reason."""
+
+    truth: TruthValue
+    reason: str | None = None
+
+
 class LicenseResult(BaseModel):
     """Result of license composition for a claim."""
 
     claim_id: str
-    licensed: bool
+    overall: LicenseOverall
+    individual: list[AnchorLicenseEntry] = Field(default_factory=list)
+    joint: list[JointLicenseEntry] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Transport result
+# ---------------------------------------------------------------------------
+
+
+class TransportResult(BaseModel):
+    """Result of executing a transport query for a bridge."""
+
+    status: TransportStatus
+    srcAggregate: EvalNode | None = None
+    dstAggregate: EvalNode | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    mappedClaim: str | None = None
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    provenance: list[str] = Field(default_factory=list)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -218,7 +263,9 @@ class MachineState(BaseModel):
     resolution_store: ResolutionStore = Field(default_factory=ResolutionStore)
     baseline_store: dict[str, BaselineState] = Field(default_factory=dict)
     adequacy_store: dict[str, Any] = Field(default_factory=dict)
+    license_store: dict[str, Any] = Field(default_factory=dict)
     evidence_views: dict[str, ClaimEvidenceView] = Field(default_factory=dict)
+    transport_store: dict[str, TransportResult] = Field(default_factory=dict)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 

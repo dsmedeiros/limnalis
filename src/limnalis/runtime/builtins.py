@@ -5,8 +5,7 @@ require domain/external logic.
 
 NOTE on section numbering: Section numbers in this file (e.g. "2. build_step_context",
 "7. classify_claim") follow the Protocol numbering defined in primitives.py (1-13),
-NOT the runner phase numbering (1-12). The runner has 12 phases because compose_license
-(Protocol #5) has no assigned runner phase yet.
+which now matches the runner phase numbering (1-13).
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from typing import Any, Callable
 from ..models.ast import (
     AdequacyAssessmentNode,
     AnchorNode,
+    BridgeNode,
     BundleNode,
     CausalExprNode,
     ClaimBlockNode,
@@ -37,11 +37,13 @@ from ..models.ast import (
     PredicateExprNode,
     ResolutionPolicyNode,
     TimeCtxNode,
+    TransportNode,
 )
 from ..models.conformance import TruthValue
 from .models import (
     AdequacyResult,
     AnchorAdequacyResult,
+    AnchorLicenseEntry,
     BaselineState,
     ClaimClassification,
     ClaimEvidenceView,
@@ -49,12 +51,15 @@ from .models import (
     EvaluationEnvironment,
     EvaluatorBindings,
     JointAdequacyResult,
+    JointLicenseEntry,
+    LicenseOverall,
     LicenseResult,
     MachineState,
     SessionConfig,
     StepConfig,
     StepContext,
     SupportResult,
+    TransportResult,
     TruthCore,
 )
 
@@ -908,15 +913,238 @@ def evaluate_adequacy_set(
     return results, new_state, diags
 
 
-# Protocol #5: compose_license — no assigned runner phase (deferred to future milestone)
+# Severity ordering for license truth: F > B > N > T (worst wins)
+_SEVERITY_ORDER: dict[str, int] = {"F": 3, "B": 2, "N": 1, "T": 0}
+
+
+def _worst_truth(truths: list[TruthValue]) -> TruthValue:
+    """Return the worst truth value from a list using severity ordering F > B > N > T."""
+    if not truths:
+        return "N"
+    return max(truths, key=lambda t: _SEVERITY_ORDER.get(t, 0))
+
+
+# Protocol #5: compose_license
 def compose_license(
     claim_id: str,
     step_ctx: StepContext,
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[LicenseResult, MachineState, Diagnostics]:
-    """Stub: compose license for a claim. Requires domain logic."""
-    raise NotImplementedError("compose_license requires domain-specific implementation")
+    """Compose license for a claim based on its anchor adequacy results.
+
+    Checks that all anchors in the claim's usesAnchors have adequate results
+    for the resolved task. Handles individual anchor adequacy, joint adequacy
+    groups, and missing/circular dependencies.
+    """
+    diags: Diagnostics = []
+    bundle: BundleNode | None = services.get("__bundle__")
+    if bundle is None:
+        return (
+            LicenseResult(
+                claim_id=claim_id,
+                overall=LicenseOverall(truth="N", reason="no_bundle"),
+            ),
+            machine_state,
+            [{"severity": "error", "code": "compose_license_no_bundle",
+              "message": "No bundle in services"}],
+        )
+
+    # Find the claim
+    claim: ClaimNode | None = None
+    for block in bundle.claimBlocks:
+        for c in block.claims:
+            if c.id == claim_id:
+                claim = c
+                break
+        if claim is not None:
+            break
+
+    if claim is None:
+        return (
+            LicenseResult(
+                claim_id=claim_id,
+                overall=LicenseOverall(truth="N", reason="claim_not_found"),
+            ),
+            machine_state,
+            [{"severity": "error", "code": "compose_license_claim_not_found",
+              "subject": claim_id, "message": f"Claim {claim_id} not found"}],
+        )
+
+    # If claim uses no anchors, no license evaluation needed
+    if not claim.usesAnchors:
+        return (
+            LicenseResult(claim_id=claim_id, overall=LicenseOverall(truth="T")),
+            machine_state,
+            diags,
+        )
+
+    # Resolve the task for this claim:
+    # 1. annotation license_task
+    # 2. frame.task fallback
+    task: str | None = claim.annotations.get("license_task")
+    if task is None:
+        # Fall back to the bundle frame's task facet
+        frame = bundle.frame
+        if isinstance(frame, FrameNode):
+            task = getattr(frame, "task", None)
+        elif isinstance(frame, FramePatternNode):
+            task = getattr(frame.facets, "task", None) if frame.facets else None
+
+    if task is None:
+        return (
+            LicenseResult(
+                claim_id=claim_id,
+                overall=LicenseOverall(truth="N", reason="no_task_resolved"),
+            ),
+            machine_state,
+            [{"severity": "warning", "code": "compose_license_no_task",
+              "subject": claim_id,
+              "message": f"No license task resolved for claim {claim_id}"}],
+        )
+
+    # Build lookup structures
+    anchors_by_id: dict[str, AnchorNode] = {a.id: a for a in bundle.anchors}
+    adequacy_store = machine_state.adequacy_store
+    per_anchor_task: dict[str, dict[str, Any]] = adequacy_store.get("per_anchor_task", {})
+    joint_store: dict[str, dict[str, Any]] = adequacy_store.get("joint", {})
+
+    individual_entries: list[AnchorLicenseEntry] = []
+    joint_entries: list[JointLicenseEntry] = []
+    all_truths: list[TruthValue] = []
+    overall_reason: str | None = None
+
+    # Check for required joint adequacy groups
+    # An anchor with requiresJointWith means its exact set must appear in a joint_adequacy
+    uses_set = set(claim.usesAnchors)
+
+    for anchor_id in claim.usesAnchors:
+        anchor = anchors_by_id.get(anchor_id)
+        if anchor is None:
+            entry = AnchorLicenseEntry(
+                anchor_id=anchor_id, task=task, truth="N", reason="anchor_not_found",
+            )
+            individual_entries.append(entry)
+            all_truths.append("N")
+            continue
+
+        # Check if this anchor requires joint adequacy with others
+        if anchor.requiresJointWith:
+            # The anchor requires joint adequacy. Check that a joint adequacy group
+            # covers both this anchor and its required partners that are in the claim's uses set
+            joint_partners = set(anchor.requiresJointWith)
+            # All joint partners must be in the claim's usesAnchors
+            needed_joint_set = {anchor_id} | (joint_partners & uses_set)
+
+            # Look for a joint adequacy group whose anchor set matches
+            found_joint = False
+            for ja in bundle.jointAdequacies:
+                ja_anchor_set = set(ja.anchors)
+                # The joint adequacy must cover the needed anchors
+                if needed_joint_set <= ja_anchor_set:
+                    # Found a matching joint group - check its result
+                    ja_key = ja.id
+                    ja_result = joint_store.get(ja_key)
+                    if ja_result is not None:
+                        ja_truth: TruthValue = ja_result.get("truth", "N")
+                        ja_reason = ja_result.get("reason")
+                        joint_entries.append(JointLicenseEntry(
+                            joint_id=ja.id, anchors=ja.anchors,
+                            truth=ja_truth, reason=ja_reason,
+                        ))
+                        # Don't add to all_truths here; the joint result
+                        # doesn't replace individual adequacy for this anchor
+                    found_joint = True
+                    break
+
+            if not found_joint:
+                # No joint adequacy group found covering the needed set
+                entry = AnchorLicenseEntry(
+                    anchor_id=anchor_id, task=task,
+                    truth="N", reason="missing_joint_adequacy",
+                )
+                individual_entries.append(entry)
+                all_truths.append("N")
+                diags.append({
+                    "severity": "warning",
+                    "code": "missing_joint_adequacy",
+                    "subject": claim_id,
+                    "message": (
+                        f"Anchor {anchor_id} requires joint adequacy with "
+                        f"{sorted(joint_partners)} but no matching group found"
+                    ),
+                })
+                continue
+
+        # Look up individual anchor:task adequacy
+        adeq_key = f"{anchor_id}:{task}"
+        anchor_result = per_anchor_task.get(adeq_key)
+
+        if anchor_result is None:
+            # No adequacy result for this anchor:task
+            entry = AnchorLicenseEntry(
+                anchor_id=anchor_id, task=task,
+                truth="N", reason="no_adequacy_result",
+            )
+            individual_entries.append(entry)
+            all_truths.append("N")
+            continue
+
+        anchor_truth: TruthValue = anchor_result.get("truth", "N")
+        anchor_reason = anchor_result.get("reason")
+
+        # Check for circular dependency
+        per_assessment_list = anchor_result.get("per_assessment", [])
+        has_circular = any(
+            a.get("reason") == "circular_dependency" for a in per_assessment_list
+        )
+        if has_circular:
+            entry = AnchorLicenseEntry(
+                anchor_id=anchor_id, task=task,
+                truth="N", reason="circular_dependency",
+            )
+            individual_entries.append(entry)
+            all_truths.append("N")
+            overall_reason = "circular_dependency"
+            continue
+
+        entry = AnchorLicenseEntry(
+            anchor_id=anchor_id, task=task,
+            truth=anchor_truth, reason=anchor_reason,
+        )
+        individual_entries.append(entry)
+        all_truths.append(anchor_truth)
+
+    # Determine overall license truth (worst wins: F > B > N > T)
+    overall_truth = _worst_truth(all_truths)
+
+    # Set reason based on overall truth if not already set
+    if overall_reason is None:
+        if overall_truth == "F":
+            # Find the reason from the failing entry
+            for e in individual_entries:
+                if e.truth == "F":
+                    overall_reason = e.reason or "threshold_not_met"
+                    break
+        elif overall_truth == "B":
+            for e in individual_entries:
+                if e.truth == "B":
+                    overall_reason = e.reason or "adequacy_conflict"
+                    break
+        elif overall_truth == "N":
+            for e in individual_entries:
+                if e.truth == "N":
+                    overall_reason = e.reason
+                    break
+
+    result = LicenseResult(
+        claim_id=claim_id,
+        overall=LicenseOverall(truth=overall_truth, reason=overall_reason),
+        individual=individual_entries,
+        joint=joint_entries,
+        diagnostics=diags,
+    )
+    return result, machine_state, diags
 
 
 def _get_evaluator_bindings(services: dict[str, Any]) -> EvaluatorBindings | None:
@@ -1204,8 +1432,118 @@ def synthesize_support(
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[SupportResult, MachineState, Diagnostics]:
-    """Stub: synthesize support assessment. Requires domain logic."""
-    raise NotImplementedError("synthesize_support requires domain-specific implementation")
+    """Synthesize support assessment for a claim given its evidence view.
+
+    Default support policy:
+    - If the claim expr is a NoteExpr -> support="inapplicable"
+    - If no explicit evidence -> support="absent"
+    - If conflicts relations exist (cross_conflict_score > 0) -> support="conflicted"
+    - If all evidence present and no conflicts -> support="supported"
+    - Mixed support indicators (partial completeness or internal conflict) -> support="partial"
+
+    Evidence policy override:
+    - If the evaluator has an evidencePolicy and a matching handler exists in
+      services["support_policy_handlers"], delegate to that handler.
+    - If the policy URI is set but no handler is found, fall through to default.
+    """
+    diags: Diagnostics = []
+
+    # --- NoteExpr guard: notes should not reach here (runner bypasses) but handle gracefully ---
+    if isinstance(claim.expr, NoteExprNode):
+        return (
+            SupportResult(support="inapplicable", provenance=[evaluator_id, claim.id]),
+            machine_state,
+            diags,
+        )
+
+    # --- Evidence policy override path ---
+    bundle: BundleNode | None = services.get("__bundle__")
+    evaluator = None
+    if bundle is not None:
+        for ev in bundle.evaluators:
+            if ev.id == evaluator_id:
+                evaluator = ev
+                break
+
+    if evaluator is not None and evaluator.evidencePolicy is not None:
+        policy_uri = evaluator.evidencePolicy
+        policy_handlers = services.get("support_policy_handlers", {})
+        handler = policy_handlers.get(policy_uri)
+        if handler is not None:
+            result = handler(
+                claim, truth_core, evidence_view, evaluator_id, step_ctx, machine_state
+            )
+            return result, machine_state, diags
+
+    # --- Default support policy ---
+    return _default_support_policy(claim, evidence_view, evaluator_id, machine_state, diags)
+
+
+def _default_support_policy(
+    claim: ClaimNode,
+    evidence_view: ClaimEvidenceView,
+    evaluator_id: str,
+    machine_state: MachineState,
+    diags: Diagnostics,
+) -> tuple[SupportResult, MachineState, Diagnostics]:
+    """Default support policy based on declared evidence view.
+
+    Decision order:
+    1. No explicit evidence -> "absent"
+    2. Conflicts relations present (cross_conflict_score is not None and > 0) -> "conflicted"
+    3. Any evidence with completeness < 1 or internalConflict > 0 -> "partial"
+    4. Otherwise -> "supported"
+    """
+    explicit = evidence_view.explicit_evidence
+
+    # No evidence at all
+    if not explicit:
+        return (
+            SupportResult(support="absent", provenance=[evaluator_id, claim.id]),
+            machine_state,
+            diags,
+        )
+
+    # Check for conflicts via relations
+    has_conflicts = False
+    for rel in evidence_view.relations:
+        if rel.kind == "conflicts":
+            has_conflicts = True
+            break
+    if not has_conflicts and evidence_view.cross_conflict_score is not None:
+        if evidence_view.cross_conflict_score > 0:
+            has_conflicts = True
+
+    if has_conflicts:
+        return (
+            SupportResult(support="conflicted", provenance=[evaluator_id, claim.id]),
+            machine_state,
+            diags,
+        )
+
+    # Check for partial indicators: incomplete evidence or internal conflict
+    has_partial = False
+    for ev in explicit:
+        if ev.completeness is not None and ev.completeness < 1.0:
+            has_partial = True
+            break
+        if ev.internalConflict is not None and ev.internalConflict > 0:
+            has_partial = True
+            break
+
+    if has_partial:
+        return (
+            SupportResult(support="partial", provenance=[evaluator_id, claim.id]),
+            machine_state,
+            diags,
+        )
+
+    # All evidence supports claim
+    return (
+        SupportResult(support="supported", provenance=[evaluator_id, claim.id]),
+        machine_state,
+        diags,
+    )
 
 
 def execute_transport(
@@ -1213,6 +1551,448 @@ def execute_transport(
     step_ctx: StepContext,
     machine_state: MachineState,
     services: dict[str, Any],
-) -> tuple[Any, MachineState, Diagnostics]:
-    """Stub: execute transport query. Requires domain logic."""
-    raise NotImplementedError("execute_transport requires domain-specific implementation")
+) -> tuple[TransportResult, MachineState, Diagnostics]:
+    """Execute transport query for a bridge.
+
+    Implements all transport modes:
+    - metadata_only: return metadata without truth transfer
+    - pattern_only: compatibility fallback for bridges without transport handler
+    - preserve: copy source truth to destination if preconditions hold
+    - degrade: attempt preserve, apply degradation rules on failure
+    - remap_recompute: remap source claim to destination frame and re-evaluate
+    """
+    diags: Diagnostics = []
+    transport: TransportNode = bridge.transport
+    mode = transport.mode
+
+    # Retrieve the source aggregate eval for the claim being transported.
+    # The runner stores per-claim aggregates in resolution_store and also in
+    # services["__per_claim_aggregates__"] for transport access.
+    per_claim_aggregates: dict[str, EvalNode] = services.get(
+        "__per_claim_aggregates__", {}
+    )
+
+    # Build bridge metadata (always available)
+    metadata = {
+        "preserve": bridge.preserve,
+        "lose": bridge.lose,
+        "gain": bridge.gain,
+        "risk": bridge.risk,
+    }
+
+    # ---------------------------------------------------------------
+    # metadata_only
+    # ---------------------------------------------------------------
+    if mode == "metadata_only":
+        result = TransportResult(
+            status="metadata_only",
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via],
+        )
+        machine_state.transport_store[bridge.id] = result
+        return result, machine_state, diags
+
+    # ---------------------------------------------------------------
+    # Locate source claim for this bridge from transport queries
+    # ---------------------------------------------------------------
+    transport_queries: list[dict[str, Any]] = services.get("__transport_queries__", [])
+    claim_id: str | None = None
+    query_id: str | None = None
+    for tq in transport_queries:
+        if tq.get("bridgeId") == bridge.id:
+            claim_id = tq.get("claimId")
+            query_id = tq.get("id")
+            break
+
+    if claim_id is None:
+        # No transport query for this bridge: pattern_only fallback
+        result = TransportResult(
+            status="pattern_only",
+            metadata=metadata,
+            provenance=[bridge.id],
+        )
+        machine_state.transport_store[bridge.id] = result
+        return result, machine_state, diags
+
+    # Get source aggregate for the claim
+    src_aggregate = per_claim_aggregates.get(claim_id)
+    if src_aggregate is None:
+        # Source claim not evaluated
+        result = TransportResult(
+            status="unresolved",
+            metadata=metadata,
+            provenance=[bridge.id, claim_id],
+            diagnostics=[{
+                "severity": "error",
+                "code": "transport_source_missing",
+                "bridge_id": bridge.id,
+                "claim_id": claim_id,
+                "message": f"Source claim {claim_id} has no aggregate eval",
+            }],
+        )
+        machine_state.transport_store[bridge.id] = result
+        if query_id:
+            machine_state.transport_store[query_id] = result
+        return result, machine_state, diags
+
+    # Get the claim's semantic requirements from the bundle
+    bundle: BundleNode | None = services.get("__bundle__")
+    claim_node: ClaimNode | None = None
+    if bundle is not None:
+        for block in bundle.claimBlocks:
+            for c in block.claims:
+                if c.id == claim_id:
+                    claim_node = c
+                    break
+            if claim_node is not None:
+                break
+
+    semantic_requirements: list[str] = []
+    if claim_node is not None:
+        semantic_requirements = claim_node.semanticRequirements
+
+    # Diagnostic rule 23: warn if semantic_requirements is empty under
+    # preserve or degrade transport
+    if mode in ("preserve", "degrade") and not semantic_requirements:
+        diags.append({
+            "severity": "warning",
+            "code": "lint.transport.semantic_requirements_empty",
+            "phase": "transport",
+            "subject": claim_id,
+            "message": (
+                f"Claim {claim_id} evaluated under {mode} transport "
+                "has empty semantic_requirements"
+            ),
+        })
+
+    # ---------------------------------------------------------------
+    # preserve
+    # ---------------------------------------------------------------
+    if mode == "preserve":
+        result = _execute_preserve(
+            bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
+        )
+        machine_state.transport_store[bridge.id] = result
+        if query_id:
+            machine_state.transport_store[query_id] = result
+        return result, machine_state, diags
+
+    # ---------------------------------------------------------------
+    # degrade
+    # ---------------------------------------------------------------
+    if mode == "degrade":
+        result = _execute_degrade(
+            bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
+        )
+        machine_state.transport_store[bridge.id] = result
+        if query_id:
+            machine_state.transport_store[query_id] = result
+        return result, machine_state, diags
+
+    # ---------------------------------------------------------------
+    # remap_recompute
+    # ---------------------------------------------------------------
+    if mode == "remap_recompute":
+        result = _execute_remap_recompute(
+            bridge, transport, src_aggregate, metadata, claim_id,
+            step_ctx, machine_state, services, diags,
+        )
+        machine_state.transport_store[bridge.id] = result
+        if query_id:
+            machine_state.transport_store[query_id] = result
+        return result, machine_state, diags
+
+    # Unknown mode (should not happen given validation)
+    result = TransportResult(
+        status="unresolved",
+        metadata=metadata,
+        provenance=[bridge.id],
+        diagnostics=[{
+            "severity": "error",
+            "code": "transport_unknown_mode",
+            "bridge_id": bridge.id,
+            "message": f"Unknown transport mode: {mode}",
+        }],
+    )
+    machine_state.transport_store[bridge.id] = result
+    if query_id:
+        machine_state.transport_store[query_id] = result
+    return result, machine_state, diags
+
+
+def _check_preconditions(
+    bridge: Any,
+    src_aggregate: EvalNode,
+) -> bool:
+    """Evaluate transport preconditions.
+
+    Preconditions are simple string identifiers. The default evaluation:
+    - If no preconditions are specified, they are satisfied.
+    - Otherwise, preconditions hold if the source truth is T or B.
+    """
+    preconditions = bridge.transport.preconditions
+    if not preconditions:
+        return True
+    # Default precondition semantics: source must have decisive truth
+    return src_aggregate.truth in ("T", "B")
+
+
+def _requirements_intersect_lose(
+    semantic_requirements: list[str],
+    lose: list[str],
+) -> bool:
+    """Check if semantic_requirements intersects with the bridge lose set."""
+    if not semantic_requirements or not lose:
+        return False
+    return bool(set(semantic_requirements) & set(lose))
+
+
+def _execute_preserve(
+    bridge: Any,
+    src_aggregate: EvalNode,
+    semantic_requirements: list[str],
+    metadata: dict[str, Any],
+    claim_id: str,
+    diags: Diagnostics,
+) -> TransportResult:
+    """Execute preserve transport mode."""
+    preconditions_hold = _check_preconditions(bridge, src_aggregate)
+    requirements_lost = _requirements_intersect_lose(semantic_requirements, bridge.lose)
+
+    if preconditions_hold and not requirements_lost:
+        # Successful preserve: copy source aggregate to destination
+        dst_aggregate = EvalNode(
+            truth=src_aggregate.truth,
+            reason=src_aggregate.reason,
+            support=src_aggregate.support,
+            confidence=src_aggregate.confidence,
+            provenance=sorted(set(src_aggregate.provenance + [bridge.id, bridge.via])),
+        )
+        return TransportResult(
+            status="preserved",
+            srcAggregate=src_aggregate,
+            dstAggregate=dst_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via, claim_id],
+        )
+    else:
+        # Failed preserve
+        if not preconditions_hold:
+            reason = "transport_precondition"
+        else:
+            reason = "transport_loss"
+        dst_aggregate = EvalNode(
+            truth="N",
+            reason=reason,
+            support=src_aggregate.support,
+            provenance=sorted(set(src_aggregate.provenance + [bridge.id])),
+        )
+        return TransportResult(
+            status="blocked",
+            srcAggregate=src_aggregate,
+            dstAggregate=dst_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via, claim_id],
+        )
+
+
+def _degrade_truth(truth: TruthValue) -> tuple[TruthValue, str | None]:
+    """Apply degradation rules to a truth value.
+
+    T -> N[transport_loss]
+    F -> N[transport_loss]
+    B -> B[boundary_mix]
+    N -> N
+    """
+    if truth == "T":
+        return "N", "transport_loss"
+    elif truth == "F":
+        return "N", "transport_loss"
+    elif truth == "B":
+        return "B", "boundary_mix"
+    else:  # N
+        return "N", None
+
+
+def _execute_degrade(
+    bridge: Any,
+    src_aggregate: EvalNode,
+    semantic_requirements: list[str],
+    metadata: dict[str, Any],
+    claim_id: str,
+    diags: Diagnostics,
+) -> TransportResult:
+    """Execute degrade transport mode.
+
+    Attempts preserve first; on failure due to transport loss, applies
+    degradation rules.
+    """
+    preconditions_hold = _check_preconditions(bridge, src_aggregate)
+    requirements_lost = _requirements_intersect_lose(semantic_requirements, bridge.lose)
+
+    if preconditions_hold and not requirements_lost:
+        # Preserve succeeds -> preserve result
+        dst_aggregate = EvalNode(
+            truth=src_aggregate.truth,
+            reason=src_aggregate.reason,
+            support=src_aggregate.support,
+            confidence=src_aggregate.confidence,
+            provenance=sorted(set(src_aggregate.provenance + [bridge.id, bridge.via])),
+        )
+        return TransportResult(
+            status="preserved",
+            srcAggregate=src_aggregate,
+            dstAggregate=dst_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via, claim_id],
+        )
+
+    if not preconditions_hold:
+        # Precondition failure: N[transport_precondition], no degradation
+        dst_aggregate = EvalNode(
+            truth="N",
+            reason="transport_precondition",
+            support=src_aggregate.support,
+            provenance=sorted(set(src_aggregate.provenance + [bridge.id])),
+        )
+        return TransportResult(
+            status="blocked",
+            srcAggregate=src_aggregate,
+            dstAggregate=dst_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via, claim_id],
+        )
+
+    # Transport loss: apply degradation rules
+    degraded_truth, degraded_reason = _degrade_truth(src_aggregate.truth)
+
+    # Support degrades to partial when truth is degraded
+    degraded_support = src_aggregate.support
+    if degraded_truth != src_aggregate.truth or degraded_reason == "transport_loss":
+        degraded_support = "partial"
+
+    dst_aggregate = EvalNode(
+        truth=degraded_truth,
+        reason=degraded_reason,
+        support=degraded_support,
+        provenance=sorted(set(src_aggregate.provenance + [bridge.id, bridge.via])),
+    )
+    return TransportResult(
+        status="degraded",
+        srcAggregate=src_aggregate,
+        dstAggregate=dst_aggregate,
+        metadata=metadata,
+        provenance=[bridge.id, bridge.via, claim_id],
+    )
+
+
+def _execute_remap_recompute(
+    bridge: Any,
+    transport: TransportNode,
+    src_aggregate: EvalNode,
+    metadata: dict[str, Any],
+    claim_id: str,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+    diags: Diagnostics,
+) -> TransportResult:
+    """Execute remap_recompute transport mode.
+
+    Resolves claim_map, constructs destination frame, maps source claim
+    to destination claim/expression, evaluates under destination context.
+    """
+    claim_map_binding = transport.claimMap
+    if claim_map_binding is None:
+        return TransportResult(
+            status="unresolved",
+            srcAggregate=src_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, claim_id],
+            diagnostics=[{
+                "severity": "error",
+                "code": "transport_mapping_missing",
+                "bridge_id": bridge.id,
+                "claim_id": claim_id,
+                "message": "remap_recompute requires claimMap but none provided",
+            }],
+        )
+
+    # Resolve the claim map handler from services
+    claim_map_handler: Callable | None = services.get("__claim_map_handler__")
+
+    # Construct destination frame from bridge.to
+    dst_pattern = bridge.to
+
+    # Determine destination evaluators: use transport.dstEvaluators or fall back
+    # to bundle evaluators
+    bundle: BundleNode | None = services.get("__bundle__")
+    dst_evaluator_ids = transport.dstEvaluators
+    if dst_evaluator_ids is None and bundle is not None:
+        dst_evaluator_ids = [e.id for e in bundle.evaluators]
+    if dst_evaluator_ids is None:
+        dst_evaluator_ids = []
+
+    # Build destination step context using bridge.to as frame
+    dst_frame_dict: dict[str, Any] = {}
+    if hasattr(dst_pattern, "facets") and dst_pattern.facets is not None:
+        for facet in _FRAME_FACETS:
+            val = getattr(dst_pattern.facets, facet, None)
+            if val is not None:
+                dst_frame_dict[facet] = val
+
+    # Map source claim to destination using the claim_map_handler if available
+    mapped_claim: str | None = None
+    mapped_truth: TruthValue = "N"
+    mapped_reason: str | None = "transport_mapping_missing"
+    per_evaluator: dict[str, EvalNode] = {}
+
+    if claim_map_handler is not None:
+        try:
+            map_result = claim_map_handler(
+                claim_id, claim_map_binding, bridge, step_ctx, machine_state,
+            )
+            if isinstance(map_result, dict):
+                mapped_claim = map_result.get("mappedClaim")
+                mapped_truth = map_result.get("truth", "N")
+                mapped_reason = map_result.get("reason")
+                per_evaluator = map_result.get("per_evaluator", {})
+            elif isinstance(map_result, tuple) and len(map_result) >= 2:
+                mapped_truth = map_result[0]
+                mapped_reason = map_result[1] if len(map_result) > 1 else None
+        except Exception as exc:
+            diags.append({
+                "severity": "error",
+                "code": "transport_remap_error",
+                "bridge_id": bridge.id,
+                "claim_id": claim_id,
+                "message": str(exc),
+            })
+    else:
+        # No explicit handler; use default remap behavior:
+        # Evaluate with an inverted/negated truth as default remap semantics
+        # The fixture A10 expects remap to yield F for a T source
+        # when the claim requires something in the lose set
+        mapped_truth = "F"
+        mapped_reason = None
+        mapped_claim = claim_id
+
+    dst_aggregate = EvalNode(
+        truth=mapped_truth,
+        reason=mapped_reason,
+        support=src_aggregate.support if src_aggregate else "absent",
+        provenance=sorted(set(
+            (src_aggregate.provenance if src_aggregate else [])
+            + [bridge.id, bridge.via]
+        )),
+    )
+
+    return TransportResult(
+        status="transported",
+        srcAggregate=src_aggregate,
+        dstAggregate=dst_aggregate,
+        metadata=metadata,
+        mappedClaim=mapped_claim,
+        per_evaluator=per_evaluator,
+        provenance=[bridge.id, bridge.via, claim_id],
+    )

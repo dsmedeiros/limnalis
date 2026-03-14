@@ -44,12 +44,14 @@ from .models import (
     ClaimEvidenceView,
     EvalNode,
     EvaluationEnvironment,
+    LicenseResult,
     MachineState,
     PrimitiveTraceEvent,
     SessionConfig,
     StepConfig,
     StepContext,
     SupportResult,
+    TransportResult,
     TruthCore,
 )
 
@@ -73,8 +75,6 @@ class PrimitiveSet:
     build_step_context: Callable[..., StepContext] = _build_step_context
     resolve_baseline: Callable[..., Any] = _resolve_baseline
     evaluate_adequacy_set: Callable[..., Any] = _evaluate_adequacy_set
-    # NOTE: compose_license is part of the Protocol contract (primitives.py #5)
-    # but is not yet scheduled in any runner phase. Deferred to a future milestone.
     compose_license: Callable[..., Any] = _compose_license
     build_evidence_view: Callable[..., Any] = _build_evidence_view
     classify_claim: Callable[..., ClaimClassification] = _classify_claim
@@ -104,10 +104,12 @@ class StepResult(BaseModel):
         default_factory=dict
     )
     per_claim_aggregates: dict[str, EvalNode] = Field(default_factory=dict)
+    per_claim_licenses: dict[str, LicenseResult] = Field(default_factory=dict)
     per_block_per_evaluator: dict[str, dict[str, EvalNode]] = Field(
         default_factory=dict
     )
     per_block_aggregates: dict[str, EvalNode] = Field(default_factory=dict)
+    transport_results: dict[str, TransportResult] = Field(default_factory=dict)
     trace: list[PrimitiveTraceEvent] = Field(default_factory=list)
     diagnostics: Diagnostics = Field(default_factory=list)
 
@@ -171,21 +173,22 @@ def run_step(
     services: dict[str, Any] | None = None,
     adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> StepResult:
-    """Execute the normative 12-phase evaluation order for a single step.
+    """Execute the normative 13-phase evaluation order for a single step.
 
     Phases:
         1. build step context
         2. resolve refs/policies
         3. baseline service init/reuse (stubbed)
         4. adequacy evaluation (stubbed)
-        5. evidence view construction
-        6. claim classification
-        7. per-evaluator expr evaluation (stubbed)
-        8. support synthesis (stubbed)
-        9. assemble per-evaluator evals
-       10. apply resolution policy
-       11. fold blocks
-       12. execute transport queries (stubbed)
+        5. compose license (per-claim)
+        6. evidence view construction
+        7. claim classification
+        8. per-evaluator expr evaluation (stubbed)
+        9. support synthesis (stubbed)
+       10. assemble per-evaluator evals
+       11. apply resolution policy
+       12. fold blocks
+       13. execute transport queries (stubbed)
     """
     if primitives is None:
         primitives = PrimitiveSet()
@@ -331,9 +334,43 @@ def run_step(
         trace.append(_trace(phase, "evaluate_adequacy_set", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
-    # Phase 5: evidence view construction
+    # Phase 5: compose license (per-claim)
     # ------------------------------------------------------------------
     phase = 5
+    per_claim_licenses: dict[str, LicenseResult] = {}
+    for claim in all_claims:
+        if not claim.usesAnchors:
+            continue
+        try:
+            license_result, machine, lic_diags = primitives.compose_license(
+                claim.id, step_ctx, machine, services
+            )
+            per_claim_licenses[claim.id] = license_result
+            # Store in machine state license_store
+            machine.license_store[claim.id] = license_result.model_dump()
+            diags.extend(lic_diags)
+        except NotImplementedError as exc:
+            diags.append(_stubbed_diag(phase, "compose_license", exc))
+            break
+        except Exception as exc:
+            diags.append({
+                "severity": "error",
+                "code": "phase_error",
+                "phase": phase,
+                "primitive": "compose_license",
+                "claim_id": claim.id,
+                "message": str(exc),
+            })
+    trace.append(_trace(
+        phase, "compose_license",
+        inputs_summary=f"claims_with_anchors={sum(1 for c in all_claims if c.usesAnchors)}",
+        result_summary=f"licensed={len(per_claim_licenses)}",
+    ))
+
+    # ------------------------------------------------------------------
+    # Phase 6: evidence view construction
+    # ------------------------------------------------------------------
+    phase = 6
     evidence_views: dict[str, ClaimEvidenceView] = {}
     for claim in all_claims:
         try:
@@ -361,9 +398,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 6: claim classification
+    # Phase 7: claim classification
     # ------------------------------------------------------------------
-    phase = 6
+    phase = 7
     classifications: dict[str, ClaimClassification] = {}
     for claim in all_claims:
         try:
@@ -385,9 +422,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 7: per-evaluator expr evaluation (stubbed)
+    # Phase 8: per-evaluator expr evaluation (stubbed)
     # ------------------------------------------------------------------
-    phase = 7
+    phase = 8
     per_claim_truth: dict[str, dict[str, TruthCore]] = {}
     eval_expr_ok = True
     for claim in all_claims:
@@ -432,9 +469,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 8: support synthesis (stubbed)
+    # Phase 9: support synthesis (stubbed)
     # ------------------------------------------------------------------
-    phase = 8
+    phase = 9
     per_claim_support: dict[str, dict[str, SupportResult]] = {}
     synth_ok = True
     for claim in all_claims:
@@ -481,9 +518,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 9: assemble per-evaluator evals
+    # Phase 10: assemble per-evaluator evals
     # ------------------------------------------------------------------
-    phase = 9
+    phase = 10
     per_claim_per_evaluator: dict[str, dict[str, EvalNode]] = {}
     for claim in all_claims:
         cc = classifications.get(claim.id)
@@ -527,9 +564,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 10: apply resolution policy
+    # Phase 11: apply resolution policy
     # ------------------------------------------------------------------
-    phase = 10
+    phase = 11
     per_claim_aggregates: dict[str, EvalNode] = {}
     for claim_id, evals_by_ev in per_claim_per_evaluator.items():
         try:
@@ -554,9 +591,9 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 11: fold blocks
+    # Phase 12: fold blocks
     # ------------------------------------------------------------------
-    phase = 11
+    phase = 12
     per_block_per_evaluator: dict[str, dict[str, EvalNode]] = {}
     per_block_aggregates: dict[str, EvalNode] = {}
     for block in bundle.claimBlocks:
@@ -591,19 +628,29 @@ def run_step(
     ))
 
     # ------------------------------------------------------------------
-    # Phase 12: execute transport queries (stubbed)
+    # Phase 13: execute transport queries
     # ------------------------------------------------------------------
-    phase = 12
+    phase = 13
+    # Inject per-claim aggregates into services so execute_transport can access them
+    services["__per_claim_aggregates__"] = per_claim_aggregates
+    transport_results: dict[str, TransportResult] = {}
     try:
         for bridge in bundle.bridges:
-            _, machine, tr_diags = primitives.execute_transport(
+            tr_result, machine, tr_diags = primitives.execute_transport(
                 bridge, step_ctx, machine, services
             )
             diags.extend(tr_diags)
+            # Store transport result keyed by bridge id
+            if isinstance(tr_result, TransportResult):
+                transport_results[bridge.id] = tr_result
+        # Also gather any query-keyed results from machine state
+        for key, tr in machine.transport_store.items():
+            if key not in transport_results:
+                transport_results[key] = tr
         trace.append(_trace(
             phase, "execute_transport",
             inputs_summary=f"bridges={len(bundle.bridges)}",
-            result_summary="ok",
+            result_summary=f"ok, results={len(transport_results)}",
         ))
     except NotImplementedError as exc:
         diags.append(_stubbed_diag(phase, "execute_transport", exc))
@@ -628,8 +675,10 @@ def run_step(
         per_claim_classifications=classifications,
         per_claim_per_evaluator=per_claim_per_evaluator,
         per_claim_aggregates=per_claim_aggregates,
+        per_claim_licenses=per_claim_licenses,
         per_block_per_evaluator=per_block_per_evaluator,
         per_block_aggregates=per_block_aggregates,
+        transport_results=transport_results,
         trace=trace,
         diagnostics=diags,
     )

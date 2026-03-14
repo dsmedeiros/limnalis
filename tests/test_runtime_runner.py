@@ -83,6 +83,7 @@ EXPECTED_PRIMITIVES = [
     "resolve_ref",
     "resolve_baseline",
     "evaluate_adequacy_set",
+    "compose_license",
     "build_evidence_view",
     "classify_claim",
     "eval_expr",
@@ -95,15 +96,15 @@ EXPECTED_PRIMITIVES = [
 
 
 class TestPhaseTraceOrder:
-    """Verify the runner executes all 12 phases in order."""
+    """Verify the runner executes all 13 phases in order."""
 
-    def test_trace_contains_all_12_phases(self):
+    def test_trace_contains_all_13_phases(self):
         bundle = _bundle()
         result = run_step(bundle, _session(), _step(), _env())
 
-        assert len(result.trace) == 12
+        assert len(result.trace) == 13
         phases = [event.phase for event in result.trace]
-        assert phases == list(range(1, 13))
+        assert phases == list(range(1, 14))
 
     def test_trace_primitive_names_match(self):
         bundle = _bundle()
@@ -303,7 +304,7 @@ class TestRunSession:
         result = run_session(bundle, session, _env())
 
         for step_result in result.step_results:
-            assert len(step_result.trace) == 12
+            assert len(step_result.trace) == 13
 
     def test_run_session_empty_steps_produces_diagnostic(self):
         session = SessionConfig(id="sess_empty", steps=[])
