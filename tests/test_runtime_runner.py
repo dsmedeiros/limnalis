@@ -246,6 +246,37 @@ class TestCustomInjectedPrimitives:
 
 
 # ---------------------------------------------------------------------------
+# Fold block fallback
+# ---------------------------------------------------------------------------
+
+
+class TestFoldBlockFallback:
+    """Verify phase 11 writes fallback entries when fold_block raises."""
+
+    def test_fold_block_error_produces_fallback_aggregate(self):
+        def failing_fold_block(block, per_claim_agg, per_claim_per_ev, classifications, policy, adjudicator=None):
+            raise RuntimeError("simulated fold failure")
+
+        primitives = PrimitiveSet(fold_block=failing_fold_block)
+        bundle = _bundle()
+        result = run_step(bundle, _session(), _step(), _env(), primitives=primitives)
+
+        # Block should still appear in aggregates with fallback N truth
+        assert "blk1" in result.per_block_aggregates
+        assert result.per_block_aggregates["blk1"].truth == "N"
+        assert "fold_error" in result.per_block_aggregates["blk1"].reason
+
+        # Per-evaluator should have empty dict fallback
+        assert "blk1" in result.per_block_per_evaluator
+        assert result.per_block_per_evaluator["blk1"] == {}
+
+        # Diagnostic should be recorded
+        fold_diags = [d for d in result.diagnostics if d.get("primitive") == "fold_block"]
+        assert len(fold_diags) == 1
+        assert fold_diags[0]["severity"] == "error"
+
+
+# ---------------------------------------------------------------------------
 # run_session and run_bundle
 # ---------------------------------------------------------------------------
 

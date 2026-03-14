@@ -487,6 +487,45 @@ class TestApplyResolutionPolicy:
         with pytest.raises(ValueError, match="adjudicator callable"):
             apply_resolution_policy({"ev1": EvalNode(truth="T", provenance=["ev1"])}, policy)
 
+    def test_adjudicated_filters_to_policy_members(self):
+        ev1 = EvalNode(truth="T", provenance=["ev1"])
+        ev2 = EvalNode(truth="F", provenance=["ev2"])
+        ev3 = EvalNode(truth="T", provenance=["ev3"])
+        policy = _policy_adjudicated("ev1", "ev2")
+
+        received = {}
+
+        def fake_resolver(per_evaluator: dict[str, EvalNode]) -> EvalNode:
+            received.update(per_evaluator)
+            return EvalNode(truth="B", reason="adjudicated_result", provenance=["adj"])
+
+        result = apply_resolution_policy(
+            {"ev1": ev1, "ev2": ev2, "ev3": ev3}, policy, adjudicator=fake_resolver,
+        )
+        assert result.truth == "B"
+        # Adjudicator should only receive ev1 and ev2, not ev3
+        assert "ev1" in received
+        assert "ev2" in received
+        assert "ev3" not in received
+
+    def test_adjudicated_empty_filter_returns_n(self):
+        ev3 = EvalNode(truth="T", provenance=["ev3"])
+        policy = _policy_adjudicated("ev1", "ev2")
+
+        called = []
+
+        def fake_resolver(per_evaluator: dict[str, EvalNode]) -> EvalNode:
+            called.append(True)
+            return EvalNode(truth="B", reason="should_not_reach", provenance=["adj"])
+
+        result = apply_resolution_policy(
+            {"ev3": ev3}, policy, adjudicator=fake_resolver,
+        )
+        assert result.truth == "N"
+        assert result.reason == "no_evaluators"
+        # Adjudicator should NOT have been called
+        assert len(called) == 0
+
 
 # ===================================================================
 # Tests: fold_block

@@ -431,6 +431,8 @@ def apply_resolution_policy(
             filtered = {k: v for k, v in per_evaluator.items() if k in policy.members}
         else:
             filtered = per_evaluator
+        if not filtered:
+            return EvalNode(truth="N", reason="no_evaluators")
         return adjudicator(filtered)
 
     raise ValueError(f"Unknown resolution policy kind: {policy.kind}")
