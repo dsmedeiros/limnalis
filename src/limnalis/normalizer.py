@@ -502,6 +502,17 @@ class Normalizer:
 
         if anchor_kind == "fictional_anchor" and "subtype" not in payload:
             payload["subtype"] = "idealization"
+            self._append_diagnostic(
+                diagnostics,
+                severity="info",
+                subject=anchor_id,
+                code="fictional_anchor_subtype_defaulted",
+                message=(
+                    f"Defaulted fictional_anchor '{anchor_id}' subtype to 'idealization' "
+                    "because the authored block omitted an explicit subtype."
+                ),
+                source_node=None,
+            )
 
         return self._build_model(
             AnchorNode,

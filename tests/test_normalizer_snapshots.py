@@ -80,3 +80,9 @@ def test_fictional_anchor_examples_match_normalized_ast_snapshots(example_name: 
 
     assert result.canonical_ast is not None
     assert result.canonical_ast.to_schema_data() == snapshot
+    expected_diagnostic_codes = (
+        ["fictional_anchor_subtype_defaulted"]
+        if example_name == "fictional_anchor_default_subtype"
+        else []
+    )
+    assert [diagnostic["code"] for diagnostic in result.diagnostics] == expected_diagnostic_codes
