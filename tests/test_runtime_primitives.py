@@ -424,9 +424,18 @@ class TestApplyResolutionPolicy:
         result = apply_resolution_policy({"ev1": ev_n1, "ev2": ev_n2}, policy)
         assert result.truth == "N"
 
-    def test_union_support_aggregation_supported_wins(self):
+    def test_union_support_aggregation_partial_wins_over_supported(self):
+        """Per spec: conflicted > partial > supported > inapplicable > absent."""
         ev1 = EvalNode(truth="T", support="supported", provenance=["ev1"])
         ev2 = EvalNode(truth="T", support="partial", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.support == "partial"
+
+    def test_union_support_aggregation_supported_when_all_supported(self):
+        ev1 = EvalNode(truth="T", support="supported", provenance=["ev1"])
+        ev2 = EvalNode(truth="T", support="supported", provenance=["ev2"])
         policy = _policy_union("ev1", "ev2")
 
         result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
@@ -507,6 +516,112 @@ class TestApplyResolutionPolicy:
         assert "ev1" in received
         assert "ev2" in received
         assert "ev3" not in received
+
+    # --- metadata: confidence and provenance across policies ---
+
+    def test_single_propagates_confidence_and_provenance(self):
+        """Single policy copies full EvalNode including confidence and provenance."""
+        ev = EvalNode(
+            truth="T", reason="ok", support="supported",
+            confidence=0.85, provenance=["src1", "eval1"],
+        )
+        policy = _policy_single("ev1")
+        result = apply_resolution_policy({"ev1": ev}, policy)
+        assert result.confidence == 0.85
+        assert set(result.provenance) == {"eval1", "src1"}
+
+    def test_priority_propagates_confidence_and_provenance(self):
+        """Priority policy copies full EvalNode from selected evaluator."""
+        ev1 = EvalNode(truth="N", confidence=0.5, provenance=["ev1"])
+        ev2 = EvalNode(truth="T", reason="chosen", confidence=0.9, provenance=["ev2", "src_a"])
+        policy = _policy_priority("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "T"
+        assert result.confidence == 0.9
+        assert result.provenance == ["ev2", "src_a"]
+
+    def test_priority_all_N_provenance_is_union(self):
+        """All N evaluators: combined provenance in all_non_decisive result."""
+        ev1 = EvalNode(truth="N", provenance=["ev1", "src1"])
+        ev2 = EvalNode(truth="N", provenance=["ev2", "src2"])
+        policy = _policy_priority("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "N"
+        assert set(result.provenance) == {"ev1", "src1", "ev2", "src2"}
+        # Provenance must be deterministically sorted
+        assert result.provenance == sorted(result.provenance)
+
+    def test_union_confidence_is_none(self):
+        """Paraconsistent union: confidence defaults to None."""
+        ev1 = EvalNode(truth="T", confidence=0.9, provenance=["ev1"])
+        ev2 = EvalNode(truth="T", confidence=0.7, provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.confidence is None
+
+    def test_union_provenance_deterministic_sorted(self):
+        """Paraconsistent union: provenance is sorted union."""
+        ev1 = EvalNode(truth="T", provenance=["z_src", "a_src"])
+        ev2 = EvalNode(truth="T", provenance=["m_src", "a_src"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.provenance == ["a_src", "m_src", "z_src"]
+
+    def test_union_support_conflicted_when_truth_B(self):
+        """T+F => B, support must be conflicted even if evaluator supports are 'supported'."""
+        ev1 = EvalNode(truth="T", support="supported", provenance=["ev1"])
+        ev2 = EvalNode(truth="F", support="supported", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "B"
+        assert result.support == "conflicted"
+
+    def test_union_support_conflicted_propagates_from_evaluator(self):
+        """If any evaluator has conflicted support, result is conflicted."""
+        ev1 = EvalNode(truth="T", support="conflicted", provenance=["ev1"])
+        ev2 = EvalNode(truth="T", support="supported", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.support == "conflicted"
+
+    def test_union_support_inapplicable_when_all_inapplicable(self):
+        """All evaluators inapplicable => inapplicable."""
+        ev1 = EvalNode(truth="T", support="inapplicable", provenance=["ev1"])
+        ev2 = EvalNode(truth="T", support="inapplicable", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.support == "inapplicable"
+
+    def test_union_support_absent_fallback(self):
+        """All evaluators absent => absent."""
+        ev1 = EvalNode(truth="T", support="absent", provenance=["ev1"])
+        ev2 = EvalNode(truth="T", support="absent", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.support == "absent"
+
+    def test_adjudicated_preserves_adjudicator_provenance(self):
+        """Adjudicated: result preserves adjudicator's provenance."""
+        ev1 = EvalNode(truth="T", provenance=["ev1"])
+        policy = _policy_adjudicated("ev1")
+
+        def fake_adj(per_evaluator: dict[str, EvalNode]) -> EvalNode:
+            return EvalNode(
+                truth="T", reason="adj_ok", support="supported",
+                confidence=0.95, provenance=["adj_binding", "adj_model"],
+            )
+
+        result = apply_resolution_policy({"ev1": ev1}, policy, adjudicator=fake_adj)
+        assert result.confidence == 0.95
+        assert result.provenance == ["adj_binding", "adj_model"]
 
     def test_adjudicated_empty_filter_returns_n(self):
         ev3 = EvalNode(truth="T", provenance=["ev3"])

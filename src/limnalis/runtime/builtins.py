@@ -14,26 +14,41 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..models.ast import (
+    AdequacyAssessmentNode,
+    AnchorNode,
     BundleNode,
+    CausalExprNode,
     ClaimBlockNode,
     ClaimNode,
+    CriterionExprNode,
+    DeclarationExprNode,
+    DynamicExprNode,
+    EmergenceExprNode,
     EvidenceNode,
     EvidenceRelationNode,
     FacetValueMap,
     FrameNode,
     FrameOrPatternNode,
     FramePatternNode,
+    JointAdequacyNode,
+    JudgedExprNode,
+    LogicalExprNode,
     NoteExprNode,
+    PredicateExprNode,
     ResolutionPolicyNode,
     TimeCtxNode,
 )
 from ..models.conformance import TruthValue
 from .models import (
+    AdequacyResult,
+    AnchorAdequacyResult,
     BaselineState,
     ClaimClassification,
     ClaimEvidenceView,
     EvalNode,
     EvaluationEnvironment,
+    EvaluatorBindings,
+    JointAdequacyResult,
     LicenseResult,
     MachineState,
     SessionConfig,
@@ -325,21 +340,35 @@ def _aggregate_truth(values: list[TruthValue]) -> TruthValue:
     return result
 
 
-def _aggregate_support(evals: list[EvalNode]) -> str | None:
-    """Aggregate support values.
+def _aggregate_support(
+    evals: list[EvalNode],
+    aggregate_truth: TruthValue | None = None,
+) -> str | None:
+    """Aggregate support values for paraconsistent union.
 
-    Per spec: union semantics — if any supported, result is supported;
-    if any partial, partial; if any conflicted, conflicted; else absent.
+    Priority order per spec:
+    - conflicted if any evaluator conflicted OR aggregate truth is B[evaluator_conflict]
+    - else partial if any partial
+    - else supported if any supported
+    - else inapplicable if all inapplicable
+    - else absent
     """
     supports = [e.support for e in evals if e.support is not None]
     if not supports:
         return None
-    if "supported" in supports:
-        return "supported"
-    if "partial" in supports:
-        return "partial"
+
+    # If aggregate truth is B (evaluator_conflict), force conflicted
+    if aggregate_truth == "B":
+        return "conflicted"
+
     if "conflicted" in supports:
         return "conflicted"
+    if "partial" in supports:
+        return "partial"
+    if "supported" in supports:
+        return "supported"
+    if all(s == "inapplicable" for s in supports):
+        return "inapplicable"
     return "absent"
 
 
@@ -380,21 +409,21 @@ def apply_resolution_policy(
         evals = list(filtered.values())
         truths = [e.truth for e in evals]
         agg_truth = _aggregate_truth(truths)
-        agg_support = _aggregate_support(evals)
 
-        # Determine reason and conflict support
+        # Determine reason
         reason: str | None = None
         truth_set = set(truths)
         if "T" in truth_set and "F" in truth_set:
             reason = "evaluator_conflict"
-            # When evaluators disagree (truth=B), mark support as conflicted
-            agg_support = "conflicted"
         else:
             # Preserve unique inherited reason
             reasons = [e.reason for e in evals if e.reason is not None]
             unique_reasons = list(dict.fromkeys(reasons))
             if len(unique_reasons) == 1:
                 reason = unique_reasons[0]
+
+        # Support aggregation (uses aggregate truth for conflict detection)
+        agg_support = _aggregate_support(evals, aggregate_truth=agg_truth)
 
         # Provenance = union
         prov: set[str] = set()
@@ -534,14 +563,349 @@ def resolve_baseline(
     raise NotImplementedError("resolve_baseline requires domain-specific implementation")
 
 
+def _detect_basis_cycles(
+    assessment_id: str,
+    basis: list[str],
+    all_claims: dict[str, Any],
+    all_anchors: dict[str, AnchorNode],
+    visited: set[str] | None = None,
+) -> bool:
+    """Detect circular basis dependency for an adequacy assessment.
+
+    An assessment A depends on assessment B if A.basis references a claim
+    that uses an anchor whose adequacy includes B. Follow the chain and
+    detect if we revisit the starting assessment.
+    """
+    if visited is None:
+        visited = set()
+    if assessment_id in visited:
+        return True
+    visited = visited | {assessment_id}
+
+    for claim_id in basis:
+        claim = all_claims.get(claim_id)
+        if claim is None:
+            continue
+        # The claim uses anchors; each of those anchors' assessments are
+        # transitive dependencies
+        for anchor_id in getattr(claim, "usesAnchors", []):
+            anchor = all_anchors.get(anchor_id)
+            if anchor is None:
+                continue
+            for aa in anchor.adequacy:
+                if _detect_basis_cycles(aa.id, aa.basis, all_claims, all_anchors, visited):
+                    return True
+    return False
+
+
+def _evaluate_single_assessment(
+    aa: AdequacyAssessmentNode,
+    all_claims: dict[str, Any],
+    all_anchors: dict[str, AnchorNode],
+    services: dict[str, Any],
+) -> tuple[AdequacyResult, Diagnostics]:
+    """Evaluate a single adequacy assessment and return its result."""
+    diags: Diagnostics = []
+
+    # Check for circular basis dependency (diagnostic rule 25)
+    if aa.basis and _detect_basis_cycles(aa.id, aa.basis, all_claims, all_anchors):
+        diags.append({
+            "severity": "error",
+            "code": "lint.adequacy.circular_basis",
+            "phase": "license",
+            "subject": aa.id,
+            "message": f"Circular basis dependency detected for assessment {aa.id}",
+        })
+        return AdequacyResult(
+            assessment_id=aa.id,
+            task=aa.task,
+            producer=aa.producer,
+            adequate=False,
+            truth="N",
+            reason="circular_dependency",
+            score=None,
+            threshold=aa.threshold,
+            provenance=[aa.producer, aa.id],
+        ), diags
+
+    # Determine the effective score
+    effective_score = aa.score
+
+    # If score is "N" (explicitly marked as not-available), treat as None
+    if effective_score == "N":
+        effective_score = None
+
+    # If no score provided, check if a method handler is available in services
+    if effective_score is None:
+        method_handler = services.get("adequacy_handlers", {}).get(aa.method)
+        if method_handler is not None:
+            computed = method_handler(aa)
+            if isinstance(computed, (int, float)):
+                effective_score = float(computed)
+
+    # Determine adequacy
+    if effective_score is not None:
+        adequate = effective_score >= aa.threshold
+        truth: TruthValue = "T" if adequate else "F"
+    else:
+        # Score-omitted computed assessments: adequate by default
+        adequate = True
+        truth = "T"
+
+    return AdequacyResult(
+        assessment_id=aa.id,
+        task=aa.task,
+        producer=aa.producer,
+        adequate=adequate,
+        truth=truth,
+        reason=None,
+        score=effective_score,
+        threshold=aa.threshold,
+        provenance=[aa.producer, aa.id],
+    ), diags
+
+
+def _aggregate_adequacy_by_policy(
+    assessments: list[AdequacyResult],
+    policy_kind: str,
+    policy_order: list[str] | None = None,
+    adjudicator_handler: Callable[..., Any] | None = None,
+) -> tuple[TruthValue, str | None]:
+    """Aggregate multiple assessment results under a given policy kind.
+
+    Returns (truth, reason).
+    """
+    if not assessments:
+        return "N", "no_assessments"
+
+    if policy_kind == "single":
+        # Single: use the sole assessment directly
+        return assessments[0].truth, assessments[0].reason
+
+    elif policy_kind == "paraconsistent_union":
+        truths = [a.truth for a in assessments]
+        agg = _aggregate_truth(truths)
+        truth_set = set(truths)
+        reason: str | None = None
+        if "T" in truth_set and "F" in truth_set:
+            agg = "B"
+            reason = "method_conflict"
+        elif agg == "B":
+            reason = "method_conflict"
+        return agg, reason
+
+    elif policy_kind == "priority_order":
+        order = policy_order or [a.producer for a in assessments]
+        producer_map = {a.producer: a for a in assessments}
+        for pid in order:
+            if pid in producer_map and producer_map[pid].truth != "N":
+                return producer_map[pid].truth, producer_map[pid].reason
+        return "N", "all_non_decisive"
+
+    elif policy_kind == "adjudicated":
+        if adjudicator_handler is not None:
+            result = adjudicator_handler(assessments)
+            if isinstance(result, tuple):
+                return result
+            return result.truth if hasattr(result, "truth") else "N", None
+        # No handler: fall back to paraconsistent_union
+        return _aggregate_adequacy_by_policy(assessments, "paraconsistent_union")
+
+    return "N", f"unknown_policy_{policy_kind}"
+
+
 def evaluate_adequacy_set(
     anchor_ids: list[str],
     step_ctx: StepContext,
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[dict[str, Any], MachineState, Diagnostics]:
-    """Stub: evaluate adequacy for a set of anchors. Requires domain logic."""
-    raise NotImplementedError("evaluate_adequacy_set requires domain-specific implementation")
+    """Evaluate adequacy for a set of anchors.
+
+    For each anchor, evaluates individual adequacy assessments, groups them
+    by task, and aggregates using the anchor's adequacy_policy (or defaults
+    to 'single' when only one assessment per task).
+
+    Also evaluates joint adequacy groups.
+
+    Diagnostic rules implemented:
+    - Rule 24: lint.adequacy.missing_policy_multi_assessment
+    - Rule 25: lint.adequacy.circular_basis
+    """
+    diags: Diagnostics = []
+    bundle: BundleNode | None = services.get("__bundle__")
+    if bundle is None:
+        # No bundle available - cannot evaluate adequacy
+        return {}, machine_state, diags
+
+    # Build lookup maps
+    anchors_by_id: dict[str, AnchorNode] = {a.id: a for a in bundle.anchors}
+    policies_by_id: dict[str, ResolutionPolicyNode] = {}
+    # Bundle may have multiple resolution policies; index them
+    # The main one is bundle.resolutionPolicy, but anchors reference by id
+    policies_by_id[bundle.resolutionPolicy.id] = bundle.resolutionPolicy
+    # Also check if there are additional policies (some bundles declare extra ones)
+    # Walk all fields looking for ResolutionPolicyNode objects stored as list
+    # In practice, additional policies are stored outside the bundle model;
+    # we look them up from services if provided
+    extra_policies = services.get("__resolution_policies__", {})
+    policies_by_id.update(extra_policies)
+
+    all_claims: dict[str, Any] = {}
+    for block in bundle.claimBlocks:
+        for claim in block.claims:
+            all_claims[claim.id] = claim
+
+    adequacy_handler = services.get("adequacy_adjudicator")
+
+    # Per-assessment results
+    per_assessment: dict[str, AdequacyResult] = {}
+    # Per-anchor, per-task aggregated results
+    per_anchor_task: dict[str, AnchorAdequacyResult] = {}
+    # Joint adequacy results
+    joint_results: dict[str, JointAdequacyResult] = {}
+
+    # Phase 1: evaluate individual assessments per anchor
+    for anchor_id in anchor_ids:
+        anchor = anchors_by_id.get(anchor_id)
+        if anchor is None:
+            continue
+
+        # Group assessments by task
+        by_task: dict[str, list[AdequacyAssessmentNode]] = {}
+        for aa in anchor.adequacy:
+            by_task.setdefault(aa.task, []).append(aa)
+
+        for task, task_assessments in by_task.items():
+            # Evaluate each assessment individually
+            task_results: list[AdequacyResult] = []
+            for aa in task_assessments:
+                result, aa_diags = _evaluate_single_assessment(
+                    aa, all_claims, anchors_by_id, services,
+                )
+                per_assessment[aa.id] = result
+                task_results.append(result)
+                diags.extend(aa_diags)
+
+            # Determine aggregation policy
+            if len(task_assessments) > 1:
+                # Multiple same-task assessments: need adequacy_policy
+                policy_id = anchor.adequacyPolicy
+                if policy_id is None:
+                    # Diagnostic rule 24: missing policy for multi-assessment
+                    diags.append({
+                        "severity": "warning",
+                        "code": "lint.adequacy.missing_policy_multi_assessment",
+                        "phase": "license",
+                        "subject": anchor_id,
+                        "message": (
+                            f"Multiple same-task assessments for anchor {anchor_id} "
+                            f"task {task} but no adequacy_policy declared"
+                        ),
+                    })
+                    agg_truth: TruthValue = "N"
+                    agg_reason: str | None = "missing_policy"
+                else:
+                    policy = policies_by_id.get(policy_id)
+                    if policy is not None:
+                        agg_truth, agg_reason = _aggregate_adequacy_by_policy(
+                            task_results,
+                            policy.kind,
+                            policy_order=policy.order,
+                            adjudicator_handler=adequacy_handler,
+                        )
+                    else:
+                        # Policy referenced but not found - treat as missing
+                        agg_truth = "N"
+                        agg_reason = "missing_policy"
+            else:
+                # Single assessment: use directly
+                agg_truth = task_results[0].truth
+                agg_reason = task_results[0].reason
+
+            key = f"{anchor_id}:{task}"
+            provenance: list[str] = []
+            for r in task_results:
+                provenance.extend(r.provenance)
+            per_anchor_task[key] = AnchorAdequacyResult(
+                anchor_id=anchor_id,
+                task=task,
+                truth=agg_truth,
+                reason=agg_reason,
+                per_assessment=task_results,
+                provenance=sorted(set(provenance)),
+            )
+
+    # Phase 2: evaluate joint adequacy groups
+    for ja in bundle.jointAdequacies:
+        ja_assessment_results: list[AdequacyResult] = []
+        for aa in ja.assessments:
+            result, aa_diags = _evaluate_single_assessment(
+                aa, all_claims, anchors_by_id, services,
+            )
+            per_assessment[aa.id] = result
+            ja_assessment_results.append(result)
+            diags.extend(aa_diags)
+
+        # Aggregate joint assessments
+        if len(ja.assessments) > 1:
+            policy_id = ja.adequacyPolicy
+            if policy_id is None:
+                diags.append({
+                    "severity": "warning",
+                    "code": "lint.adequacy.missing_policy_multi_assessment",
+                    "phase": "license",
+                    "subject": ja.id,
+                    "message": (
+                        f"Multiple assessments for joint adequacy {ja.id} "
+                        f"but no adequacy_policy declared"
+                    ),
+                })
+                ja_truth: TruthValue = "N"
+                ja_reason: str | None = "missing_policy"
+            else:
+                policy = policies_by_id.get(policy_id)
+                if policy is not None:
+                    ja_truth, ja_reason = _aggregate_adequacy_by_policy(
+                        ja_assessment_results,
+                        policy.kind,
+                        policy_order=policy.order,
+                        adjudicator_handler=adequacy_handler,
+                    )
+                else:
+                    ja_truth = "N"
+                    ja_reason = "missing_policy"
+        else:
+            ja_truth = ja_assessment_results[0].truth
+            ja_reason = ja_assessment_results[0].reason
+
+        ja_provenance: list[str] = []
+        for r in ja_assessment_results:
+            ja_provenance.extend(r.provenance)
+        joint_results[ja.id] = JointAdequacyResult(
+            joint_id=ja.id,
+            anchors=ja.anchors,
+            truth=ja_truth,
+            reason=ja_reason,
+            per_assessment=ja_assessment_results,
+            provenance=sorted(set(ja_provenance)),
+        )
+
+    # Store results in machine_state
+    new_state = machine_state.model_copy(deep=True)
+    new_state.adequacy_store = {
+        "per_assessment": {k: v.model_dump() for k, v in per_assessment.items()},
+        "per_anchor_task": {k: v.model_dump() for k, v in per_anchor_task.items()},
+        "joint": {k: v.model_dump() for k, v in joint_results.items()},
+    }
+
+    results = {
+        "per_assessment": per_assessment,
+        "per_anchor_task": per_anchor_task,
+        "joint": joint_results,
+    }
+
+    return results, new_state, diags
 
 
 # Protocol #5: compose_license — no assigned runner phase (deferred to future milestone)
@@ -555,6 +919,258 @@ def compose_license(
     raise NotImplementedError("compose_license requires domain-specific implementation")
 
 
+def _get_evaluator_bindings(services: dict[str, Any]) -> EvaluatorBindings | None:
+    """Extract evaluator bindings from services dict."""
+    return services.get("evaluator_bindings")
+
+
+def _dispatch_to_binding(
+    expr: Any,
+    expr_type: str,
+    claim: ClaimNode,
+    evaluator_id: str,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TruthCore, MachineState, Diagnostics]:
+    """Dispatch an expression to the evaluator binding handler.
+
+    Returns N[missing_binding] if no handler is found.
+    Never propagates exceptions from the handler.
+    """
+    diags: Diagnostics = []
+    bindings = _get_evaluator_bindings(services)
+    if bindings is None:
+        return (
+            TruthCore(truth="N", reason="missing_binding", provenance=[evaluator_id]),
+            machine_state,
+            diags,
+        )
+
+    try:
+        handler = bindings.get_handler(evaluator_id, expr_type)
+    except Exception:
+        handler = None
+
+    if handler is None:
+        return (
+            TruthCore(truth="N", reason="missing_binding", provenance=[evaluator_id]),
+            machine_state,
+            diags,
+        )
+
+    try:
+        result = handler(expr, claim, step_ctx, machine_state)
+        return result, machine_state, diags
+    except Exception as exc:
+        diags.append({
+            "severity": "warning",
+            "code": "binding_handler_error",
+            "evaluator_id": evaluator_id,
+            "expr_type": expr_type,
+            "message": str(exc),
+        })
+        return (
+            TruthCore(truth="N", reason="missing_binding", provenance=[evaluator_id]),
+            machine_state,
+            diags,
+        )
+
+
+# Truth ordering for logical operations: T > B > N > F
+_TRUTH_ORDER: dict[TruthValue, int] = {"T": 3, "B": 2, "N": 1, "F": 0}
+_ORDER_TO_TRUTH: dict[int, TruthValue] = {v: k for k, v in _TRUTH_ORDER.items()}
+
+
+def _truth_min(values: list[TruthValue]) -> TruthValue:
+    """AND semantics: min over the truth lattice T > B > N > F."""
+    if not values:
+        return "N"
+    return _ORDER_TO_TRUTH[min(_TRUTH_ORDER[v] for v in values)]
+
+
+def _truth_max(values: list[TruthValue]) -> TruthValue:
+    """OR semantics: max over the truth lattice T > B > N > F."""
+    if not values:
+        return "N"
+    return _ORDER_TO_TRUTH[max(_TRUTH_ORDER[v] for v in values)]
+
+
+def _truth_flip(value: TruthValue) -> TruthValue:
+    """NOT semantics: flip(T)=F, flip(F)=T, flip(B)=B, flip(N)=N."""
+    if value == "T":
+        return "F"
+    if value == "F":
+        return "T"
+    return value  # B and N are fixed points
+
+
+def _eval_logical_expr(
+    expr: LogicalExprNode,
+    claim: ClaimNode,
+    evaluator_id: str,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TruthCore, MachineState, Diagnostics]:
+    """Evaluate a LogicalExpr by recursing into sub-expressions."""
+    all_diags: Diagnostics = []
+    sub_truths: list[TruthValue] = []
+    provenance: set[str] = {evaluator_id}
+
+    for sub_expr in expr.args:
+        sub_core, machine_state, sub_diags = _eval_expr_inner(
+            sub_expr, claim, evaluator_id, step_ctx, machine_state, services
+        )
+        all_diags.extend(sub_diags)
+        sub_truths.append(sub_core.truth)
+        provenance.update(sub_core.provenance)
+
+    if expr.op == "and":
+        result_truth = _truth_min(sub_truths)
+    elif expr.op == "or":
+        result_truth = _truth_max(sub_truths)
+    elif expr.op == "not":
+        result_truth = _truth_flip(sub_truths[0])
+    elif expr.op == "implies":
+        # A -> B = OR(NOT(A), B)
+        not_a = _truth_flip(sub_truths[0])
+        result_truth = _truth_max([not_a, sub_truths[1]])
+    elif expr.op == "iff":
+        # A <-> B = AND(IMPLIES(A,B), IMPLIES(B,A))
+        implies_ab = _truth_max([_truth_flip(sub_truths[0]), sub_truths[1]])
+        implies_ba = _truth_max([_truth_flip(sub_truths[1]), sub_truths[0]])
+        result_truth = _truth_min([implies_ab, implies_ba])
+    else:
+        result_truth = "N"
+
+    return (
+        TruthCore(truth=result_truth, provenance=sorted(provenance)),
+        machine_state,
+        all_diags,
+    )
+
+
+def _eval_declaration_expr(
+    expr: DeclarationExprNode,
+    evaluator_id: str,
+) -> TruthCore:
+    """Evaluate a DeclarationExpr: return the declared truth value directly."""
+    declared_map: dict[str, TruthValue] = {
+        "T": "T", "F": "F", "B": "B", "N": "N",
+        "true": "T", "false": "F", "both": "B", "neither": "N",
+    }
+    truth = declared_map.get(expr.declaredAs, "N")
+    return TruthCore(
+        truth=truth,
+        reason=f"declared_as_{expr.declaredAs}",
+        provenance=[evaluator_id],
+    )
+
+
+def _eval_judged_expr(
+    expr: JudgedExprNode,
+    claim: ClaimNode,
+    evaluator_id: str,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TruthCore, MachineState, Diagnostics]:
+    """Evaluate a JudgedExpr: dispatch to judged evaluator binding, else eval inner."""
+    diags: Diagnostics = []
+
+    # Try dispatching to the judged evaluator binding using JudgedExpr type
+    bindings = _get_evaluator_bindings(services)
+    if bindings is not None:
+        try:
+            handler = bindings.get_handler(evaluator_id, "JudgedExpr")
+        except Exception:
+            handler = None
+
+        if handler is not None:
+            try:
+                result = handler(expr, claim, step_ctx, machine_state)
+                return result, machine_state, diags
+            except Exception as exc:
+                diags.append({
+                    "severity": "warning",
+                    "code": "judged_binding_error",
+                    "evaluator_id": evaluator_id,
+                    "message": str(exc),
+                })
+
+    # Fall back to evaluating the inner expression
+    inner_core, machine_state, inner_diags = _eval_expr_inner(
+        expr.expr, claim, evaluator_id, step_ctx, machine_state, services
+    )
+    diags.extend(inner_diags)
+    return inner_core, machine_state, diags
+
+
+def _eval_expr_inner(
+    expr: Any,
+    claim: ClaimNode,
+    evaluator_id: str,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TruthCore, MachineState, Diagnostics]:
+    """Inner dispatch for evaluating an expression node.
+
+    Routes based on expression type:
+    - Leaf expressions (Predicate, Dynamic, Causal, Emergence, Criterion) -> binding dispatch
+    - LogicalExpr -> internal recursive evaluation
+    - DeclarationExpr -> direct truth return
+    - JudgedExpr -> judged binding dispatch with inner fallback
+    - NoteExpr -> safety fallback returning N[note_expr]
+    """
+    expr_type = getattr(expr, "node", None) or type(expr).__name__
+
+    # --- Leaf dispatch to evaluator bindings ---
+    if isinstance(expr, (PredicateExprNode, DynamicExprNode, CausalExprNode, EmergenceExprNode)):
+        return _dispatch_to_binding(
+            expr, expr_type, claim, evaluator_id, step_ctx, machine_state, services
+        )
+
+    # --- CriterionExpr: leaf dispatch ---
+    if isinstance(expr, CriterionExprNode):
+        return _dispatch_to_binding(
+            expr, "CriterionExpr", claim, evaluator_id, step_ctx, machine_state, services
+        )
+
+    # --- LogicalExpr: internal recursive evaluation ---
+    if isinstance(expr, LogicalExprNode):
+        return _eval_logical_expr(
+            expr, claim, evaluator_id, step_ctx, machine_state, services
+        )
+
+    # --- DeclarationExpr: return declared truth ---
+    if isinstance(expr, DeclarationExprNode):
+        core = _eval_declaration_expr(expr, evaluator_id)
+        return core, machine_state, []
+
+    # --- JudgedExpr: judged binding dispatch with inner fallback ---
+    if isinstance(expr, JudgedExprNode):
+        return _eval_judged_expr(
+            expr, claim, evaluator_id, step_ctx, machine_state, services
+        )
+
+    # --- NoteExpr: safety fallback (should not normally reach here) ---
+    if isinstance(expr, NoteExprNode):
+        return (
+            TruthCore(truth="N", reason="note_expr", provenance=[evaluator_id]),
+            machine_state,
+            [],
+        )
+
+    # --- Unknown expression type: localize to N[missing_binding] ---
+    return (
+        TruthCore(truth="N", reason="missing_binding", provenance=[evaluator_id]),
+        machine_state,
+        [],
+    )
+
+
 def eval_expr(
     claim: ClaimNode,
     evaluator_id: str,
@@ -562,8 +1178,21 @@ def eval_expr(
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[TruthCore, MachineState, Diagnostics]:
-    """Stub: evaluate a claim expression. Requires domain logic."""
-    raise NotImplementedError("eval_expr requires domain-specific implementation")
+    """Evaluate a claim expression via delegated leaf dispatch.
+
+    Routes expression evaluation based on type:
+    - Leaf expressions (Predicate, Dynamic, Causal, Emergence, Criterion):
+      dispatched to evaluator binding handlers via services["evaluator_bindings"]
+    - LogicalExpr: evaluated internally with recursive sub-expression evaluation
+    - DeclarationExpr: returns declared truth value directly
+    - JudgedExpr: dispatched to judged evaluator binding, falls back to inner expr
+    - NoteExpr: safety fallback returning N[note_expr]
+    - Missing handler: localizes to N[missing_binding], never propagates exceptions
+    """
+    expr = claim.expr
+    return _eval_expr_inner(
+        expr, claim, evaluator_id, step_ctx, machine_state, services
+    )
 
 
 def synthesize_support(

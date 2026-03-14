@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -130,6 +130,47 @@ class ClaimEvidenceView(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Adequacy result models
+# ---------------------------------------------------------------------------
+
+
+class AdequacyResult(BaseModel):
+    """Result of evaluating a single adequacy assessment."""
+
+    assessment_id: str
+    task: str
+    producer: str
+    adequate: bool
+    truth: TruthValue
+    reason: str | None = None
+    score: float | None = None
+    threshold: float | None = None
+    provenance: list[str] = Field(default_factory=list)
+
+
+class AnchorAdequacyResult(BaseModel):
+    """Aggregated adequacy result for an anchor, scoped by task."""
+
+    anchor_id: str
+    task: str
+    truth: TruthValue
+    reason: str | None = None
+    per_assessment: list[AdequacyResult] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+
+
+class JointAdequacyResult(BaseModel):
+    """Result of evaluating a joint adequacy group."""
+
+    joint_id: str
+    anchors: list[str]
+    truth: TruthValue
+    reason: str | None = None
+    per_assessment: list[AdequacyResult] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # License result (placeholder for future use)
 # ---------------------------------------------------------------------------
 
@@ -193,3 +234,24 @@ class PrimitiveTraceEvent(BaseModel):
     primitive: str
     inputs_summary: str = ""
     result_summary: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Evaluator bindings protocol for eval_expr dispatch
+# ---------------------------------------------------------------------------
+
+# Handler signature: (expr, claim, step_ctx, machine_state) -> TruthCore
+ExprHandler = Callable[[Any, Any, "StepContext", "MachineState"], "TruthCore"]
+
+
+@runtime_checkable
+class EvaluatorBindings(Protocol):
+    """Protocol for looking up expression evaluation handlers by evaluator_id.
+
+    The bindings registry maps evaluator_id -> expr_type -> handler.
+    The handler signature is: handler(expr, claim, step_ctx, machine_state) -> TruthCore
+    """
+
+    def get_handler(self, evaluator_id: str, expr_type: str) -> ExprHandler | None:
+        """Return a handler for the given evaluator and expression type, or None."""
+        ...

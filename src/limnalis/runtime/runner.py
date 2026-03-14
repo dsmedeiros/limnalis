@@ -192,6 +192,9 @@ def run_step(
     if services is None:
         services = {}
 
+    # Inject bundle into services for primitives that need it (e.g. evaluate_adequacy_set)
+    services.setdefault("__bundle__", bundle)
+
     trace: list[PrimitiveTraceEvent] = []
     diags: Diagnostics = []
     machine = MachineState()
