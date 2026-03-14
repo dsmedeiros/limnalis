@@ -11,7 +11,7 @@ recorded as diagnostics rather than crashing the run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic import BaseModel, Field
@@ -286,6 +286,15 @@ def run_step(
     except NotImplementedError as exc:
         diags.append(_stubbed_diag(phase, "resolve_baseline", exc))
         trace.append(_trace(phase, "resolve_baseline", result_summary="stubbed"))
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "phase_error",
+            "phase": phase,
+            "primitive": "resolve_baseline",
+            "message": str(exc),
+        })
+        trace.append(_trace(phase, "resolve_baseline", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
     # Phase 4: adequacy evaluation (stubbed)
@@ -306,6 +315,15 @@ def run_step(
     except NotImplementedError as exc:
         diags.append(_stubbed_diag(phase, "evaluate_adequacy_set", exc))
         trace.append(_trace(phase, "evaluate_adequacy_set", result_summary="stubbed"))
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "phase_error",
+            "phase": phase,
+            "primitive": "evaluate_adequacy_set",
+            "message": str(exc),
+        })
+        trace.append(_trace(phase, "evaluate_adequacy_set", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
     # Phase 5: evidence view construction
@@ -555,6 +573,15 @@ def run_step(
     except NotImplementedError as exc:
         diags.append(_stubbed_diag(phase, "execute_transport", exc))
         trace.append(_trace(phase, "execute_transport", result_summary="stubbed"))
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "phase_error",
+            "phase": phase,
+            "primitive": "execute_transport",
+            "message": str(exc),
+        })
+        trace.append(_trace(phase, "execute_transport", result_summary=f"error: {exc}"))
 
     # ------------------------------------------------------------------
     # Assemble final result

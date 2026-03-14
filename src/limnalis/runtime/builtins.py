@@ -161,7 +161,7 @@ def classify_claim(claim: ClaimNode) -> ClaimClassification:
     """
     expr = claim.expr
     # Unwrap discriminated union to get the concrete node
-    expr_kind = expr.node if hasattr(expr, "node") else type(expr).__name__
+    expr_kind = expr.node
 
     if isinstance(expr, NoteExprNode):
         return ClaimClassification(
