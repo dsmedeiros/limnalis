@@ -326,7 +326,7 @@ def sort_diagnostics(diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         diagnostics,
         key=lambda d: (
-            d.get("phase", 0),
+            str(d.get("phase", "")),
             d.get("code", ""),
             d.get("subject", d.get("claim_id", d.get("block_id", d.get("primitive", "")))),
         ),

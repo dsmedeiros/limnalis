@@ -1099,8 +1099,8 @@ def compose_license(
             found_joint = False
             for ja in bundle.jointAdequacies:
                 ja_anchor_set = set(ja.anchors)
-                # The joint adequacy must cover the needed anchors
-                if needed_joint_set <= ja_anchor_set:
+                # The joint adequacy must exactly match the needed anchors
+                if needed_joint_set == ja_anchor_set:
                     # Found a matching joint group - check its result
                     ja_key = ja.id
                     ja_result = joint_store.get(ja_key)
@@ -1111,8 +1111,8 @@ def compose_license(
                             joint_id=ja.id, anchors=ja.anchors,
                             truth=ja_truth, reason=ja_reason,
                         ))
-                        # Don't add to all_truths here; the joint result
-                        # doesn't replace individual adequacy for this anchor
+                        # Joint adequacy truth participates in overall license
+                        all_truths.append(ja_truth)
                     found_joint = True
                     break
 

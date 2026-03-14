@@ -515,10 +515,35 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # Build adjudicator from fixture expectations
     adjudicator = _build_fixture_adjudicator(case)
 
-    # Check if bundle policy is adjudicated — always provide adjudicator
+    # Check if bundle policy is adjudicated — provide a default adjudicator
     if bundle.resolutionPolicy.kind == "adjudicated" and adjudicator is None:
-        # Build a default paraconsistent-union adjudicator
-        adjudicator = _build_fixture_adjudicator(case)
+        # Build a default paraconsistent-union fallback adjudicator
+        def _default_adjudicator(per_evaluator: dict) -> "EvalNode":
+            """Fallback adjudicator using paraconsistent-union semantics."""
+            if not per_evaluator:
+                return EvalNode(truth="N", reason="no_evaluators")
+            evals = list(per_evaluator.values())
+            truths = {e.truth for e in evals}
+            prov: set[str] = set()
+            for e in evals:
+                prov.update(e.provenance)
+            if "T" in truths and "F" in truths:
+                return EvalNode(
+                    truth="B", reason="evaluator_conflict",
+                    support="conflicted", provenance=sorted(prov),
+                )
+            agreed = evals[0].truth
+            supports = [e.support for e in evals if e.support is not None]
+            support = None
+            for s in ["conflicted", "partial", "supported", "inapplicable", "absent"]:
+                if s in supports:
+                    support = s
+                    break
+            return EvalNode(
+                truth=agreed, support=support or "absent",
+                provenance=sorted(prov),
+            )
+        adjudicator = _default_adjudicator
 
     # Run the bundle
     try:
