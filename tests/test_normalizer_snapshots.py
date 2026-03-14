@@ -85,4 +85,6 @@ def test_fictional_anchor_examples_match_normalized_ast_snapshots(example_name: 
         if example_name == "fictional_anchor_default_subtype"
         else []
     )
-    assert [diagnostic["code"] for diagnostic in result.diagnostics] == expected_diagnostic_codes
+    assert [diagnostic["code"] for diagnostic in result.diagnostics] == expected_diagnostic_codes, (
+        f"Unexpected diagnostics for {example_name}: {result.diagnostics}"
+    )
