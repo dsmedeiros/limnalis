@@ -426,7 +426,14 @@ def apply_resolution_policy(
     elif policy.kind == "adjudicated":
         if adjudicator is None:
             raise ValueError("adjudicated policy requires an adjudicator callable")
-        return adjudicator(per_evaluator)
+        # Filter to declared policy members if specified
+        if policy.members:
+            filtered = {k: v for k, v in per_evaluator.items() if k in policy.members}
+        else:
+            filtered = per_evaluator
+        if not filtered:
+            return EvalNode(truth="N", reason="no_evaluators")
+        return adjudicator(filtered)
 
     raise ValueError(f"Unknown resolution policy kind: {policy.kind}")
 
