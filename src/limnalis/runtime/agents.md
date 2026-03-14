@@ -3,7 +3,7 @@ scope: src/limnalis/runtime
 governs: "Runtime execution layer: abstract machine models, primitive operations, step runner"
 inherits: src/limnalis/agents.md
 adrs: []
-invariants: []
+invariants: [RUNTIME-001, RUNTIME-002, RUNTIME-003, RUNTIME-004]
 enforced-by:
   - tests/test_runtime_primitives.py
   - tests/test_runtime_runner.py

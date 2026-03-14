@@ -165,3 +165,46 @@ invariants:
       - tests/test_loader.py
     referenced-in:
       - .armature/invariants/invariants.md
+
+  # --- Runtime Execution ---
+  RUNTIME-001:
+    rule: "The step runner must execute all 12 phases in strict ascending order (1-12). Phase ordering must not be altered without spec change."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_runtime_runner.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - src/limnalis/runtime/agents.md
+
+  RUNTIME-002:
+    rule: "All primitive operations must follow the uniform shape: op(inputs, step_ctx, machine_state, services) -> (output, machine_state, diagnostics) where practical."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - src/limnalis/runtime/primitives.py
+      - tests/test_runtime_primitives.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - src/limnalis/runtime/agents.md
+
+  RUNTIME-003:
+    rule: "Non-evaluable NoteExpr claims must bypass eval_expr and support synthesis phases. The runner must not attempt to evaluate them."
+    severity: high
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_runtime_runner.py
+      - tests/test_runtime_primitives.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - src/limnalis/runtime/agents.md
+
+  RUNTIME-004:
+    rule: "PrimitiveSet must accept injected implementations for all 13 primitives. Stubbed primitives must raise NotImplementedError, not return silently."
+    severity: standard
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      - tests/test_runtime_runner.py
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - src/limnalis/runtime/agents.md

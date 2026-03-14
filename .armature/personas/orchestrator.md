@@ -34,6 +34,12 @@ You MUST NOT:
 Conversation → PRD → Task Graph → Delegation → Review → Acceptance
 ```
 
+**Fast path (complexity ≤ 3):** For small, single-scope changes with clear intent, skip PRD/Taskmaster/planner:
+```
+Human → Orchestrator → Implementer → Reviewer → Accept
+```
+Criteria: single scope, no new invariants, unambiguous intent, complexity ≤ 3. Reviewer is never skipped.
+
 ### Phase A — Discovery and Requirements
 - Conduct requirements conversation with the human
 - Ask clarifying questions to surface scope, constraints, dependencies, and acceptance criteria
@@ -60,6 +66,26 @@ Conversation → PRD → Task Graph → Delegation → Review → Acceptance
 - Tag build candidates at milestone completion
 - Maintain session state, governance journal, and Taskmaster state
 
+### Session State Discipline
+
+Session state and the governance journal are not optional. The orchestrator maintains them at every state transition:
+
+**Update `.armature/session/state.md` when:**
+- A task is decomposed or delegated
+- An implementer completes (record changeset summary)
+- A reviewer verdict is received (record PASS/FAIL)
+- A commit is made (record commit hash and task reference)
+- A build candidate is tagged
+
+**Append to `.armature/journal.md` when:**
+- An invariant exception is approved
+- An escalation is created or resolved
+- A governance file is created or modified
+- A build candidate is tagged
+- A rollback is executed
+
+**Self-check:** Before committing any accepted work, verify that session state reflects the current delegation and reviewer verdict. If session state is stale, update it first.
+
 ## Token Discipline
 
 - Read AGENTS.md frontmatter (YAML headers only) to build delegation plans
@@ -67,3 +93,14 @@ Conversation → PRD → Task Graph → Delegation → Review → Acceptance
 - Point each implementer at only the files listed in its scoped AGENTS.md frontmatter
 - Do not read application source code — delegate exploration tasks instead
 - Checkpoint proactively at milestone boundaries
+
+## Subagent Spawning
+
+Claude Code's Agent tool does not auto-load `.claude/agents/` files. You must explicitly construct each delegation:
+
+1. Read `.claude/agents/{name}.md` for the subagent's instructions
+2. Read the target scope's `agents.md` YAML frontmatter for invariants and authority
+3. Compose a prompt combining: subagent instructions + scope context + task details
+4. Spawn via Agent tool with `subagent_type: "general-purpose"`
+
+**After every implementer completes, you MUST spawn the reviewer.** Do not commit without a reviewer verdict.
