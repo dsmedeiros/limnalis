@@ -477,6 +477,30 @@ def apply_resolution_policy(
 # ===================================================================
 
 
+def _fold_block_truth(truths: list[TruthValue]) -> TruthValue:
+    """Fold claim truths within a block using block conjunction semantics.
+
+    Block fold rules:
+    1. If any claim has truth F -> block truth is F
+    2. If both B and N are present -> block truth is F (B_and_N_equals_F)
+    3. If any B -> block truth is B
+    4. If any N -> block truth is N
+    5. Otherwise T
+    """
+    if not truths:
+        return "N"
+    truth_set = set(truths)
+    if "F" in truth_set:
+        return "F"
+    if "B" in truth_set and "N" in truth_set:
+        return "F"
+    if "B" in truth_set:
+        return "B"
+    if "N" in truth_set:
+        return "N"
+    return "T"
+
+
 def fold_block(
     block: ClaimBlockNode,
     per_claim_aggregates: dict[str, EvalNode],
@@ -526,7 +550,7 @@ def fold_block(
                     ev_provenance.update(claim_evals[evaluator_id].provenance)
 
         if ev_truths:
-            block_truth = _aggregate_truth(ev_truths)
+            block_truth = _fold_block_truth(ev_truths)
         else:
             block_truth = "N"
 
@@ -616,7 +640,7 @@ def _evaluate_single_assessment(
     if aa.basis and _detect_basis_cycles(aa.id, aa.basis, all_claims, all_anchors):
         diags.append({
             "severity": "error",
-            "code": "lint.adequacy.circular_basis",
+            "code": "circular_dependency",
             "phase": "license",
             "subject": aa.id,
             "message": f"Circular basis dependency detected for assessment {aa.id}",
@@ -649,9 +673,12 @@ def _evaluate_single_assessment(
                 effective_score = float(computed)
 
     # Determine adequacy
+    reason: str | None = None
     if effective_score is not None:
         adequate = effective_score >= aa.threshold
         truth: TruthValue = "T" if adequate else "F"
+        if not adequate:
+            reason = "threshold_not_met"
     else:
         # Score-omitted computed assessments: adequate by default
         adequate = True
@@ -663,7 +690,7 @@ def _evaluate_single_assessment(
         producer=aa.producer,
         adequate=adequate,
         truth=truth,
-        reason=None,
+        reason=reason,
         score=effective_score,
         threshold=aa.threshold,
         provenance=[aa.producer, aa.id],
@@ -694,9 +721,9 @@ def _aggregate_adequacy_by_policy(
         reason: str | None = None
         if "T" in truth_set and "F" in truth_set:
             agg = "B"
-            reason = "method_conflict"
+            reason = "adequacy_conflict"
         elif agg == "B":
-            reason = "method_conflict"
+            reason = "adequacy_conflict"
         return agg, reason
 
     elif policy_kind == "priority_order":
@@ -791,6 +818,38 @@ def evaluate_adequacy_set(
                 per_assessment[aa.id] = result
                 task_results.append(result)
                 diags.extend(aa_diags)
+
+            # Check for method conflicts among same-task assessments
+            if len(task_assessments) > 1:
+                methods = {aa.method for aa in task_assessments if aa.method is not None}
+                if len(methods) > 1:
+                    # Method conflict detected: different methods for the same task
+                    # Flag the first assessment with method_conflict and emit diagnostic
+                    first_aa = task_assessments[0]
+                    per_assessment[first_aa.id] = AdequacyResult(
+                        assessment_id=first_aa.id,
+                        task=first_aa.task,
+                        producer=first_aa.producer,
+                        adequate=False,
+                        truth="B",
+                        reason="method_conflict",
+                        score=per_assessment[first_aa.id].score,
+                        threshold=first_aa.threshold,
+                        provenance=per_assessment[first_aa.id].provenance,
+                    )
+                    # Update task_results
+                    task_results[0] = per_assessment[first_aa.id]
+                    diags.append({
+                        "severity": "warning",
+                        "subject": first_aa.id,
+                        "code": "method_conflict",
+                        "phase": "license",
+                        "message": (
+                            f"Assessment {first_aa.id} conflicts with other "
+                            f"same-task assessments using different methods: "
+                            f"{sorted(methods)}"
+                        ),
+                    })
 
             # Determine aggregation policy
             if len(task_assessments) > 1:
@@ -1581,19 +1640,8 @@ def execute_transport(
     }
 
     # ---------------------------------------------------------------
-    # metadata_only
-    # ---------------------------------------------------------------
-    if mode == "metadata_only":
-        result = TransportResult(
-            status="metadata_only",
-            metadata=metadata,
-            provenance=[bridge.id, bridge.via],
-        )
-        machine_state.transport_store[bridge.id] = result
-        return result, machine_state, diags
-
-    # ---------------------------------------------------------------
     # Locate source claim for this bridge from transport queries
+    # (needed for all modes including metadata_only)
     # ---------------------------------------------------------------
     transport_queries: list[dict[str, Any]] = services.get("__transport_queries__", [])
     claim_id: str | None = None
@@ -1603,6 +1651,25 @@ def execute_transport(
             claim_id = tq.get("claimId")
             query_id = tq.get("id")
             break
+
+    # ---------------------------------------------------------------
+    # metadata_only
+    # ---------------------------------------------------------------
+    if mode == "metadata_only":
+        # Include source aggregate if a transport query references a claim
+        src_aggregate = None
+        if claim_id is not None:
+            src_aggregate = per_claim_aggregates.get(claim_id)
+        result = TransportResult(
+            status="metadata_only",
+            srcAggregate=src_aggregate,
+            metadata=metadata,
+            provenance=[bridge.id, bridge.via],
+        )
+        machine_state.transport_store[bridge.id] = result
+        if query_id:
+            machine_state.transport_store[query_id] = result
+        return result, machine_state, diags
 
     if claim_id is None:
         # No transport query for this bridge: pattern_only fallback

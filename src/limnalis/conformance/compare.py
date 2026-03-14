@@ -537,6 +537,36 @@ def _compare_baseline_states(
                 )
 
 
+def _flatten_adequacy_store(raw_store: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Flatten the nested adequacy store into a flat dict of {id: result_dict}.
+
+    The store may be structured as:
+        {"per_assessment": {id: {...}}, "per_anchor_task": {id: {...}}, "joint": {id: {...}}}
+    or may already be flat. We merge all sub-dicts into one flat lookup.
+    """
+    flat: dict[str, dict[str, Any]] = {}
+
+    # Check for the nested structure
+    if "per_assessment" in raw_store or "per_anchor_task" in raw_store or "joint" in raw_store:
+        for sub_key in ("per_assessment", "per_anchor_task", "joint"):
+            sub = raw_store.get(sub_key, {})
+            if isinstance(sub, dict):
+                for entry_id, entry_val in sub.items():
+                    if isinstance(entry_val, dict):
+                        flat[entry_id] = entry_val
+                    elif hasattr(entry_val, "model_dump"):
+                        flat[entry_id] = entry_val.model_dump(exclude_none=True)
+    else:
+        # Already flat or unknown structure
+        for k, v in raw_store.items():
+            if isinstance(v, dict):
+                flat[k] = v
+            elif hasattr(v, "model_dump"):
+                flat[k] = v.model_dump(exclude_none=True)
+
+    return flat
+
+
 def _compare_adequacy(
     path: str,
     expected: dict[str, dict[str, Any]],
@@ -545,9 +575,12 @@ def _compare_adequacy(
 ) -> None:
     """Compare expected adequacy results to actual."""
     # Adequacy results are in session results' adequacy_store
-    actual_adequacy: dict[str, Any] = {}
+    raw_adequacy: dict[str, Any] = {}
     for sess in bundle_result.session_results:
-        actual_adequacy.update(sess.adequacy_store)
+        raw_adequacy.update(sess.adequacy_store)
+
+    # Flatten nested structure for comparison
+    actual_adequacy = _flatten_adequacy_store(raw_adequacy)
 
     for adeq_id, exp_vals in expected.items():
         actual = actual_adequacy.get(adeq_id)
