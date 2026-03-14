@@ -22,7 +22,6 @@ from ..models.ast import (
     ClaimBlockNode,
     ClaimNode,
     EvaluatorNode,
-    NoteExprNode,
     ResolutionPolicyNode,
 )
 from .builtins import (
@@ -170,6 +169,7 @@ def run_step(
     env: EvaluationEnvironment,
     primitives: PrimitiveSet | None = None,
     services: dict[str, Any] | None = None,
+    adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> StepResult:
     """Execute the normative 12-phase evaluation order for a single step.
 
@@ -408,6 +408,20 @@ def run_step(
                 per_claim_truth[claim.id][ev_id] = TruthCore(
                     truth="N", reason="eval_expr_not_implemented"
                 )
+            except Exception as exc:
+                diags.append({
+                    "severity": "error",
+                    "code": "phase_error",
+                    "phase": phase,
+                    "primitive": "eval_expr",
+                    "claim_id": claim.id,
+                    "evaluator_id": ev_id,
+                    "message": str(exc),
+                })
+                # Provide a default N truth for failed evaluators
+                per_claim_truth[claim.id][ev_id] = TruthCore(
+                    truth="N", reason=f"eval_expr_error: {exc}"
+                )
     trace.append(_trace(
         phase, "eval_expr",
         inputs_summary=f"evaluable_claims={len(per_claim_truth)}, evaluators={len(evaluator_ids)}",
@@ -444,6 +458,18 @@ def run_step(
                     diags.append(_stubbed_diag(phase, "synthesize_support", exc))
                     synth_ok = False
                 # Default absent support for stubbed implementations
+                per_claim_support[claim.id][ev_id] = SupportResult(support="absent")
+            except Exception as exc:
+                diags.append({
+                    "severity": "error",
+                    "code": "phase_error",
+                    "phase": phase,
+                    "primitive": "synthesize_support",
+                    "claim_id": claim.id,
+                    "evaluator_id": ev_id,
+                    "message": str(exc),
+                })
+                # Default absent support for failed implementations
                 per_claim_support[claim.id][ev_id] = SupportResult(support="absent")
     trace.append(_trace(
         phase, "synthesize_support",
@@ -504,7 +530,7 @@ def run_step(
     per_claim_aggregates: dict[str, EvalNode] = {}
     for claim_id, evals_by_ev in per_claim_per_evaluator.items():
         try:
-            agg = primitives.apply_resolution_policy(evals_by_ev, policy, None)
+            agg = primitives.apply_resolution_policy(evals_by_ev, policy, adjudicator)
             per_claim_aggregates[claim_id] = agg
         except Exception as exc:
             diags.append({
@@ -538,7 +564,7 @@ def run_step(
                 per_claim_per_evaluator,
                 classifications,
                 policy,
-                None,
+                adjudicator,
             )
             per_block_per_evaluator[block.id] = block_ev_evals
             per_block_aggregates[block.id] = block_agg
@@ -613,6 +639,7 @@ def run_session(
     env: EvaluationEnvironment,
     primitives: PrimitiveSet | None = None,
     services: dict[str, Any] | None = None,
+    adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> SessionResult:
     """Execute all steps in a session sequentially."""
     if primitives is None:
@@ -632,7 +659,7 @@ def run_session(
         })
 
     for step in session.steps:
-        result = run_step(bundle, session, step, env, primitives, services)
+        result = run_step(bundle, session, step, env, primitives, services, adjudicator)
         step_results.append(result)
 
     return SessionResult(
@@ -648,6 +675,7 @@ def run_bundle(
     env: EvaluationEnvironment,
     primitives: PrimitiveSet | None = None,
     services: dict[str, Any] | None = None,
+    adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> BundleResult:
     """Execute all sessions against a bundle sequentially."""
     if primitives is None:
@@ -667,7 +695,7 @@ def run_bundle(
         })
 
     for session in sessions:
-        result = run_session(bundle, session, env, primitives, services)
+        result = run_session(bundle, session, env, primitives, services, adjudicator)
         session_results.append(result)
 
     return BundleResult(
