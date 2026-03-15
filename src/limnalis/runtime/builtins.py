@@ -1072,7 +1072,15 @@ def compose_license(
     # 3. bundle frame task fallback
     task: str | None = claim.annotations.get("license_task")
     if task is None:
-        task = getattr(step_ctx.effective_frame, "task", None)
+        effective_frame = step_ctx.effective_frame
+        if isinstance(effective_frame, FrameNode):
+            task = getattr(effective_frame, "task", None)
+        elif isinstance(effective_frame, FramePatternNode):
+            task = (
+                getattr(effective_frame.facets, "task", None)
+                if effective_frame.facets
+                else None
+            )
     if task is None:
         # Fall back to the bundle frame's task facet
         frame = bundle.frame

@@ -1829,6 +1829,36 @@ class TestComposeLicense:
 
         assert result.overall.truth == "T"
 
+    def test_uses_effective_step_pattern_task_before_bundle_fallback(self):
+        """compose_license should resolve task from FramePattern effective frames."""
+        claim = ClaimNode(
+            id="c1", kind="atomic", expr=PredicateExprNode(name="P"),
+            usesAnchors=["anc1"],
+        )
+        anc1 = _anchor(id="anc1")
+        bundle = BundleNode(
+            id="bundle1",
+            frame=_frame(),
+            evaluators=[_evaluator()],
+            resolutionPolicy=_policy_single("ev1"),
+            claimBlocks=[_block([claim])],
+            anchors=[anc1],
+        )
+
+        ms = MachineState()
+        ms.adequacy_store = {
+            "per_anchor_task": {
+                "anc1:diagnose": {"truth": "T", "reason": None, "per_assessment": []},
+            },
+            "joint": {},
+        }
+        step_ctx = StepContext(effective_frame=_frame_pattern(task="diagnose"))
+        services: dict = {"__bundle__": bundle}
+
+        result, _, _ = compose_license("c1", step_ctx, ms, services)
+
+        assert result.overall.truth == "T"
+
     def test_no_anchors_yields_T(self):
         """Claim uses no anchors → no license needed → T."""
         claim = _pred_claim(id="c1")  # No usesAnchors
