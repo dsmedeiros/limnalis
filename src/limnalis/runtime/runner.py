@@ -361,8 +361,6 @@ def run_step(
     phase = 5
     per_claim_licenses: dict[str, LicenseResult] = {}
     for claim in all_claims:
-        if not claim.usesAnchors:
-            continue
         try:
             license_result, machine, lic_diags = primitives.compose_license(
                 claim.id, step_ctx, machine, services
@@ -385,7 +383,7 @@ def run_step(
             })
     trace.append(_trace(
         phase, "compose_license",
-        inputs_summary=f"claims_with_anchors={sum(1 for c in all_claims if c.usesAnchors)}",
+        inputs_summary=f"claims={len(all_claims)}",
         result_summary=f"licensed={len(per_claim_licenses)}",
     ))
 

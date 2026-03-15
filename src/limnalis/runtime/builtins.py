@@ -2278,7 +2278,9 @@ def _execute_remap_recompute(
                         "message": str(exc),
                     })
 
-        per_evaluator = normalized_per_evaluator
+        # Return the same evaluator projection that destination configuration
+        # selected, rather than leaking unconfigured evaluator outputs.
+        per_evaluator = selected_per_evaluator
 
     dst_aggregate = EvalNode(
         truth=mapped_truth,

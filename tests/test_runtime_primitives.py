@@ -1117,6 +1117,7 @@ class TestExecuteTransport:
         assert result.dstAggregate is not None
         assert result.dstAggregate.truth == "F"
         assert result.dstAggregate.reason == "ev1_false"
+        assert sorted(result.per_evaluator) == ["dst_ev1"]
 
     def test_semantic_requirements_empty_warning(self):
         """Diagnostic rule 23: lint.transport.semantic_requirements_empty."""

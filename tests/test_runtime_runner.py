@@ -175,6 +175,18 @@ class TestNoteExprBypass:
         eval_node = result.per_claim_per_evaluator["note1"]["ev1"]
         assert eval_node.support == "inapplicable"
 
+    def test_note_expr_receives_license_result(self):
+        note_claim = ClaimNode(id="note1", kind="note", expr=NoteExprNode(text="just a note"))
+        bundle = _bundle(claims=[note_claim])
+
+        result = run_step(bundle, _session(), _step(), _env())
+
+        assert "note1" in result.per_claim_licenses
+        assert result.per_claim_licenses["note1"].overall.truth == "T"
+        claim_result = next(cr for cr in result.claim_results if cr.claim_id == "note1")
+        assert claim_result.license is not None
+        assert claim_result.license.overall.truth == "T"
+
 
 # ---------------------------------------------------------------------------
 # Custom injected primitives
