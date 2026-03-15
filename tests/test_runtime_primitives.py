@@ -1119,6 +1119,31 @@ class TestExecuteTransport:
 
         assert result.status == "unresolved"
 
+    def test_multiple_queries_for_same_bridge_are_all_processed(self):
+        """Each matching query for a bridge should produce a transport result."""
+        bridge = _bridge(mode="preserve")
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {
+            "__transport_queries__": [
+                {"bridgeId": "br1", "claimId": "c1", "id": "tq1"},
+                {"bridgeId": "br1", "claimId": "c2", "id": "tq2"},
+            ],
+            "__per_claim_aggregates__": {
+                "c1": EvalNode(truth="T", support="supported", provenance=["ev1"]),
+                "c2": EvalNode(truth="F", support="supported", provenance=["ev1"]),
+            },
+            "__bundle__": _bundle(claims=[_pred_claim(id="c1"), _pred_claim(id="c2")]),
+        }
+
+        result, new_ms, _ = execute_transport(bridge, step_ctx, ms, services)
+
+        assert result.status in ("preserved", "blocked")
+        assert "tq1" in new_ms.transport_store
+        assert "tq2" in new_ms.transport_store
+        assert new_ms.transport_store["tq1"].provenance[-1] == "c1"
+        assert new_ms.transport_store["tq2"].provenance[-1] == "c2"
+
 
 # ===================================================================
 # Tests: synthesize_support

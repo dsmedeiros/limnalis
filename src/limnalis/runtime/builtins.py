@@ -1689,14 +1689,19 @@ def execute_transport(
     - preserve: copy source truth to destination if preconditions hold
     - degrade: attempt preserve, apply degradation rules on failure
     - remap_recompute: remap source claim to destination frame and re-evaluate
+
+    Notes:
+    - Multiple transport queries may target a single bridge; all matching
+      queries are evaluated and stored in transport_store keyed by query id.
+    - The function return value remains a single TransportResult for compatibility
+      and corresponds to the first matching query (or a pattern fallback when
+      no matching query exists).
     """
     diags: Diagnostics = []
     transport: TransportNode = bridge.transport
     mode = transport.mode
 
-    # Retrieve the source aggregate eval for the claim being transported.
-    # The runner stores per-claim aggregates in resolution_store and also in
-    # services["__per_claim_aggregates__"] for transport access.
+    # Retrieve source aggregate evals for transported claims.
     per_claim_aggregates: dict[str, EvalNode] = services.get(
         "__per_claim_aggregates__", {}
     )
@@ -1709,40 +1714,57 @@ def execute_transport(
         "risk": bridge.risk,
     }
 
-    # ---------------------------------------------------------------
-    # Locate source claim for this bridge from transport queries
-    # (needed for all modes including metadata_only)
-    # ---------------------------------------------------------------
+    # All matching queries for this bridge (not just the first).
     transport_queries: list[dict[str, Any]] = services.get("__transport_queries__", [])
-    claim_id: str | None = None
-    query_id: str | None = None
-    for tq in transport_queries:
-        if tq.get("bridgeId") == bridge.id:
-            claim_id = tq.get("claimId")
-            query_id = tq.get("id")
-            break
+    matching_queries = [
+        tq for tq in transport_queries
+        if tq.get("bridgeId") == bridge.id
+    ]
 
     # ---------------------------------------------------------------
     # metadata_only
     # ---------------------------------------------------------------
     if mode == "metadata_only":
-        # Include source aggregate if a transport query references a claim
-        src_aggregate = None
-        if claim_id is not None:
-            src_aggregate = per_claim_aggregates.get(claim_id)
+        if matching_queries:
+            first_result: TransportResult | None = None
+            for tq in matching_queries:
+                claim_id = tq.get("claimId")
+                query_id = tq.get("id")
+                src_aggregate = (
+                    per_claim_aggregates.get(claim_id)
+                    if claim_id is not None
+                    else None
+                )
+                result = TransportResult(
+                    status="metadata_only",
+                    srcAggregate=src_aggregate,
+                    metadata=metadata,
+                    provenance=[bridge.id, bridge.via],
+                )
+                if first_result is None:
+                    first_result = result
+                    machine_state.transport_store[bridge.id] = result
+                if query_id:
+                    machine_state.transport_store[query_id] = result
+                diags.extend(result.diagnostics)
+            return first_result or TransportResult(  # defensive fallback
+                status="metadata_only",
+                metadata=metadata,
+                provenance=[bridge.id, bridge.via],
+            ), machine_state, diags
+
+        # No matching query: retain metadata-only bridge-level behavior.
         result = TransportResult(
             status="metadata_only",
-            srcAggregate=src_aggregate,
+            srcAggregate=None,
             metadata=metadata,
             provenance=[bridge.id, bridge.via],
         )
         machine_state.transport_store[bridge.id] = result
-        if query_id:
-            machine_state.transport_store[query_id] = result
         diags.extend(result.diagnostics)
         return result, machine_state, diags
 
-    if claim_id is None:
+    if not matching_queries:
         # No transport query for this bridge: pattern_only fallback
         result = TransportResult(
             status="pattern_only",
@@ -1752,111 +1774,139 @@ def execute_transport(
         machine_state.transport_store[bridge.id] = result
         return result, machine_state, diags
 
-    # Get source aggregate for the claim
-    src_aggregate = per_claim_aggregates.get(claim_id)
-    if src_aggregate is None:
-        # Source claim not evaluated
-        result = TransportResult(
-            status="unresolved",
-            metadata=metadata,
-            provenance=[bridge.id, claim_id],
-            diagnostics=[{
-                "severity": "error",
-                "code": "transport_source_missing",
-                "bridge_id": bridge.id,
-                "claim_id": claim_id,
-                "message": f"Source claim {claim_id} has no aggregate eval",
-            }],
-        )
-        machine_state.transport_store[bridge.id] = result
+    bundle: BundleNode | None = services.get("__bundle__")
+    first_result: TransportResult | None = None
+
+    for tq in matching_queries:
+        claim_id = tq.get("claimId")
+        query_id = tq.get("id")
+
+        # Missing claim id in query -> unresolved for that query.
+        if not claim_id:
+            result = TransportResult(
+                status="unresolved",
+                metadata=metadata,
+                provenance=[bridge.id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_query_claim_missing",
+                    "bridge_id": bridge.id,
+                    "query_id": query_id,
+                    "message": "Transport query is missing claimId",
+                }],
+            )
+            diags.extend(result.diagnostics)
+            if first_result is None:
+                first_result = result
+                machine_state.transport_store[bridge.id] = result
+            if query_id:
+                machine_state.transport_store[query_id] = result
+            continue
+
+        # Get source aggregate for this claim
+        src_aggregate = per_claim_aggregates.get(claim_id)
+        if src_aggregate is None:
+            # Source claim not evaluated
+            result = TransportResult(
+                status="unresolved",
+                metadata=metadata,
+                provenance=[bridge.id, claim_id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_source_missing",
+                    "bridge_id": bridge.id,
+                    "claim_id": claim_id,
+                    "message": f"Source claim {claim_id} has no aggregate eval",
+                }],
+            )
+            diags.extend(result.diagnostics)
+            if first_result is None:
+                first_result = result
+                machine_state.transport_store[bridge.id] = result
+            if query_id:
+                machine_state.transport_store[query_id] = result
+            continue
+
+        # Get semantic requirements from bundle claim definition.
+        claim_node: ClaimNode | None = None
+        if bundle is not None:
+            for block in bundle.claimBlocks:
+                for c in block.claims:
+                    if c.id == claim_id:
+                        claim_node = c
+                        break
+                if claim_node is not None:
+                    break
+
+        semantic_requirements: list[str] = []
+        if claim_node is not None:
+            semantic_requirements = claim_node.semanticRequirements
+
+        # Diagnostic rule 23: warn if semantic_requirements is empty under
+        # preserve or degrade transport
+        if mode in ("preserve", "degrade") and not semantic_requirements:
+            diags.append({
+                "severity": "warning",
+                "code": "lint.transport.semantic_requirements_empty",
+                "phase": "transport",
+                "subject": claim_id,
+                "message": (
+                    f"Claim {claim_id} evaluated under {mode} transport "
+                    "has empty semantic_requirements"
+                ),
+            })
+
+        if mode == "preserve":
+            result = _execute_preserve(
+                bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
+            )
+        elif mode == "degrade":
+            result = _execute_degrade(
+                bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
+            )
+        elif mode == "remap_recompute":
+            result = _execute_remap_recompute(
+                bridge,
+                transport,
+                src_aggregate,
+                metadata,
+                claim_id,
+                step_ctx,
+                machine_state,
+                services,
+                diags,
+            )
+        else:
+            # Unknown mode (should not happen given validation)
+            result = TransportResult(
+                status="unresolved",
+                metadata=metadata,
+                provenance=[bridge.id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_unknown_mode",
+                    "bridge_id": bridge.id,
+                    "message": f"Unknown transport mode: {mode}",
+                }],
+            )
+
+        if first_result is None:
+            first_result = result
+            machine_state.transport_store[bridge.id] = result
         if query_id:
             machine_state.transport_store[query_id] = result
         diags.extend(result.diagnostics)
-        return result, machine_state, diags
 
-    # Get the claim's semantic requirements from the bundle
-    bundle: BundleNode | None = services.get("__bundle__")
-    claim_node: ClaimNode | None = None
-    if bundle is not None:
-        for block in bundle.claimBlocks:
-            for c in block.claims:
-                if c.id == claim_id:
-                    claim_node = c
-                    break
-            if claim_node is not None:
-                break
-
-    semantic_requirements: list[str] = []
-    if claim_node is not None:
-        semantic_requirements = claim_node.semanticRequirements
-
-    # Diagnostic rule 23: warn if semantic_requirements is empty under
-    # preserve or degrade transport
-    if mode in ("preserve", "degrade") and not semantic_requirements:
-        diags.append({
-            "severity": "warning",
-            "code": "lint.transport.semantic_requirements_empty",
-            "phase": "transport",
-            "subject": claim_id,
-            "message": (
-                f"Claim {claim_id} evaluated under {mode} transport "
-                "has empty semantic_requirements"
-            ),
-        })
-
-    # ---------------------------------------------------------------
-    # preserve
-    # ---------------------------------------------------------------
-    if mode == "preserve":
-        result = _execute_preserve(
-            bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
+    if first_result is None:
+        # Defensive fallback; should not happen due to matching_queries check.
+        first_result = TransportResult(
+            status="pattern_only",
+            metadata=metadata,
+            provenance=[bridge.id],
         )
-        machine_state.transport_store[bridge.id] = result
-        if query_id:
-            machine_state.transport_store[query_id] = result
-        return result, machine_state, diags
+        machine_state.transport_store[bridge.id] = first_result
 
-    # ---------------------------------------------------------------
-    # degrade
-    # ---------------------------------------------------------------
-    if mode == "degrade":
-        result = _execute_degrade(
-            bridge, src_aggregate, semantic_requirements, metadata, claim_id, diags,
-        )
-        machine_state.transport_store[bridge.id] = result
-        if query_id:
-            machine_state.transport_store[query_id] = result
-        return result, machine_state, diags
-
-    # ---------------------------------------------------------------
-    # remap_recompute
-    # ---------------------------------------------------------------
-    if mode == "remap_recompute":
-        result = _execute_remap_recompute(
-            bridge, transport, src_aggregate, metadata, claim_id,
-            step_ctx, machine_state, services, diags,
-        )
-        machine_state.transport_store[bridge.id] = result
-        if query_id:
-            machine_state.transport_store[query_id] = result
-        return result, machine_state, diags
-
-    # Unknown mode (should not happen given validation)
-    result = TransportResult(
-        status="unresolved",
-        metadata=metadata,
-        provenance=[bridge.id],
-        diagnostics=[{
-            "severity": "error",
-            "code": "transport_unknown_mode",
-            "bridge_id": bridge.id,
-            "message": f"Unknown transport mode: {mode}",
-        }],
-    )
-    machine_state.transport_store[bridge.id] = result
-    if query_id:
-        machine_state.transport_store[query_id] = result
-    return result, machine_state, diags
+    return first_result, machine_state, diags
 
 
 def _check_preconditions(

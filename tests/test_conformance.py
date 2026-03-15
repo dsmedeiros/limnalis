@@ -17,10 +17,11 @@ from limnalis.conformance.compare import (
     compare_case,
 )
 from limnalis.conformance.fixtures import load_corpus_from_default
-from limnalis.models.ast import FrameNode
+from limnalis.models.ast import FrameNode, FramePatternNode
 from limnalis.conformance.runner import (
     _build_fixture_synthesize_support,
     _build_per_step_support_maps,
+    _build_sessions_from_case,
     run_case,
 )
 from limnalis.runtime.models import (
@@ -180,6 +181,39 @@ class TestMismatchDetection:
         comparison = compare_case(tampered_case, result)
         assert not comparison.passed, "Expected comparison to detect tampered mismatch"
         assert len(comparison.mismatches) > 0
+
+
+class TestConformanceSessionBuilding:
+    """Verify environment session parsing preserves step frame overrides."""
+
+    def test_build_sessions_from_environment_parses_step_frame_override(self):
+        case = SimpleNamespace(
+            environment={
+                "sessions": [
+                    {
+                        "id": "s1",
+                        "steps": [
+                            {
+                                "id": "step0",
+                                "frame_override": {
+                                    "node": "FramePattern",
+                                    "facets": {"task": "diagnose", "regime": "counterfactual"},
+                                },
+                            }
+                        ],
+                    }
+                ]
+            },
+            expected_sessions=lambda: [],
+        )
+
+        sessions = _build_sessions_from_case(case)
+
+        assert len(sessions) == 1
+        step = sessions[0].steps[0]
+        assert isinstance(step.frame_override, FramePatternNode)
+        assert step.frame_override.facets.task == "diagnose"
+        assert step.frame_override.facets.regime == "counterfactual"
 
 
 class TestConformanceSupportMapping:

@@ -378,6 +378,7 @@ def _build_sessions_from_case(case: FixtureCase) -> list[SessionConfig]:
                     step_time = TimeCtxNode(**time_data)
                 steps.append(StepConfig(
                     id=step_env.get("id", "step0"),
+                    frame_override=step_env.get("frame_override"),
                     time=step_time,
                     history_binding=step_env.get("history_binding"),
                 ))
