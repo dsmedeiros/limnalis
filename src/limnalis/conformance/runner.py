@@ -153,18 +153,13 @@ def _build_fixture_eval_expr(
         diags: list[dict[str, Any]] = []
 
         # Track step transitions to advance the step index.
-        # Use step_ctx identity (id()) as the primary discriminant so that
-        # multi-step sessions without time/history markers still advance.
+        # Use step_ctx object identity as the primary discriminant — each
+        # step invocation receives a distinct StepContext instance, so
+        # id(step_ctx) is always unique per step even when time/history
+        # metadata are identical across consecutive steps.
         current_step_id = None
         if step_ctx is not None:
-            # Prefer explicit markers when available
-            if step_ctx.effective_time is not None:
-                current_step_id = getattr(step_ctx.effective_time, "t", None)
-            if current_step_id is None and step_ctx.effective_history:
-                current_step_id = str(step_ctx.effective_history)
-            # Fallback: use the step_ctx object identity
-            if current_step_id is None:
-                current_step_id = id(step_ctx)
+            current_step_id = id(step_ctx)
 
         if current_step_id is not None and current_step_id != state["last_step_id"]:
             if state["last_step_id"] is not None:

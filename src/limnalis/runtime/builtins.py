@@ -702,6 +702,7 @@ def _aggregate_adequacy_by_policy(
     policy_kind: str,
     policy_order: list[str] | None = None,
     adjudicator_handler: Callable[..., Any] | None = None,
+    policy_members: list[str] | None = None,
 ) -> tuple[TruthValue, str | None]:
     """Aggregate multiple assessment results under a given policy kind.
 
@@ -711,7 +712,13 @@ def _aggregate_adequacy_by_policy(
         return "N", "no_assessments"
 
     if policy_kind == "single":
-        # Single: use the sole assessment directly
+        # Single: use the assessment matching the configured member if specified
+        if policy_members:
+            target = policy_members[0]
+            for a in assessments:
+                if a.producer == target:
+                    return a.truth, a.reason
+        # Fall back to first assessment if no member specified or not found
         return assessments[0].truth, assessments[0].reason
 
     elif policy_kind == "paraconsistent_union":
@@ -877,6 +884,7 @@ def evaluate_adequacy_set(
                             policy.kind,
                             policy_order=policy.order,
                             adjudicator_handler=adequacy_handler,
+                            policy_members=policy.members,
                         )
                     else:
                         # Policy referenced but not found - treat as missing
@@ -935,6 +943,7 @@ def evaluate_adequacy_set(
                         policy.kind,
                         policy_order=policy.order,
                         adjudicator_handler=adequacy_handler,
+                        policy_members=policy.members,
                     )
                 else:
                     ja_truth = "N"
@@ -1134,6 +1143,9 @@ def compose_license(
                     ),
                 })
                 continue
+            else:
+                # Joint adequacy found — skip individual adequacy for this anchor
+                continue
 
         # Look up individual anchor:task adequacy
         adeq_key = f"{anchor_id}:{task}"
@@ -1180,21 +1192,36 @@ def compose_license(
     # Set reason based on overall truth if not already set
     if overall_reason is None:
         if overall_truth == "F":
-            # Find the reason from the failing entry
+            # Find the reason from the failing entry (individual then joint)
             for e in individual_entries:
                 if e.truth == "F":
                     overall_reason = e.reason or "threshold_not_met"
                     break
+            if overall_reason is None:
+                for e in joint_entries:
+                    if e.truth == "F":
+                        overall_reason = e.reason or "threshold_not_met"
+                        break
         elif overall_truth == "B":
             for e in individual_entries:
                 if e.truth == "B":
                     overall_reason = e.reason or "adequacy_conflict"
                     break
+            if overall_reason is None:
+                for e in joint_entries:
+                    if e.truth == "B":
+                        overall_reason = e.reason or "adequacy_conflict"
+                        break
         elif overall_truth == "N":
             for e in individual_entries:
                 if e.truth == "N":
                     overall_reason = e.reason
                     break
+            if overall_reason is None:
+                for e in joint_entries:
+                    if e.truth == "N":
+                        overall_reason = e.reason
+                        break
 
     result = LicenseResult(
         claim_id=claim_id,
@@ -2038,8 +2065,6 @@ def _execute_remap_recompute(
     else:
         # No explicit handler; use default remap behavior:
         # Evaluate with an inverted/negated truth as default remap semantics
-        # The fixture A10 expects remap to yield F for a T source
-        # when the claim requires something in the lose set
         mapped_truth = "F"
         mapped_reason = None
         mapped_claim = claim_id
