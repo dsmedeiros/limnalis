@@ -1652,6 +1652,36 @@ class TestComposeLicense:
         # License says F (inadequate anchor) even though world truth is T
         assert result.overall.truth == "F"
 
+    def test_joint_coverage_order_independent_when_partner_appears_first(self):
+        """Joint coverage should not depend on claim.usesAnchors order."""
+        claim = ClaimNode(
+            id="c1", kind="atomic", expr=PredicateExprNode(name="P"),
+            usesAnchors=["anc2", "anc1"],
+        )
+        anc1 = _anchor(id="anc1", requires_joint_with=["anc2"])
+        anc2 = _anchor(id="anc2")
+        ja = JointAdequacyNode(
+            id="ja1",
+            anchors=["anc1", "anc2"],
+            assessments=[_assessment(id="jaa1", task="predict", producer="p1", score=0.9, threshold=0.5)],
+        )
+        bundle = self._make_license_bundle([claim], [anc1, anc2], joint_adequacies=[ja])
+
+        ms = MachineState()
+        ms.adequacy_store = {
+            "per_anchor_task": {
+                "anc2:predict": {"truth": "F", "reason": "threshold_not_met", "per_assessment": []},
+            },
+            "joint": {"ja1": {"truth": "T", "reason": None, "per_assessment": []}},
+        }
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {"__bundle__": bundle}
+
+        result, _, _ = compose_license("c1", step_ctx, ms, services)
+
+        assert result.overall.truth == "T"
+        assert len(result.joint) == 1
+
     def test_joint_adequacy_covers_partner_anchor_without_individual_result(self):
         """A matched joint adequacy should cover all anchors in the joint group."""
         claim = ClaimNode(

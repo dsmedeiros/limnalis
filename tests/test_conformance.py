@@ -10,7 +10,12 @@ import pytest
 from types import SimpleNamespace
 
 from limnalis.cli import main
-from limnalis.conformance.compare import FieldMismatch, _compare_license, compare_case
+from limnalis.conformance.compare import (
+    FieldMismatch,
+    _compare_adequacy,
+    _compare_license,
+    compare_case,
+)
 from limnalis.conformance.fixtures import load_corpus_from_default
 from limnalis.models.ast import FrameNode
 from limnalis.conformance.runner import (
@@ -214,6 +219,27 @@ class TestConformanceSupportMapping:
 
         assert s1.support == "supported"
         assert s2.support == "conflicted"
+
+
+class TestAdequacyComparison:
+    """Verify adequacy comparison merges stores across sessions."""
+
+    def test_compare_adequacy_merges_nested_sections_across_sessions(self):
+        bundle_result = SimpleNamespace(
+            session_results=[
+                SimpleNamespace(adequacy_store={"per_assessment": {"aa1": {"truth": "T"}}}),
+                SimpleNamespace(adequacy_store={"per_assessment": {"aa2": {"truth": "F"}}}),
+            ]
+        )
+        expected = {
+            "aa1": {"truth": "T"},
+            "aa2": {"truth": "F"},
+        }
+        mismatches: list[FieldMismatch] = []
+
+        _compare_adequacy("adequacy_expectations", expected, bundle_result, mismatches)
+
+        assert mismatches == []
 
 
 class TestLicenseComparison:

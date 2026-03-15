@@ -1108,6 +1108,42 @@ def compose_license(
     # An anchor with requiresJointWith means its exact set must appear in a joint_adequacy
     uses_set = set(claim.usesAnchors)
     anchors_covered_by_joint: set[str] = set()
+    missing_joint_partners: dict[str, list[str]] = {}
+    processed_joint_ids: set[str] = set()
+
+    # Precompute matched joint coverage for requiring anchors so coverage
+    # is independent of claim.usesAnchors ordering.
+    for anchor_id in claim.usesAnchors:
+        anchor = anchors_by_id.get(anchor_id)
+        if anchor is None or not anchor.requiresJointWith:
+            continue
+
+        joint_partners = set(anchor.requiresJointWith)
+        needed_joint_set = {anchor_id} | (joint_partners & uses_set)
+
+        found_joint = False
+        for ja in bundle.jointAdequacies:
+            ja_anchor_set = set(ja.anchors)
+            if needed_joint_set == ja_anchor_set:
+                found_joint = True
+                ja_result = joint_store.get(ja.id)
+                if ja_result is not None:
+                    anchors_covered_by_joint.update(ja_anchor_set & uses_set)
+                    if ja.id not in processed_joint_ids:
+                        ja_truth: TruthValue = ja_result.get("truth", "N")
+                        ja_reason = ja_result.get("reason")
+                        joint_entries.append(JointLicenseEntry(
+                            joint_id=ja.id,
+                            anchors=ja.anchors,
+                            truth=ja_truth,
+                            reason=ja_reason,
+                        ))
+                        all_truths.append(ja_truth)
+                        processed_joint_ids.add(ja.id)
+                break
+
+        if not found_joint:
+            missing_joint_partners[anchor_id] = sorted(joint_partners)
 
     for anchor_id in claim.usesAnchors:
         anchor = anchors_by_id.get(anchor_id)
@@ -1119,62 +1155,32 @@ def compose_license(
             all_truths.append("N")
             continue
 
-        # Anchors already covered by a matched joint adequacy group do not
-        # require separate per-anchor adequacy lookup for this claim.
+        if anchor_id in missing_joint_partners:
+            entry = AnchorLicenseEntry(
+                anchor_id=anchor_id, task=task,
+                truth="N", reason="missing_joint_adequacy",
+            )
+            individual_entries.append(entry)
+            all_truths.append("N")
+            diags.append({
+                "severity": "warning",
+                "code": "missing_joint_adequacy",
+                "subject": claim_id,
+                "message": (
+                    f"Anchor {anchor_id} requires joint adequacy with "
+                    f"{missing_joint_partners[anchor_id]} but no matching group found"
+                ),
+            })
+            continue
+
+        # Anchors covered by a matched joint adequacy group do not require
+        # separate per-anchor adequacy lookup for this claim.
         if anchor_id in anchors_covered_by_joint:
             continue
 
-        # Check if this anchor requires joint adequacy with others
+        # Requiring anchors have already been handled by joint precomputation.
         if anchor.requiresJointWith:
-            # The anchor requires joint adequacy. Check that a joint adequacy group
-            # covers both this anchor and its required partners that are in the claim's uses set
-            joint_partners = set(anchor.requiresJointWith)
-            # All joint partners must be in the claim's usesAnchors
-            needed_joint_set = {anchor_id} | (joint_partners & uses_set)
-
-            # Look for a joint adequacy group whose anchor set matches
-            found_joint = False
-            for ja in bundle.jointAdequacies:
-                ja_anchor_set = set(ja.anchors)
-                # The joint adequacy must exactly match the needed anchors
-                if needed_joint_set == ja_anchor_set:
-                    # Found a matching joint group - check its result
-                    ja_key = ja.id
-                    ja_result = joint_store.get(ja_key)
-                    if ja_result is not None:
-                        ja_truth: TruthValue = ja_result.get("truth", "N")
-                        ja_reason = ja_result.get("reason")
-                        joint_entries.append(JointLicenseEntry(
-                            joint_id=ja.id, anchors=ja.anchors,
-                            truth=ja_truth, reason=ja_reason,
-                        ))
-                        # Joint adequacy truth participates in overall license
-                        all_truths.append(ja_truth)
-                        anchors_covered_by_joint.update(ja_anchor_set & uses_set)
-                    found_joint = True
-                    break
-
-            if not found_joint:
-                # No joint adequacy group found covering the needed set
-                entry = AnchorLicenseEntry(
-                    anchor_id=anchor_id, task=task,
-                    truth="N", reason="missing_joint_adequacy",
-                )
-                individual_entries.append(entry)
-                all_truths.append("N")
-                diags.append({
-                    "severity": "warning",
-                    "code": "missing_joint_adequacy",
-                    "subject": claim_id,
-                    "message": (
-                        f"Anchor {anchor_id} requires joint adequacy with "
-                        f"{sorted(joint_partners)} but no matching group found"
-                    ),
-                })
-                continue
-            else:
-                # Joint adequacy found — skip individual adequacy for this anchor
-                continue
+            continue
 
         # Look up individual anchor:task adequacy
         adeq_key = f"{anchor_id}:{task}"

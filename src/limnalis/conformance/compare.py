@@ -630,6 +630,17 @@ def _flatten_adequacy_store(raw_store: dict[str, Any]) -> dict[str, dict[str, An
     return flat
 
 
+
+
+def _merge_adequacy_store(acc: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Merge nested adequacy store sections without clobbering prior sessions."""
+    for sub_key in ("per_assessment", "per_anchor_task", "joint"):
+        sub = incoming.get(sub_key)
+        if isinstance(sub, dict):
+            target = acc.setdefault(sub_key, {})
+            if isinstance(target, dict):
+                target.update(sub)
+    return acc
 def _compare_adequacy(
     path: str,
     expected: dict[str, dict[str, Any]],
@@ -640,7 +651,7 @@ def _compare_adequacy(
     # Adequacy results are in session results' adequacy_store
     raw_adequacy: dict[str, Any] = {}
     for sess in bundle_result.session_results:
-        raw_adequacy.update(sess.adequacy_store)
+        _merge_adequacy_store(raw_adequacy, sess.adequacy_store)
 
     # Flatten nested structure for comparison
     actual_adequacy = _flatten_adequacy_store(raw_adequacy)
