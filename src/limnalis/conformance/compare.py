@@ -465,20 +465,24 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
 
     # If expected has no sessions (e.g. A2), we just check diagnostics
     if expected_sessions:
-        if len(bundle_result.session_results) < len(expected_sessions):
+        actual_session_count = len(bundle_result.session_results)
+        expected_session_count = len(expected_sessions)
+        if actual_session_count != expected_session_count:
             mismatches.append(
                 FieldMismatch(
                     "sessions.length",
-                    len(expected_sessions),
-                    len(bundle_result.session_results),
+                    expected_session_count,
+                    actual_session_count,
                 )
             )
-        else:
-            for si, sess_exp in enumerate(expected_sessions):
-                sess_result = bundle_result.session_results[si]
-                _compare_session(
-                    f"sessions[{si}]", sess_exp, sess_result, mismatches
-                )
+
+        compare_count = min(expected_session_count, actual_session_count)
+        for si in range(compare_count):
+            sess_exp = expected_sessions[si]
+            sess_result = bundle_result.session_results[si]
+            _compare_session(
+                f"sessions[{si}]", sess_exp, sess_result, mismatches
+            )
 
     # Compare top-level diagnostics
     # Collect all diagnostics from bundle + sessions + steps
@@ -516,17 +520,19 @@ def _compare_session(
 ) -> None:
     """Compare a single session's expected results to actual."""
     steps_exp = sess_exp.get("steps", [])
-    if len(sess_result.step_results) < len(steps_exp):
+    actual_step_count = len(sess_result.step_results)
+    expected_step_count = len(steps_exp)
+    if actual_step_count != expected_step_count:
         mismatches.append(
             FieldMismatch(
                 f"{path}.steps.length",
-                len(steps_exp),
-                len(sess_result.step_results),
+                expected_step_count,
+                actual_step_count,
             )
         )
-        return
 
-    for si, step_exp in enumerate(steps_exp):
+    for si in range(min(expected_step_count, actual_step_count)):
+        step_exp = steps_exp[si]
         step_result = sess_result.step_results[si]
         step_path = f"{path}.steps[{si}]"
 
@@ -633,13 +639,25 @@ def _flatten_adequacy_store(raw_store: dict[str, Any]) -> dict[str, dict[str, An
 
 
 def _merge_adequacy_store(acc: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
-    """Merge nested adequacy store sections without clobbering prior sessions."""
-    for sub_key in ("per_assessment", "per_anchor_task", "joint"):
-        sub = incoming.get(sub_key)
-        if isinstance(sub, dict):
-            target = acc.setdefault(sub_key, {})
-            if isinstance(target, dict):
-                target.update(sub)
+    """Merge adequacy stores without clobbering prior sessions.
+
+    Supports both nested runtime shape and already-flat map shape.
+    """
+    has_nested_sections = any(
+        key in incoming for key in ("per_assessment", "per_anchor_task", "joint")
+    )
+
+    if has_nested_sections:
+        for sub_key in ("per_assessment", "per_anchor_task", "joint"):
+            sub = incoming.get(sub_key)
+            if isinstance(sub, dict):
+                target = acc.setdefault(sub_key, {})
+                if isinstance(target, dict):
+                    target.update(sub)
+    else:
+        # Preserve already-flat stores by merging top-level entries directly.
+        acc.update(incoming)
+
     return acc
 def _compare_adequacy(
     path: str,

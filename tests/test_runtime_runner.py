@@ -347,6 +347,23 @@ class TestServicesBundleIsolation:
 
         assert shared_services.get("__bundle__") is bundle2
 
+class TestFixtureStepIndexService:
+    """Verify run_step exposes a monotonic fixture step index in services."""
+
+    def test_run_step_increments_fixture_step_index_on_reused_services(self):
+        shared_services: dict = {}
+        bundle = _bundle()
+        session = _session()
+
+        run_step(bundle, session, _step("s1"), _env(), services=shared_services)
+        assert shared_services.get("__fixture_step_index__") == 0
+        assert shared_services.get("__fixture_step_counter__") == 1
+
+        run_step(bundle, session, _step("s2"), _env(), services=shared_services)
+        assert shared_services.get("__fixture_step_index__") == 1
+        assert shared_services.get("__fixture_step_counter__") == 2
+
+
 class TestRunSession:
     """Verify run_session executes all steps and returns SessionResult."""
 

@@ -213,6 +213,13 @@ def run_step(
     # Inject bundle into services for primitives that need it (e.g. evaluate_adequacy_set)
     services["__bundle__"] = bundle
 
+    # Monotonic run-step index across a bundle run; conformance fixture-backed
+    # primitives use this to pick per-step expectations even when a step has
+    # no evaluable claims (and therefore emits no eval callbacks).
+    current_step_index = int(services.get("__fixture_step_counter__", 0))
+    services["__fixture_step_index__"] = current_step_index
+    services["__fixture_step_counter__"] = current_step_index + 1
+
     trace: list[PrimitiveTraceEvent] = []
     diags: Diagnostics = []
     machine = MachineState()

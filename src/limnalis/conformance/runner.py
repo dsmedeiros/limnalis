@@ -156,18 +156,25 @@ def _build_fixture_eval_expr(
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
         diags: list[dict[str, Any]] = []
 
-        # Track step transitions to advance the step index.
-        # Use step_ctx object identity as the primary discriminant — each
-        # step invocation receives a distinct StepContext instance, so
-        # id(step_ctx) is always unique per step even when time/history
-        # metadata are identical across consecutive steps.
-        if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
-            if state["last_step_ctx"] is not None:
-                state["step_index"] += 1
-            state["last_step_ctx"] = step_ctx
+        # Prefer explicit step index injected by runtime.run_step so indexing
+        # advances even for steps with no eval callbacks.
+        idx_from_services = None
+        if services is not None:
+            raw_idx = services.get("__fixture_step_index__")
+            if isinstance(raw_idx, int):
+                idx_from_services = raw_idx
 
-        # Choose the truth map for the current step
-        idx = state["step_index"]
+        if idx_from_services is not None:
+            idx = idx_from_services
+            state["step_index"] = idx
+            state["last_step_ctx"] = step_ctx
+        else:
+            # Fallback for direct unit usage without runner-injected services.
+            if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
+                if state["last_step_ctx"] is not None:
+                    state["step_index"] += 1
+                state["last_step_ctx"] = step_ctx
+            idx = state["step_index"]
         if idx < len(per_step_truth_maps):
             truth_map = per_step_truth_maps[idx]
         else:
@@ -238,12 +245,22 @@ def _build_fixture_synthesize_support(
 
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
 
-        if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
-            if state["last_step_ctx"] is not None:
-                state["step_index"] += 1
-            state["last_step_ctx"] = step_ctx
+        idx_from_services = None
+        if services is not None:
+            raw_idx = services.get("__fixture_step_index__")
+            if isinstance(raw_idx, int):
+                idx_from_services = raw_idx
 
-        idx = state["step_index"]
+        if idx_from_services is not None:
+            idx = idx_from_services
+            state["step_index"] = idx
+            state["last_step_ctx"] = step_ctx
+        else:
+            if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
+                if state["last_step_ctx"] is not None:
+                    state["step_index"] += 1
+                state["last_step_ctx"] = step_ctx
+            idx = state["step_index"]
         if idx < len(per_step_support_maps):
             support_map = per_step_support_maps[idx]
         else:

@@ -19,6 +19,7 @@ from limnalis.conformance.compare import (
 from limnalis.conformance.fixtures import load_corpus_from_default
 from limnalis.models.ast import FrameNode, FramePatternNode
 from limnalis.conformance.runner import (
+    _build_fixture_eval_expr,
     _build_fixture_synthesize_support,
     _build_per_step_support_maps,
     _build_sessions_from_case,
@@ -183,6 +184,62 @@ class TestMismatchDetection:
         assert len(comparison.mismatches) > 0
 
 
+class TestConformanceCountStrictness:
+    """Verify compare_case enforces exact session/step counts."""
+
+    def test_compare_case_flags_extra_sessions(self):
+        case = SimpleNamespace(id="X", expected={"sessions": [{"steps": []}]})
+        run_result = SimpleNamespace(
+            case_id="X",
+            error=None,
+            bundle_result=SimpleNamespace(
+                session_results=[
+                    SimpleNamespace(step_results=[], diagnostics=[], baseline_states={}, adequacy_store={}),
+                    SimpleNamespace(step_results=[], diagnostics=[], baseline_states={}, adequacy_store={}),
+                ],
+                diagnostics=[],
+            ),
+        )
+
+        comparison = compare_case(case, run_result)
+
+        assert not comparison.passed
+        assert any(m.path == "sessions.length" for m in comparison.mismatches)
+
+    def test_compare_case_flags_extra_steps_within_session(self):
+        case = SimpleNamespace(
+            id="Y",
+            expected={"sessions": [{"steps": [{"claims": {}, "blocks": {}, "transports": {}}]}]},
+        )
+        run_result = SimpleNamespace(
+            case_id="Y",
+            error=None,
+            bundle_result=SimpleNamespace(
+                session_results=[
+                    SimpleNamespace(
+                        step_results=[
+                            SimpleNamespace(
+                                claim_results=[], block_results=[], transport_results={}, diagnostics=[]
+                            ),
+                            SimpleNamespace(
+                                claim_results=[], block_results=[], transport_results={}, diagnostics=[]
+                            ),
+                        ],
+                        diagnostics=[],
+                        baseline_states={},
+                        adequacy_store={},
+                    )
+                ],
+                diagnostics=[],
+            ),
+        )
+
+        comparison = compare_case(case, run_result)
+
+        assert not comparison.passed
+        assert any(m.path == "sessions[0].steps.length" for m in comparison.mismatches)
+
+
 class TestConformanceSessionBuilding:
     """Verify environment session parsing preserves step frame overrides."""
 
@@ -214,6 +271,27 @@ class TestConformanceSessionBuilding:
         assert isinstance(step.frame_override, FramePatternNode)
         assert step.frame_override.facets.task == "diagnose"
         assert step.frame_override.facets.regime == "counterfactual"
+
+
+class TestConformanceStepIndexing:
+    """Verify fixture eval indexing can advance independent of callbacks."""
+
+    def test_fixture_eval_expr_uses_runner_injected_step_index(self):
+        per_step_truth_maps = [
+            {"c1": {"ev1": TruthCore(truth="T")}},
+            {},  # step with no evaluable claims / no eval callback
+            {"c1": {"ev1": TruthCore(truth="F")}},
+        ]
+        fixture_eval = _build_fixture_eval_expr(per_step_truth_maps)
+        claim = SimpleNamespace(id="c1")
+        step_ctx = StepContext(effective_frame=FrameNode(system="sys", namespace="ns", scale="macro", task="predict", regime="standard"))
+        machine = MachineState()
+
+        tc0, _, _ = fixture_eval(claim, "ev1", step_ctx, machine, {"__fixture_step_index__": 0})
+        tc2, _, _ = fixture_eval(claim, "ev1", step_ctx, machine, {"__fixture_step_index__": 2})
+
+        assert tc0.truth == "T"
+        assert tc2.truth == "F"
 
 
 class TestConformanceSupportMapping:
@@ -268,6 +346,23 @@ class TestAdequacyComparison:
         expected = {
             "aa1": {"truth": "T"},
             "aa2": {"truth": "F"},
+        }
+        mismatches: list[FieldMismatch] = []
+
+        _compare_adequacy("adequacy_expectations", expected, bundle_result, mismatches)
+
+        assert mismatches == []
+
+    def test_compare_adequacy_preserves_flat_store_entries(self):
+        bundle_result = SimpleNamespace(
+            session_results=[
+                SimpleNamespace(adequacy_store={"aa_flat_1": {"truth": "T"}}),
+                SimpleNamespace(adequacy_store={"aa_flat_2": {"truth": "F"}}),
+            ]
+        )
+        expected = {
+            "aa_flat_1": {"truth": "T"},
+            "aa_flat_2": {"truth": "F"},
         }
         mismatches: list[FieldMismatch] = []
 
