@@ -784,9 +784,14 @@ def run_session(
     adequacy_store: dict[str, Any] = {}
     if step_results:
         final_machine = step_results[-1].machine_state
-        baseline_states = {
-            bid: bs.model_dump() for bid, bs in final_machine.baseline_store.items()
-        }
+        baseline_states = {}
+        for bid, bs in final_machine.baseline_store.items():
+            if hasattr(bs, "model_dump"):
+                baseline_states[bid] = bs.model_dump()
+            elif isinstance(bs, dict):
+                baseline_states[bid] = dict(bs)
+            else:
+                baseline_states[bid] = bs
         adequacy_store = dict(final_machine.adequacy_store)
 
     return SessionResult(

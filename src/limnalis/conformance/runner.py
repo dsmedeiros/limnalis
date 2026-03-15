@@ -401,8 +401,16 @@ def _build_sessions_from_case(case: FixtureCase) -> list[SessionConfig]:
                 ))
             if not steps:
                 steps = [StepConfig(id="step0")]
+            base_frame = sess_env.get("base_frame")
+            base_time = None
+            base_time_data = sess_env.get("base_time")
+            if base_time_data is not None:
+                base_time = TimeCtxNode(**base_time_data)
+
             sessions.append(SessionConfig(
                 id=sess_env.get("id", "default"),
+                base_frame=base_frame,
+                base_time=base_time,
                 steps=steps,
             ))
         return sessions

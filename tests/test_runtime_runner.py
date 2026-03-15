@@ -399,6 +399,21 @@ class TestRunSession:
         assert any(d["code"] == "empty_session" for d in result.diagnostics)
 
 
+
+    def test_run_session_serializes_plain_dict_baseline_state(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1")])
+
+        def baseline_dict_injector(claim, ev_id, step_ctx, machine, services):
+            machine.baseline_store["bl_custom"] = {"status": "tracked", "source": "custom"}
+            return TruthCore(truth="N", reason="fixture"), machine, []
+
+        primitives = PrimitiveSet(eval_expr=baseline_dict_injector)
+
+        result = run_session(bundle, session, _env(), primitives=primitives)
+
+        assert result.baseline_states["bl_custom"] == {"status": "tracked", "source": "custom"}
+
 class TestRunBundle:
     """Verify run_bundle executes all sessions."""
 

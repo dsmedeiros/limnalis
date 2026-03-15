@@ -17,7 +17,7 @@ from limnalis.conformance.compare import (
     compare_case,
 )
 from limnalis.conformance.fixtures import load_corpus_from_default
-from limnalis.models.ast import FrameNode, FramePatternNode
+from limnalis.models.ast import FrameNode, FramePatternNode, TimeCtxNode
 from limnalis.conformance.runner import (
     _build_fixture_eval_expr,
     _build_fixture_synthesize_support,
@@ -271,6 +271,33 @@ class TestConformanceSessionBuilding:
         assert isinstance(step.frame_override, FramePatternNode)
         assert step.frame_override.facets.task == "diagnose"
         assert step.frame_override.facets.regime == "counterfactual"
+
+    def test_build_sessions_from_environment_parses_session_base_frame_and_time(self):
+        case = SimpleNamespace(
+            environment={
+                "sessions": [
+                    {
+                        "id": "s1",
+                        "base_frame": {
+                            "node": "FramePattern",
+                            "facets": {"task": "diagnose", "regime": "counterfactual"},
+                        },
+                        "base_time": {"kind": "point", "t": "2025-01-01T00:00:00Z"},
+                        "steps": [{"id": "step0"}],
+                    }
+                ]
+            },
+            expected_sessions=lambda: [],
+        )
+
+        sessions = _build_sessions_from_case(case)
+
+        assert len(sessions) == 1
+        session = sessions[0]
+        assert isinstance(session.base_frame, FramePatternNode)
+        assert session.base_frame.facets.task == "diagnose"
+        assert isinstance(session.base_time, TimeCtxNode)
+        assert session.base_time.t == "2025-01-01T00:00:00Z"
 
 
 class TestConformanceStepIndexing:
