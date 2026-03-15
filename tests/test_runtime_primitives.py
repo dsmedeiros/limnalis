@@ -1406,6 +1406,34 @@ class TestEvaluateAdequacySet:
         assert at.truth == "B"
         assert at.reason == "adequacy_conflict"
 
+    def test_method_conflict_normalizes_aggregation_inputs(self):
+        """Method conflicts should force aggregated task truth to conflict semantics."""
+        aa1 = _assessment(
+            id="aa1", task="predict", producer="p1", method="m1", score=0.9, threshold=0.5
+        )
+        aa2 = _assessment(
+            id="aa2", task="predict", producer="p2", method="m2", score=0.8, threshold=0.5
+        )
+        pol = ResolutionPolicyNode(id="adeq_pol", kind="single", members=["p2"])
+        anc = _anchor(id="anc1", adequacy=[aa1, aa2], adequacy_policy="adeq_pol")
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {"__bundle__": bundle, "__resolution_policies__": {"adeq_pol": pol}}
+
+        results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
+
+        per_assessment = results["per_assessment"]
+        # Legacy per-assessment marker remains on the first conflicting assessment.
+        assert per_assessment["aa1"].truth == "B"
+        assert per_assessment["aa1"].reason == "method_conflict"
+        assert per_assessment["aa2"].truth == "T"
+
+        # Aggregated task should still be conflicted despite single-member policy selection.
+        at = results["per_anchor_task"]["anc1:predict"]
+        assert at.truth == "B"
+        assert at.reason == "method_conflict"
+
 
 # ===================================================================
 # Tests: compose_license

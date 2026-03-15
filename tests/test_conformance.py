@@ -9,9 +9,10 @@ from __future__ import annotations
 import pytest
 
 from limnalis.cli import main
-from limnalis.conformance.compare import compare_case
+from limnalis.conformance.compare import FieldMismatch, _compare_license, compare_case
 from limnalis.conformance.fixtures import load_corpus_from_default
 from limnalis.conformance.runner import run_case
+from limnalis.runtime.models import JointLicenseEntry, LicenseOverall, LicenseResult
 
 
 # ---------------------------------------------------------------------------
@@ -161,3 +162,28 @@ class TestMismatchDetection:
         comparison = compare_case(tampered_case, result)
         assert not comparison.passed, "Expected comparison to detect tampered mismatch"
         assert len(comparison.mismatches) > 0
+
+
+class TestLicenseComparison:
+    """Verify license comparison catches joint-list mismatches."""
+
+    def test_joint_list_compares_all_entries_by_joint_id(self):
+        actual = LicenseResult(
+            claim_id="c1",
+            overall=LicenseOverall(truth="F"),
+            joint=[
+                JointLicenseEntry(joint_id="j1", anchors=["a1", "a2"], truth="T"),
+                JointLicenseEntry(joint_id="j2", anchors=["a2", "a3"], truth="F"),
+            ],
+        )
+        expected = {
+            "joint": [
+                {"joint_id": "j1", "truth": "T"},
+                {"joint_id": "j2", "truth": "T"},
+            ]
+        }
+
+        mismatches: list[FieldMismatch] = []
+        _compare_license("sessions[0].steps[0].claims.c1.license", expected, actual, mismatches)
+
+        assert any(m.path.endswith("joint[j2].truth") for m in mismatches)

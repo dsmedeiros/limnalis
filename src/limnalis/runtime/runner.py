@@ -1,6 +1,6 @@
 """Minimal phase-ordered step runner for the Limnalis abstract machine.
 
-Executes the normative 12-phase evaluation order at step scope, recording
+Executes the normative 13-phase evaluation order at step scope, recording
 a PrimitiveTraceEvent for each phase.  Non-evaluable NoteExpr claims bypass
 eval_expr and support synthesis.
 
@@ -649,8 +649,9 @@ def run_step(
     # Inject per-claim aggregates into services so execute_transport can access them
     services["__per_claim_aggregates__"] = per_claim_aggregates
     transport_results: dict[str, TransportResult] = {}
-    try:
-        for bridge in bundle.bridges:
+    stubbed_transport = False
+    for bridge in bundle.bridges:
+        try:
             tr_result, machine, tr_diags = primitives.execute_transport(
                 bridge, step_ctx, machine, services
             )
@@ -658,27 +659,34 @@ def run_step(
             # Store transport result keyed by bridge id
             if isinstance(tr_result, TransportResult):
                 transport_results[bridge.id] = tr_result
-        # Also gather any query-keyed results from machine state
-        for key, tr in machine.transport_store.items():
-            if key not in transport_results:
-                transport_results[key] = tr
-        trace.append(_trace(
-            phase, "execute_transport",
-            inputs_summary=f"bridges={len(bundle.bridges)}",
-            result_summary=f"ok, results={len(transport_results)}",
-        ))
-    except NotImplementedError as exc:
-        diags.append(_stubbed_diag(phase, "execute_transport", exc))
-        trace.append(_trace(phase, "execute_transport", result_summary="stubbed"))
-    except Exception as exc:
-        diags.append({
-            "severity": "error",
-            "code": "phase_error",
-            "phase": phase,
-            "primitive": "execute_transport",
-            "message": str(exc),
-        })
-        trace.append(_trace(phase, "execute_transport", result_summary=f"error: {exc}"))
+        except NotImplementedError as exc:
+            stubbed_diag = _stubbed_diag(phase, "execute_transport", exc)
+            stubbed_diag["bridge_id"] = bridge.id
+            diags.append(stubbed_diag)
+            stubbed_transport = True
+        except Exception as exc:
+            diags.append({
+                "severity": "error",
+                "code": "phase_error",
+                "phase": phase,
+                "primitive": "execute_transport",
+                "bridge_id": bridge.id,
+                "message": str(exc),
+            })
+
+    # Also gather any query-keyed results from machine state
+    for key, tr in machine.transport_store.items():
+        if key not in transport_results:
+            transport_results[key] = tr
+
+    result_summary = f"ok, results={len(transport_results)}"
+    if stubbed_transport:
+        result_summary = f"partial_stubbed, results={len(transport_results)}"
+    trace.append(_trace(
+        phase, "execute_transport",
+        inputs_summary=f"bridges={len(bundle.bridges)}",
+        result_summary=result_summary,
+    ))
 
     # ------------------------------------------------------------------
     # Assemble structured ClaimResult objects (deterministic claim order)

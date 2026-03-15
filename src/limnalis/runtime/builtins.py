@@ -830,10 +830,12 @@ def evaluate_adequacy_set(
             if len(task_assessments) > 1:
                 methods = {aa.method for aa in task_assessments if aa.method is not None}
                 if len(methods) > 1:
-                    # Method conflict detected: different methods for the same task
-                    # Flag the first assessment with method_conflict and emit diagnostic
+                    # Method conflict detected: different methods for the same task.
+                    # Preserve legacy per-assessment conflict marker on the first
+                    # assessment while normalizing aggregation inputs so policy
+                    # evaluation sees a consistent conflict set.
                     first_aa = task_assessments[0]
-                    per_assessment[first_aa.id] = AdequacyResult(
+                    first_conflicted = AdequacyResult(
                         assessment_id=first_aa.id,
                         task=first_aa.task,
                         producer=first_aa.producer,
@@ -844,8 +846,22 @@ def evaluate_adequacy_set(
                         threshold=first_aa.threshold,
                         provenance=per_assessment[first_aa.id].provenance,
                     )
-                    # Update task_results
-                    task_results[0] = per_assessment[first_aa.id]
+                    per_assessment[first_aa.id] = first_conflicted
+
+                    task_results = [
+                        AdequacyResult(
+                            assessment_id=aa.id,
+                            task=aa.task,
+                            producer=aa.producer,
+                            adequate=False,
+                            truth="B",
+                            reason="method_conflict",
+                            score=per_assessment[aa.id].score,
+                            threshold=aa.threshold,
+                            provenance=per_assessment[aa.id].provenance,
+                        )
+                        for aa in task_assessments
+                    ]
                     diags.append({
                         "severity": "warning",
                         "subject": first_aa.id,

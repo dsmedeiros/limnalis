@@ -198,12 +198,72 @@ def _compare_license(
     # joint expectations
     joint_exp = license_exp.get("joint")
     if joint_exp is not None:
+        actual_joint = list(getattr(actual_license, "joint", []) or [])
         if isinstance(joint_exp, dict):
             _compare_eval_snapshot(
-                f"{path}.joint", joint_exp,
-                actual_license.joint[0] if hasattr(actual_license, "joint") and actual_license.joint else None,
+                f"{path}.joint",
+                joint_exp,
+                actual_joint[0] if actual_joint else None,
                 mismatches,
             )
+            if len(actual_joint) > 1:
+                mismatches.append(
+                    FieldMismatch(
+                        f"{path}.joint.length",
+                        1,
+                        len(actual_joint),
+                    )
+                )
+        elif isinstance(joint_exp, list):
+            expected_by_id: dict[str, dict[str, Any]] = {}
+            unnamed_expected: list[dict[str, Any]] = []
+            for idx, exp_entry in enumerate(joint_exp):
+                if not isinstance(exp_entry, dict):
+                    mismatches.append(
+                        FieldMismatch(f"{path}.joint[{idx}]", "dict", exp_entry)
+                    )
+                    continue
+                joint_id = exp_entry.get("joint_id")
+                if isinstance(joint_id, str):
+                    expected_by_id[joint_id] = exp_entry
+                else:
+                    unnamed_expected.append(exp_entry)
+
+            actual_by_id: dict[str, Any] = {
+                entry.joint_id: entry
+                for entry in actual_joint
+                if hasattr(entry, "joint_id")
+            }
+
+            for joint_id, exp_entry in expected_by_id.items():
+                _compare_eval_snapshot(
+                    f"{path}.joint[{joint_id}]",
+                    exp_entry,
+                    actual_by_id.get(joint_id),
+                    mismatches,
+                )
+
+            if unnamed_expected:
+                sorted_actual = sorted(
+                    actual_joint,
+                    key=lambda entry: getattr(entry, "joint_id", ""),
+                )
+                for idx, exp_entry in enumerate(unnamed_expected):
+                    _compare_eval_snapshot(
+                        f"{path}.joint[{idx}]",
+                        exp_entry,
+                        sorted_actual[idx] if idx < len(sorted_actual) else None,
+                        mismatches,
+                    )
+
+            if len(actual_joint) != len(joint_exp):
+                mismatches.append(
+                    FieldMismatch(
+                        f"{path}.joint.length",
+                        len(joint_exp),
+                        len(actual_joint),
+                    )
+                )
 
 
 def _compare_block(

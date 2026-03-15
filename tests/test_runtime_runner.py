@@ -5,15 +5,18 @@ from __future__ import annotations
 import pytest
 
 from limnalis.models.ast import (
+    BridgeNode,
     BundleNode,
     ClaimNode,
     ClaimBlockNode,
     EvaluatorNode,
+    FramePatternNode,
     ResolutionPolicyNode,
     FrameNode,
     NoteExprNode,
     PredicateExprNode,
     TimeCtxNode,
+    TransportNode,
 )
 from limnalis.runtime.models import (
     EvaluationEnvironment,
@@ -46,7 +49,7 @@ def _frame(**overrides):
     return FrameNode(**defaults)
 
 
-def _bundle(claims=None, evaluators=None, policy=None):
+def _bundle(claims=None, evaluators=None, policy=None, bridges=None):
     frame = _frame()
     evaluators = evaluators or [EvaluatorNode(id="ev1", kind="model", binding="b1")]
     policy = policy or ResolutionPolicyNode(id="pol", kind="single", members=["ev1"])
@@ -56,6 +59,7 @@ def _bundle(claims=None, evaluators=None, policy=None):
         frame=frame,
         evaluators=evaluators,
         resolutionPolicy=policy,
+        bridges=bridges or [],
         claimBlocks=[ClaimBlockNode(id="blk1", stratum="local", claims=claims)],
     )
 
@@ -275,6 +279,52 @@ class TestFoldBlockFallback:
         fold_diags = [d for d in result.diagnostics if d.get("primitive") == "fold_block"]
         assert len(fold_diags) == 1
         assert fold_diags[0]["severity"] == "error"
+
+
+class TestTransportErrorIsolation:
+    """Verify phase 13 isolates errors per bridge."""
+
+    @staticmethod
+    def _bridge(bridge_id: str) -> BridgeNode:
+        fp = FramePatternNode(
+            facets={
+                "system": "sys",
+                "namespace": "ns",
+                "scale": "macro",
+                "task": "predict",
+                "regime": "standard",
+            }
+        )
+        return BridgeNode(
+            id=bridge_id,
+            from_=fp,
+            to=fp,
+            via="test",
+            preserve=[],
+            lose=[],
+            transport=TransportNode(mode="metadata_only"),
+        )
+
+    def test_transport_continues_after_per_bridge_error(self):
+        def flaky_execute_transport(bridge, step_ctx, machine_state, services):
+            if bridge.id == "b1":
+                raise RuntimeError("boom")
+            return {"unexpected": "result"}, machine_state, []
+
+        bundle = _bundle(bridges=[self._bridge("b1"), self._bridge("b2")])
+        primitives = PrimitiveSet(execute_transport=flaky_execute_transport)
+
+        result = run_step(bundle, _session(), _step(), _env(), primitives=primitives)
+
+        phase_errors = [
+            d for d in result.diagnostics
+            if d.get("code") == "phase_error" and d.get("primitive") == "execute_transport"
+        ]
+        assert len(phase_errors) == 1
+        assert phase_errors[0].get("bridge_id") == "b1"
+
+        transport_trace = [t for t in result.trace if t.primitive == "execute_transport"][0]
+        assert transport_trace.result_summary.startswith("ok")
 
 
 # ---------------------------------------------------------------------------
