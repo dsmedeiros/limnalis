@@ -345,14 +345,16 @@ def _compare_diagnostics(
     Matching is done by (code, severity) pair. Subject is compared
     only when specified in expected.
     """
+    remaining_actuals = list(actual_diags)  # mutable copy to consume matches
+
     for i, exp_diag in enumerate(expected_diags):
         exp_code = exp_diag.get("code")
         exp_severity = exp_diag.get("severity")
         exp_subject = exp_diag.get("subject")
 
-        # Find matching actual diagnostic
+        # Find matching actual diagnostic (consume on match to prevent reuse)
         matched = False
-        for act_diag in actual_diags:
+        for j, act_diag in enumerate(remaining_actuals):
             code_match = act_diag.get("code") == exp_code
             sev_match = act_diag.get("severity") == exp_severity
             if exp_subject is not None:
@@ -362,6 +364,7 @@ def _compare_diagnostics(
 
             if code_match and sev_match and subj_match:
                 matched = True
+                remaining_actuals.pop(j)
                 break
 
         if not matched:

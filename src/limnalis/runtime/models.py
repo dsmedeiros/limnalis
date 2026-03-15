@@ -323,12 +323,24 @@ def sort_diagnostics(diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Missing keys sort as empty string to ensure stable ordering.
     """
+    # Phase ordering: numeric phases sort naturally, string phases sort after.
+    # We normalise to (type_rank, comparable_value) so int and str never compare directly.
+    def _phase_key(phase: Any) -> tuple[int, Any]:
+        if isinstance(phase, int):
+            return (0, phase)
+        if isinstance(phase, str) and phase.isdigit():
+            return (0, int(phase))
+        return (1, str(phase) if phase is not None else "")
+
     return sorted(
         diagnostics,
         key=lambda d: (
-            str(d.get("phase", "")),
-            d.get("code", ""),
-            d.get("subject", d.get("claim_id", d.get("block_id", d.get("primitive", "")))),
+            _phase_key(d.get("phase", "")),
+            str(d.get("code", "") or ""),
+            str(
+                d.get("subject", d.get("claim_id", d.get("block_id", d.get("primitive", ""))))
+                or ""
+            ),
         ),
     )
 

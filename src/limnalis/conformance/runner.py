@@ -152,14 +152,19 @@ def _build_fixture_eval_expr(
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
         diags: list[dict[str, Any]] = []
 
-        # Track step transitions to advance the step index
+        # Track step transitions to advance the step index.
+        # Use step_ctx identity (id()) as the primary discriminant so that
+        # multi-step sessions without time/history markers still advance.
         current_step_id = None
         if step_ctx is not None:
-            # Use effective_time or effective_history as step discriminant
+            # Prefer explicit markers when available
             if step_ctx.effective_time is not None:
                 current_step_id = getattr(step_ctx.effective_time, "t", None)
             if current_step_id is None and step_ctx.effective_history:
                 current_step_id = str(step_ctx.effective_history)
+            # Fallback: use the step_ctx object identity
+            if current_step_id is None:
+                current_step_id = id(step_ctx)
 
         if current_step_id is not None and current_step_id != state["last_step_id"]:
             if state["last_step_id"] is not None:
@@ -517,30 +522,28 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
 
     # Check if bundle policy is adjudicated — provide a default adjudicator
     if bundle.resolutionPolicy.kind == "adjudicated" and adjudicator is None:
+        from ..runtime.builtins import _aggregate_truth, _aggregate_support
+
         # Build a default paraconsistent-union fallback adjudicator
         def _default_adjudicator(per_evaluator: dict) -> "EvalNode":
             """Fallback adjudicator using paraconsistent-union semantics."""
             if not per_evaluator:
                 return EvalNode(truth="N", reason="no_evaluators")
             evals = list(per_evaluator.values())
-            truths = {e.truth for e in evals}
+            truths = [e.truth for e in evals]
             prov: set[str] = set()
             for e in evals:
                 prov.update(e.provenance)
-            if "T" in truths and "F" in truths:
-                return EvalNode(
-                    truth="B", reason="evaluator_conflict",
-                    support="conflicted", provenance=sorted(prov),
-                )
-            agreed = evals[0].truth
-            supports = [e.support for e in evals if e.support is not None]
-            support = None
-            for s in ["conflicted", "partial", "supported", "inapplicable", "absent"]:
-                if s in supports:
-                    support = s
-                    break
+            # Use the real paraconsistent join for truth aggregation
+            agg_truth = _aggregate_truth(truths)
+            truth_set = set(truths)
+            reason = None
+            if "T" in truth_set and "F" in truth_set:
+                reason = "evaluator_conflict"
+            support = _aggregate_support(evals, aggregate_truth=agg_truth)
             return EvalNode(
-                truth=agreed, support=support or "absent",
+                truth=agg_truth, reason=reason,
+                support=support or "absent",
                 provenance=sorted(prov),
             )
         adjudicator = _default_adjudicator
@@ -563,7 +566,8 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # Inject diagnostics that can't be produced organically
     injected_diags = _build_injected_diagnostics(case)
     if injected_diags:
-        result.diagnostics = list(result.diagnostics) + injected_diags
+        from ..runtime.models import sort_diagnostics
+        result.diagnostics = sort_diagnostics(list(result.diagnostics) + injected_diags)
 
     return CaseRunResult(
         case_id=case.id,

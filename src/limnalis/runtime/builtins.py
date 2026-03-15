@@ -1201,7 +1201,7 @@ def compose_license(
         overall=LicenseOverall(truth=overall_truth, reason=overall_reason),
         individual=individual_entries,
         joint=joint_entries,
-        diagnostics=diags,
+        diagnostics=list(diags),  # copy to avoid shared-reference mutation
     )
     return result, machine_state, diags
 
