@@ -225,10 +225,16 @@ def run_step(
     machine = MachineState()
     step_ctx: StepContext | None = None
 
-    # Collect all claims across blocks
+    # Collect all claims across blocks (optionally scoped by step.claim_subset).
+    claim_subset_ids = set(step.claim_subset or [])
+    has_claim_subset = len(claim_subset_ids) > 0
+
     all_claims: list[ClaimNode] = []
     for block in bundle.claimBlocks:
-        all_claims.extend(block.claims)
+        for claim in block.claims:
+            if has_claim_subset and claim.id not in claim_subset_ids:
+                continue
+            all_claims.append(claim)
 
     evaluators: list[EvaluatorNode] = bundle.evaluators
     evaluator_ids = [e.id for e in evaluators]
@@ -617,9 +623,13 @@ def run_step(
     per_block_per_evaluator: dict[str, dict[str, EvalNode]] = {}
     per_block_aggregates: dict[str, EvalNode] = {}
     for block in bundle.claimBlocks:
+        block_for_eval = block
+        if has_claim_subset:
+            filtered_claims = [c for c in block.claims if c.id in claim_subset_ids]
+            block_for_eval = block.model_copy(update={"claims": filtered_claims})
         try:
             block_ev_evals, block_agg = primitives.fold_block(
-                block,
+                block_for_eval,
                 per_claim_aggregates,
                 per_claim_per_evaluator,
                 classifications,
@@ -713,11 +723,14 @@ def run_step(
     # ------------------------------------------------------------------
     block_results: list[BlockResult] = []
     for block in bundle.claimBlocks:
+        block_claims = [c.id for c in block.claims]
+        if has_claim_subset:
+            block_claims = [cid for cid in block_claims if cid in claim_subset_ids]
         block_results.append(BlockResult(
             block_id=block.id,
             per_evaluator=per_block_per_evaluator.get(block.id, {}),
             aggregate=per_block_aggregates.get(block.id),
-            claims=[c.id for c in block.claims],
+            claims=block_claims,
         ))
 
     # ------------------------------------------------------------------

@@ -362,8 +362,12 @@ def _aggregate_support(
     if not supports:
         return None
 
-    # If aggregate truth is B (evaluator_conflict), force conflicted
-    if aggregate_truth == "B":
+    # Force conflicted only for real evaluator conflicts (e.g. T vs F).
+    # Aggregate truth B can also arise without evaluator conflict (e.g. B+N).
+    truths = {e.truth for e in evals}
+    has_truth_conflict = "T" in truths and "F" in truths
+    has_conflict_reason = any(e.reason == "evaluator_conflict" for e in evals)
+    if aggregate_truth == "B" and (has_truth_conflict or has_conflict_reason):
         return "conflicted"
 
     if "conflicted" in supports:
@@ -1721,9 +1725,19 @@ def execute_transport(
 
     # All matching queries for this bridge (not just the first).
     transport_queries: list[dict[str, Any]] = services.get("__transport_queries__", [])
+    current_step_index = services.get("__fixture_step_index__")
+
+    def _query_matches_current_step(query: dict[str, Any]) -> bool:
+        query_step_index = query.get("__fixture_step_index__")
+        if query_step_index is None:
+            return True
+        if not isinstance(current_step_index, int):
+            return False
+        return query_step_index == current_step_index
+
     matching_queries = [
         tq for tq in transport_queries
-        if tq.get("bridgeId") == bridge.id
+        if tq.get("bridgeId") == bridge.id and _query_matches_current_step(tq)
     ]
 
     # ---------------------------------------------------------------

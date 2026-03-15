@@ -188,6 +188,25 @@ class TestNoteExprBypass:
         assert claim_result.license.overall.truth == "T"
 
 
+
+
+class TestClaimSubsetScoping:
+    """Verify step claim_subset restricts evaluation to selected claims."""
+
+    def test_run_step_evaluates_only_claim_subset(self):
+        c1 = ClaimNode(id="c1", kind="atomic", expr=PredicateExprNode(name="P1"))
+        c2 = ClaimNode(id="c2", kind="atomic", expr=PredicateExprNode(name="P2"))
+        bundle = _bundle(claims=[c1, c2])
+
+        result = run_step(bundle, _session(), StepConfig(id="step1", claim_subset=["c2"]), _env())
+
+        assert set(result.per_claim_classifications.keys()) == {"c2"}
+        assert set(result.per_claim_per_evaluator.keys()) == {"c2"}
+        assert set(result.per_claim_aggregates.keys()) == {"c2"}
+        assert set(result.per_claim_licenses.keys()) == {"c2"}
+        assert [cr.claim_id for cr in result.claim_results] == ["c2"]
+        assert result.block_results[0].claims == ["c2"]
+
 # ---------------------------------------------------------------------------
 # Custom injected primitives
 # ---------------------------------------------------------------------------

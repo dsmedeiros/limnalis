@@ -603,6 +603,18 @@ class TestApplyResolutionPolicy:
         result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
         assert result.support == "conflicted"
 
+    def test_union_support_not_forced_conflicted_for_non_conflict_B(self):
+        """B without evaluator conflict should preserve support aggregation semantics."""
+        ev1 = EvalNode(truth="B", support="partial", provenance=["ev1"])
+        ev2 = EvalNode(truth="N", support="absent", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "B"
+        assert result.reason is None
+        assert result.support == "partial"
+
+
     def test_union_support_inapplicable_when_all_inapplicable(self):
         """All evaluators inapplicable => inapplicable."""
         ev1 = EvalNode(truth="T", support="inapplicable", provenance=["ev1"])
@@ -1195,6 +1207,40 @@ class TestExecuteTransport:
         assert "tq2" in new_ms.transport_store
         assert new_ms.transport_store["tq1"].provenance[-1] == "c1"
         assert new_ms.transport_store["tq2"].provenance[-1] == "c2"
+
+    def test_step_scoped_queries_only_match_current_fixture_step(self):
+        """Queries annotated for a different fixture step are ignored."""
+        bridge = _bridge(mode="preserve")
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {
+            "__fixture_step_index__": 1,
+            "__transport_queries__": [
+                {
+                    "bridgeId": "br1",
+                    "claimId": "c0",
+                    "id": "tq0",
+                    "__fixture_step_index__": 0,
+                },
+                {
+                    "bridgeId": "br1",
+                    "claimId": "c1",
+                    "id": "tq1",
+                    "__fixture_step_index__": 1,
+                },
+            ],
+            "__per_claim_aggregates__": {
+                "c0": EvalNode(truth="T", support="supported", provenance=["ev1"]),
+                "c1": EvalNode(truth="F", support="supported", provenance=["ev1"]),
+            },
+            "__bundle__": _bundle(claims=[_pred_claim(id="c0"), _pred_claim(id="c1")]),
+        }
+
+        result, new_ms, _ = execute_transport(bridge, step_ctx, ms, services)
+
+        assert "tq0" not in new_ms.transport_store
+        assert "tq1" in new_ms.transport_store
+        assert result.provenance[-1] == "c1"
 
 
 # ===================================================================

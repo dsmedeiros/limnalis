@@ -43,6 +43,7 @@ class StepConfig(BaseModel):
     frame_override: FrameOrPatternNode | None = None
     time: TimeCtxNode | None = None
     history_binding: str | None = None
+    claim_subset: list[str] | None = None
 
 
 class SessionConfig(BaseModel):
