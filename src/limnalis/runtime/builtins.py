@@ -2063,8 +2063,13 @@ def _execute_remap_recompute(
                 "message": str(exc),
             })
     else:
-        # No explicit handler; use default remap behavior:
-        # Evaluate with an inverted/negated truth as default remap semantics
+        # No explicit handler; use default remap behavior.
+        # Intentionally "F" (false), not "N" (unknown). Per the spec, a missing
+        # __claim_map_handler__ means the mapping failed outright, and unmappable
+        # claims are treated as false rather than unknown. The fixture corpus
+        # (FIXTURE-001) expects "F" as the destination truth when no handler is
+        # available (e.g., A10 transport expectations). Reviewed and confirmed
+        # during PR #6 review round 2.
         mapped_truth = "F"
         mapped_reason = None
         mapped_claim = claim_id
