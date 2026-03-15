@@ -1067,6 +1067,57 @@ class TestExecuteTransport:
         assert result.mappedClaim == "c1_mapped"
         assert "dst_ev1" in result.per_evaluator
 
+
+    def test_remap_recompute_applies_dst_evaluators_and_resolution_policy(self):
+        """remap_recompute should aggregate per_evaluator using destination config."""
+        bridge = BridgeNode(
+            id="br1",
+            **{"from": _frame_pattern(system="src_sys")},
+            to=_frame_pattern(system="dst_sys"),
+            via="via1",
+            preserve=["sem_a"],
+            lose=[],
+            gain=[],
+            risk=[],
+            transport=TransportNode(
+                mode="remap_recompute",
+                claimMap="map_fn",
+                dstEvaluators=["dst_ev1"],
+                dstResolutionPolicy="dst_single",
+            ),
+        )
+        src_eval = EvalNode(truth="T", support="supported", provenance=["ev1"])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        def fake_claim_map(claim_id, claim_map_binding, bridge, step_ctx, machine_state):
+            return {
+                "mappedClaim": "c1_mapped",
+                "truth": "T",
+                "reason": "map_default",
+                "per_evaluator": {
+                    "dst_ev1": EvalNode(truth="F", reason="ev1_false", provenance=["dst_ev1"]),
+                    "dst_ev2": EvalNode(truth="T", reason="ev2_true", provenance=["dst_ev2"]),
+                },
+            }
+
+        services: dict = {
+            "__transport_queries__": [{"bridgeId": "br1", "claimId": "c1", "id": "tq1"}],
+            "__per_claim_aggregates__": {"c1": src_eval},
+            "__bundle__": _bundle(claims=[_pred_claim(id="c1")]),
+            "__claim_map_handler__": fake_claim_map,
+            "__resolution_policies__": {
+                "dst_single": ResolutionPolicyNode(id="dst_single", kind="single", members=["dst_ev1"]),
+            },
+        }
+
+        result, _, _ = execute_transport(bridge, step_ctx, ms, services)
+
+        assert result.status == "transported"
+        assert result.dstAggregate is not None
+        assert result.dstAggregate.truth == "F"
+        assert result.dstAggregate.reason == "ev1_false"
+
     def test_semantic_requirements_empty_warning(self):
         """Diagnostic rule 23: lint.transport.semantic_requirements_empty."""
         bridge = _bridge(mode="preserve")
@@ -1783,6 +1834,40 @@ class TestComposeLicense:
                 "anc2:predict": {"truth": "T", "reason": None, "per_assessment": []},
             },
             "joint": {},
+        }
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {"__bundle__": bundle}
+
+        result, _, diags = compose_license("c1", step_ctx, ms, services)
+
+        assert result.overall.truth == "N"
+        anc1_entry = next(e for e in result.individual if e.anchor_id == "anc1")
+        assert anc1_entry.reason == "missing_joint_adequacy"
+        assert any(d.get("code") == "missing_joint_adequacy" for d in diags)
+
+
+    def test_missing_required_joint_partner_in_claim_blocks_license(self):
+        """Declared requiresJointWith partners must all be present in claim usesAnchors."""
+        claim = ClaimNode(
+            id="c1", kind="atomic", expr=PredicateExprNode(name="P"),
+            usesAnchors=["anc1", "anc2"],
+        )
+        anc1 = _anchor(id="anc1", requires_joint_with=["anc2", "anc3"])
+        anc2 = _anchor(id="anc2")
+        anc3 = _anchor(id="anc3")
+        ja_subset = JointAdequacyNode(
+            id="ja1",
+            anchors=["anc1", "anc2"],
+            assessments=[_assessment(id="jaa1", task="predict", producer="p1", score=0.9, threshold=0.5)],
+        )
+        bundle = self._make_license_bundle([claim], [anc1, anc2, anc3], joint_adequacies=[ja_subset])
+
+        ms = MachineState()
+        ms.adequacy_store = {
+            "per_anchor_task": {
+                "anc2:predict": {"truth": "T", "reason": None, "per_assessment": []},
+            },
+            "joint": {"ja1": {"truth": "T", "reason": None, "per_assessment": []}},
         }
         step_ctx = StepContext(effective_frame=_frame())
         services: dict = {"__bundle__": bundle}

@@ -1127,7 +1127,12 @@ def compose_license(
             continue
 
         joint_partners = set(anchor.requiresJointWith)
-        needed_joint_set = {anchor_id} | (joint_partners & uses_set)
+        missing_from_claim = joint_partners - uses_set
+        if missing_from_claim:
+            missing_joint_partners[anchor_id] = sorted(joint_partners)
+            continue
+
+        needed_joint_set = {anchor_id} | joint_partners
 
         found_joint_with_result = False
         for ja in bundle.jointAdequacies:
@@ -2188,6 +2193,92 @@ def _execute_remap_recompute(
         mapped_truth = "F"
         mapped_reason = None
         mapped_claim = claim_id
+
+    # Honor destination evaluator / resolution policy configuration when
+    # claim-map handlers provide per-evaluator destination results.
+    # Preserve legacy behavior (mapped truth/reason) unless destination
+    # transport config explicitly requests evaluator/policy recomputation.
+    should_apply_dst_config = (
+        transport.dstEvaluators is not None
+        or transport.dstResolutionPolicy is not None
+    )
+    if per_evaluator and should_apply_dst_config:
+        normalized_per_evaluator: dict[str, EvalNode] = {}
+        for eid, ev in per_evaluator.items():
+            if isinstance(ev, EvalNode):
+                normalized_per_evaluator[eid] = ev
+            elif isinstance(ev, dict):
+                normalized_per_evaluator[eid] = EvalNode(**ev)
+
+        selected_per_evaluator = normalized_per_evaluator
+        if dst_evaluator_ids:
+            selected_per_evaluator = {
+                eid: ev for eid, ev in normalized_per_evaluator.items()
+                if eid in set(dst_evaluator_ids)
+            }
+            if not selected_per_evaluator:
+                mapped_truth = "N"
+                mapped_reason = "no_evaluators"
+                diags.append({
+                    "severity": "warning",
+                    "code": "transport_dst_evaluators_missing",
+                    "bridge_id": bridge.id,
+                    "claim_id": claim_id,
+                    "message": (
+                        "No mapped per_evaluator results match configured "
+                        f"dstEvaluators={dst_evaluator_ids}"
+                    ),
+                })
+
+        if selected_per_evaluator:
+            policies_by_id: dict[str, ResolutionPolicyNode] = {}
+            if bundle is not None:
+                policies_by_id[bundle.resolutionPolicy.id] = bundle.resolutionPolicy
+            extra_policies = services.get("__resolution_policies__", {})
+            if isinstance(extra_policies, dict):
+                policies_by_id.update(extra_policies)
+
+            selected_policy: ResolutionPolicyNode | None = None
+            if transport.dstResolutionPolicy is not None:
+                selected_policy = policies_by_id.get(transport.dstResolutionPolicy)
+                if selected_policy is None:
+                    mapped_truth = "N"
+                    mapped_reason = "missing_resolution_policy"
+                    diags.append({
+                        "severity": "error",
+                        "code": "transport_resolution_policy_missing",
+                        "bridge_id": bridge.id,
+                        "claim_id": claim_id,
+                        "message": (
+                            "Destination resolution policy not found: "
+                            f"{transport.dstResolutionPolicy}"
+                        ),
+                    })
+            elif bundle is not None:
+                selected_policy = bundle.resolutionPolicy
+
+            if selected_policy is not None:
+                try:
+                    adjudicator = services.get("transport_adjudicator")
+                    agg = apply_resolution_policy(
+                        selected_per_evaluator,
+                        selected_policy,
+                        adjudicator,
+                    )
+                    mapped_truth = agg.truth
+                    mapped_reason = agg.reason
+                except Exception as exc:
+                    mapped_truth = "N"
+                    mapped_reason = "resolution_error"
+                    diags.append({
+                        "severity": "error",
+                        "code": "transport_resolution_error",
+                        "bridge_id": bridge.id,
+                        "claim_id": claim_id,
+                        "message": str(exc),
+                    })
+
+        per_evaluator = normalized_per_evaluator
 
     dst_aggregate = EvalNode(
         truth=mapped_truth,
