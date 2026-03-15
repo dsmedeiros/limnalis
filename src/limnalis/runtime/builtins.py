@@ -1721,9 +1721,19 @@ def execute_transport(
 
     # All matching queries for this bridge (not just the first).
     transport_queries: list[dict[str, Any]] = services.get("__transport_queries__", [])
+    current_step_index = services.get("__fixture_step_index__")
+
+    def _query_matches_current_step(query: dict[str, Any]) -> bool:
+        query_step_index = query.get("__fixture_step_index__")
+        if query_step_index is None:
+            return True
+        if not isinstance(current_step_index, int):
+            return False
+        return query_step_index == current_step_index
+
     matching_queries = [
         tq for tq in transport_queries
-        if tq.get("bridgeId") == bridge.id
+        if tq.get("bridgeId") == bridge.id and _query_matches_current_step(tq)
     ]
 
     # ---------------------------------------------------------------

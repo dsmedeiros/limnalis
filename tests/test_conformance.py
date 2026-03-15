@@ -22,6 +22,7 @@ from limnalis.conformance.runner import (
     _build_fixture_eval_expr,
     _build_fixture_synthesize_support,
     _build_per_step_support_maps,
+    _build_transport_queries_from_case,
     _build_sessions_from_case,
     run_case,
 )
@@ -358,6 +359,45 @@ class TestConformanceSupportMapping:
 
         assert s1.support == "supported"
         assert s2.support == "conflicted"
+
+
+class TestConformanceTransportQueries:
+    """Verify transport query extraction respects step-level scoping."""
+
+    def test_build_transport_queries_includes_step_scope_marker(self):
+        case = SimpleNamespace(
+            environment={
+                "transport_queries": [
+                    {"id": "global", "bridgeId": "br1", "claimId": "c_global"}
+                ],
+                "sessions": [
+                    {
+                        "id": "s1",
+                        "steps": [
+                            {
+                                "id": "step0",
+                                "transport_queries": [
+                                    {"id": "step0_q", "bridgeId": "br1", "claimId": "c0"}
+                                ],
+                            },
+                            {
+                                "id": "step1",
+                                "transport_queries": [
+                                    {"id": "step1_q", "bridgeId": "br1", "claimId": "c1"}
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+        queries = _build_transport_queries_from_case(case)
+
+        assert [q["id"] for q in queries] == ["global", "step0_q", "step1_q"]
+        assert "__fixture_step_index__" not in queries[0]
+        assert queries[1]["__fixture_step_index__"] == 0
+        assert queries[2]["__fixture_step_index__"] == 1
 
 
 class TestAdequacyComparison:

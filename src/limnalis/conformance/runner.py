@@ -438,6 +438,35 @@ def _build_sessions_from_expected(case: FixtureCase) -> list[SessionConfig]:
     return sessions
 
 
+def _build_transport_queries_from_case(case: FixtureCase) -> list[dict[str, Any]]:
+    """Build transport queries from environment-level and step-level fixtures.
+
+    Step-scoped queries are annotated with the global fixture step index used by
+    runtime.run_step (`__fixture_step_index__`) so execute_transport can apply
+    only queries relevant to the currently executing step.
+    """
+    queries: list[dict[str, Any]] = []
+
+    # Global environment queries remain available to all steps.
+    for query in case.environment.get("transport_queries", []):
+        if isinstance(query, dict):
+            queries.append(dict(query))
+
+    # Step-scoped queries are bound to the corresponding global step index.
+    step_index = 0
+    for sess_env in case.environment.get("sessions", []):
+        for step_env in sess_env.get("steps", []):
+            for query in step_env.get("transport_queries", []):
+                if not isinstance(query, dict):
+                    continue
+                q = dict(query)
+                q["__fixture_step_index__"] = step_index
+                queries.append(q)
+            step_index += 1
+
+    return queries
+
+
 # ---------------------------------------------------------------------------
 # Build expected diagnostics that runners can't produce
 # ---------------------------------------------------------------------------
@@ -554,8 +583,8 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # Build services dict
     services: dict[str, Any] = {}
 
-    # Inject transport queries from environment
-    transport_queries = case.environment.get("transport_queries", [])
+    # Inject transport queries from environment/session-step fixtures.
+    transport_queries = _build_transport_queries_from_case(case)
     if transport_queries:
         services["__transport_queries__"] = transport_queries
 
