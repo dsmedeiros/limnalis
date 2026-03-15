@@ -362,8 +362,11 @@ def _aggregate_support(
     if not supports:
         return None
 
-    # If aggregate truth is B (evaluator_conflict), force conflicted
-    if aggregate_truth == "B":
+    # Only force conflicted for real evaluator conflicts (T/F disagreement).
+    # Aggregate B can also arise from non-conflict inputs (e.g., B+N), and in
+    # those cases support severity should be inherited from evaluator supports.
+    truth_set = {e.truth for e in evals}
+    if aggregate_truth == "B" and "T" in truth_set and "F" in truth_set:
         return "conflicted"
 
     if "conflicted" in supports:

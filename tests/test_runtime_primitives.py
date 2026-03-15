@@ -603,6 +603,28 @@ class TestApplyResolutionPolicy:
         result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
         assert result.support == "conflicted"
 
+    def test_union_support_not_forced_conflicted_for_non_conflict_B(self):
+        """B+N => B without evaluator conflict, so support should not be forced conflicted."""
+        ev1 = EvalNode(truth="B", support="partial", provenance=["ev1"])
+        ev2 = EvalNode(truth="N", support="supported", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "B"
+        assert result.reason is None
+        assert result.support == "partial"
+
+    def test_union_support_conflicted_only_with_true_conflict_B(self):
+        """T+F => B with evaluator_conflict, support must be conflicted."""
+        ev1 = EvalNode(truth="T", support="partial", provenance=["ev1"])
+        ev2 = EvalNode(truth="F", support="supported", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.truth == "B"
+        assert result.reason == "evaluator_conflict"
+        assert result.support == "conflicted"
+
     def test_union_support_inapplicable_when_all_inapplicable(self):
         """All evaluators inapplicable => inapplicable."""
         ev1 = EvalNode(truth="T", support="inapplicable", provenance=["ev1"])
