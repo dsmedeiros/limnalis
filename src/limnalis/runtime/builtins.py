@@ -1107,6 +1107,7 @@ def compose_license(
     # Check for required joint adequacy groups
     # An anchor with requiresJointWith means its exact set must appear in a joint_adequacy
     uses_set = set(claim.usesAnchors)
+    anchors_covered_by_joint: set[str] = set()
 
     for anchor_id in claim.usesAnchors:
         anchor = anchors_by_id.get(anchor_id)
@@ -1116,6 +1117,11 @@ def compose_license(
             )
             individual_entries.append(entry)
             all_truths.append("N")
+            continue
+
+        # Anchors already covered by a matched joint adequacy group do not
+        # require separate per-anchor adequacy lookup for this claim.
+        if anchor_id in anchors_covered_by_joint:
             continue
 
         # Check if this anchor requires joint adequacy with others
@@ -1144,6 +1150,7 @@ def compose_license(
                         ))
                         # Joint adequacy truth participates in overall license
                         all_truths.append(ja_truth)
+                        anchors_covered_by_joint.update(ja_anchor_set & uses_set)
                     found_joint = True
                     break
 

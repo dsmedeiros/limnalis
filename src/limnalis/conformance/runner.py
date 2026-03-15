@@ -94,16 +94,17 @@ def _build_truth_map_from_expected(
 # ---------------------------------------------------------------------------
 
 
-def _build_support_map_from_expected(
+def _build_per_step_support_maps(
     case: FixtureCase,
-) -> dict[str, dict[str, str]]:
-    """Extract per-claim, per-evaluator support values from fixture expectations.
+) -> list[dict[str, dict[str, str]]]:
+    """Extract per-step claim/evaluator support values from expectations.
 
-    Returns: {claim_id: {evaluator_id: support_value}}
+    Returns: [{claim_id: {evaluator_id: support_value}}] in step order.
     """
-    support_map: dict[str, dict[str, str]] = {}
+    step_support_maps: list[dict[str, dict[str, str]]] = []
     for session_exp in case.expected_sessions():
         for step_exp in session_exp.get("steps", []):
+            support_map: dict[str, dict[str, str]] = {}
             claims = step_exp.get("claims", {})
             for claim_id, claim_exp in claims.items():
                 per_ev = claim_exp.get("per_evaluator", {})
@@ -112,7 +113,10 @@ def _build_support_map_from_expected(
                 for ev_id, ev_exp in per_ev.items():
                     if isinstance(ev_exp, dict) and "support" in ev_exp:
                         support_map.setdefault(claim_id, {})[ev_id] = ev_exp["support"]
-    return support_map
+            step_support_maps.append(support_map)
+
+    return step_support_maps
+
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +136,7 @@ def _build_fixture_eval_expr(
     When a truth entry has reason="missing_binding", emits a diagnostic.
     """
     # Mutable step counter
-    state = {"step_index": 0, "last_step_id": None}
+    state = {"step_index": 0, "last_step_ctx": None}
 
     # Build a single merged map as fallback
     merged_map: dict[str, dict[str, TruthCore]] = {}
@@ -157,14 +161,10 @@ def _build_fixture_eval_expr(
         # step invocation receives a distinct StepContext instance, so
         # id(step_ctx) is always unique per step even when time/history
         # metadata are identical across consecutive steps.
-        current_step_id = None
-        if step_ctx is not None:
-            current_step_id = id(step_ctx)
-
-        if current_step_id is not None and current_step_id != state["last_step_id"]:
-            if state["last_step_id"] is not None:
+        if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
+            if state["last_step_ctx"] is not None:
                 state["step_index"] += 1
-            state["last_step_id"] = current_step_id
+            state["last_step_ctx"] = step_ctx
 
         # Choose the truth map for the current step
         idx = state["step_index"]
@@ -211,10 +211,19 @@ def _build_fixture_eval_expr(
 
 
 def _build_fixture_synthesize_support(
-    support_map: dict[str, dict[str, str]],
+    per_step_support_maps: list[dict[str, dict[str, str]]],
     default_synthesize_support: Any,
 ) -> Any:
-    """Build a fixture-backed synthesize_support that uses expected values when available."""
+    """Build a fixture-backed synthesize_support with per-step support maps."""
+
+    state = {"step_index": 0, "last_step_ctx": None}
+
+    merged_map: dict[str, dict[str, str]] = {}
+    for step_map in per_step_support_maps:
+        for claim_id, ev_map in step_map.items():
+            if claim_id not in merged_map:
+                merged_map[claim_id] = {}
+            merged_map[claim_id].update(ev_map)
 
     def fixture_synthesize_support(
         claim: Any,
@@ -228,11 +237,30 @@ def _build_fixture_synthesize_support(
         from ..runtime.models import SupportResult
 
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
-        claim_supports = support_map.get(claim_id, {})
 
+        if step_ctx is not None and step_ctx is not state["last_step_ctx"]:
+            if state["last_step_ctx"] is not None:
+                state["step_index"] += 1
+            state["last_step_ctx"] = step_ctx
+
+        idx = state["step_index"]
+        if idx < len(per_step_support_maps):
+            support_map = per_step_support_maps[idx]
+        else:
+            support_map = merged_map
+
+        claim_supports = support_map.get(claim_id, {})
         if ev_id in claim_supports:
             return (
                 SupportResult(support=claim_supports[ev_id], provenance=[ev_id, claim_id]),
+                machine,
+                [],
+            )
+
+        claim_supports_merged = merged_map.get(claim_id, {})
+        if ev_id in claim_supports_merged:
+            return (
+                SupportResult(support=claim_supports_merged[ev_id], provenance=[ev_id, claim_id]),
                 machine,
                 [],
             )
@@ -481,9 +509,9 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     fixture_eval_expr = _build_fixture_eval_expr(per_step_truth_maps)
 
     # Build fixture-backed support synthesis
-    support_map = _build_support_map_from_expected(case)
+    per_step_support_maps = _build_per_step_support_maps(case)
     from ..runtime.builtins import synthesize_support as default_synth
-    fixture_synth = _build_fixture_synthesize_support(support_map, default_synth)
+    fixture_synth = _build_fixture_synthesize_support(per_step_support_maps, default_synth)
 
     # Build PrimitiveSet with fixture eval_expr and support
     primitives = PrimitiveSet(

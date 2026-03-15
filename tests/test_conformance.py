@@ -7,12 +7,25 @@ Each required fixture case runs end-to-end through the conformance harness
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from limnalis.cli import main
 from limnalis.conformance.compare import FieldMismatch, _compare_license, compare_case
 from limnalis.conformance.fixtures import load_corpus_from_default
-from limnalis.conformance.runner import run_case
-from limnalis.runtime.models import JointLicenseEntry, LicenseOverall, LicenseResult
+from limnalis.models.ast import FrameNode
+from limnalis.conformance.runner import (
+    _build_fixture_synthesize_support,
+    _build_per_step_support_maps,
+    run_case,
+)
+from limnalis.runtime.models import (
+    JointLicenseEntry,
+    LicenseOverall,
+    LicenseResult,
+    MachineState,
+    StepContext,
+    TruthCore,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +175,45 @@ class TestMismatchDetection:
         comparison = compare_case(tampered_case, result)
         assert not comparison.passed, "Expected comparison to detect tampered mismatch"
         assert len(comparison.mismatches) > 0
+
+
+class TestConformanceSupportMapping:
+    """Verify fixture support expectations are tracked per step."""
+
+    def test_support_map_and_fixture_support_are_step_scoped(self):
+        case = SimpleNamespace(
+            expected_sessions=lambda: [
+                {
+                    "steps": [
+                        {"claims": {"c1": {"per_evaluator": {"ev1": {"support": "supported"}}}}},
+                        {"claims": {"c1": {"per_evaluator": {"ev1": {"support": "conflicted"}}}}},
+                    ]
+                }
+            ]
+        )
+        per_step = _build_per_step_support_maps(case)
+        assert per_step[0]["c1"]["ev1"] == "supported"
+        assert per_step[1]["c1"]["ev1"] == "conflicted"
+
+        fixture_synth = _build_fixture_synthesize_support(
+            per_step,
+            lambda claim, truth_core, evidence_view, ev_id, step_ctx, machine, services: (
+                SimpleNamespace(support="absent"), machine, []
+            ),
+        )
+        claim = SimpleNamespace(id="c1")
+        truth = TruthCore(truth="T")
+        machine = MachineState()
+
+        s1, _, _ = fixture_synth(
+            claim, truth, None, "ev1", StepContext(effective_frame=FrameNode(system="sys", namespace="ns", scale="macro", task="predict", regime="standard")), machine, {}
+        )
+        s2, _, _ = fixture_synth(
+            claim, truth, None, "ev1", StepContext(effective_frame=FrameNode(system="sys", namespace="ns", scale="macro", task="predict", regime="standard")), machine, {}
+        )
+
+        assert s1.support == "supported"
+        assert s2.support == "conflicted"
 
 
 class TestLicenseComparison:
