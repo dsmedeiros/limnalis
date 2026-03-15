@@ -1344,6 +1344,23 @@ class TestEvaluateAdequacySet:
         assert per_anchor_task["anc1:predict"].truth == "B"
         assert per_anchor_task["anc1:predict"].reason == "adequacy_conflict"
 
+    def test_single_policy_missing_member_returns_N(self):
+        """Single adequacy policy should not silently select the wrong producer."""
+        aa1 = _assessment(id="aa1", task="predict", producer="p1", score=0.9, threshold=0.5)
+        aa2 = _assessment(id="aa2", task="predict", producer="p1", score=0.8, threshold=0.5)
+        pol = ResolutionPolicyNode(id="adeq_pol", kind="single", members=["p2"])
+        anc = _anchor(id="anc1", adequacy=[aa1, aa2], adequacy_policy="adeq_pol")
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {"__bundle__": bundle, "__resolution_policies__": {"adeq_pol": pol}}
+
+        results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
+
+        at = results["per_anchor_task"]["anc1:predict"]
+        assert at.truth == "N"
+        assert at.reason == "policy_member_not_found:p2"
+
     def test_multiple_assessments_priority_order(self):
         """Multiple same-task assessments under priority_order policy."""
         aa1 = _assessment(id="aa1", task="predict", producer="p1", score=None, threshold=0.5)
@@ -1664,6 +1681,36 @@ class TestComposeLicense:
         # Check that missing_joint_adequacy diagnostic appeared
         codes = [d["code"] for d in diags]
         assert "missing_joint_adequacy" in codes
+
+    def test_uses_effective_step_task_before_bundle_fallback(self):
+        """compose_license should resolve adequacy task from effective step frame first."""
+        claim = ClaimNode(
+            id="c1", kind="atomic", expr=PredicateExprNode(name="P"),
+            usesAnchors=["anc1"],
+        )
+        anc1 = _anchor(id="anc1")
+        bundle = BundleNode(
+            id="bundle1",
+            frame=_frame(task="predict"),
+            evaluators=[_evaluator()],
+            resolutionPolicy=_policy_single("ev1"),
+            claimBlocks=[_block([claim])],
+            anchors=[anc1],
+        )
+
+        ms = MachineState()
+        ms.adequacy_store = {
+            "per_anchor_task": {
+                "anc1:diagnose": {"truth": "T", "reason": None, "per_assessment": []},
+            },
+            "joint": {},
+        }
+        step_ctx = StepContext(effective_frame=_frame(task="diagnose"))
+        services: dict = {"__bundle__": bundle}
+
+        result, _, _ = compose_license("c1", step_ctx, ms, services)
+
+        assert result.overall.truth == "T"
 
     def test_no_anchors_yields_T(self):
         """Claim uses no anchors → no license needed → T."""

@@ -718,7 +718,8 @@ def _aggregate_adequacy_by_policy(
             for a in assessments:
                 if a.producer == target:
                     return a.truth, a.reason
-        # Fall back to first assessment if no member specified or not found
+            return "N", f"policy_member_not_found:{target}"
+        # Fall back to first assessment only when member configuration is absent
         return assessments[0].truth, assessments[0].reason
 
     elif policy_kind == "paraconsistent_union":
@@ -1067,8 +1068,11 @@ def compose_license(
 
     # Resolve the task for this claim:
     # 1. annotation license_task
-    # 2. frame.task fallback
+    # 2. effective step frame task
+    # 3. bundle frame task fallback
     task: str | None = claim.annotations.get("license_task")
+    if task is None:
+        task = getattr(step_ctx.effective_frame, "task", None)
     if task is None:
         # Fall back to the bundle frame's task facet
         frame = bundle.frame
