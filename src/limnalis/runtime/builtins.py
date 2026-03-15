@@ -746,7 +746,9 @@ def _aggregate_adequacy_by_policy(
             result = adjudicator_handler(assessments)
             if isinstance(result, tuple):
                 return result
-            return result.truth if hasattr(result, "truth") else "N", None
+            if hasattr(result, "truth"):
+                return result.truth, getattr(result, "reason", None)
+            return "N", None
         # No handler: fall back to paraconsistent_union
         return _aggregate_adequacy_by_policy(assessments, "paraconsistent_union")
 
@@ -1712,6 +1714,7 @@ def execute_transport(
         machine_state.transport_store[bridge.id] = result
         if query_id:
             machine_state.transport_store[query_id] = result
+        diags.extend(result.diagnostics)
         return result, machine_state, diags
 
     if claim_id is None:
@@ -1743,6 +1746,7 @@ def execute_transport(
         machine_state.transport_store[bridge.id] = result
         if query_id:
             machine_state.transport_store[query_id] = result
+        diags.extend(result.diagnostics)
         return result, machine_state, diags
 
     # Get the claim's semantic requirements from the bundle

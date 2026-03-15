@@ -1062,6 +1062,24 @@ class TestExecuteTransport:
         codes = [d["code"] for d in diags]
         assert "lint.transport.semantic_requirements_empty" in codes
 
+
+    def test_missing_transport_source_propagates_diag(self):
+        """Source-missing transport should be surfaced in returned diagnostics."""
+        bridge = _bridge(mode="preserve")
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {
+            "__transport_queries__": [{"bridgeId": "br1", "claimId": "c_missing", "id": "tq1"}],
+            "__per_claim_aggregates__": {},
+            "__bundle__": _bundle(),
+        }
+
+        result, _, diags = execute_transport(bridge, step_ctx, ms, services)
+
+        assert result.status == "unresolved"
+        codes = [d["code"] for d in diags]
+        assert "transport_source_missing" in codes
+
     def test_missing_transport_source_unresolved(self):
         """Source claim not evaluated → transport_source_missing."""
         bridge = _bridge(mode="preserve")
@@ -1405,6 +1423,36 @@ class TestEvaluateAdequacySet:
         at = results["per_anchor_task"]["anc1:predict"]
         assert at.truth == "B"
         assert at.reason == "adequacy_conflict"
+
+
+    def test_adjudicated_preserves_reason_from_object_result(self):
+        """Adjudicated adequacy should preserve reason from object-shaped results."""
+        aa1 = _assessment(id="aa1", task="predict", producer="p1", score=0.9, threshold=0.5)
+        aa2 = _assessment(id="aa2", task="predict", producer="p2", score=0.2, threshold=0.5)
+        pol = ResolutionPolicyNode(
+            id="adeq_pol", kind="adjudicated", members=["p1", "p2"], binding="adj_fn"
+        )
+        anc = _anchor(id="anc1", adequacy=[aa1, aa2], adequacy_policy="adeq_pol")
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        class _AdjResult:
+            def __init__(self):
+                self.truth = "B"
+                self.reason = "adjudicated_conflict"
+
+        services: dict = {
+            "__bundle__": bundle,
+            "__resolution_policies__": {"adeq_pol": pol},
+            "adequacy_adjudicator": lambda assessments: _AdjResult(),
+        }
+
+        results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
+
+        at = results["per_anchor_task"]["anc1:predict"]
+        assert at.truth == "B"
+        assert at.reason == "adjudicated_conflict"
 
     def test_method_conflict_normalizes_aggregation_inputs(self):
         """Method conflicts should force aggregated task truth to conflict semantics."""
