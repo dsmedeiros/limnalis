@@ -1735,6 +1735,40 @@ class TestComposeLicense:
         assert len(result.individual) == 0
         assert len(result.joint) == 1
 
+
+    def test_joint_group_requires_stored_result(self):
+        """A matching joint group without a stored joint result is still missing."""
+        claim = ClaimNode(
+            id="c1", kind="atomic", expr=PredicateExprNode(name="P"),
+            usesAnchors=["anc1", "anc2"],
+        )
+        anc1 = _anchor(id="anc1", requires_joint_with=["anc2"])
+        anc2 = _anchor(id="anc2")
+        ja = JointAdequacyNode(
+            id="ja1",
+            anchors=["anc1", "anc2"],
+            assessments=[_assessment(id="jaa1", task="predict", producer="p1", score=0.9, threshold=0.5)],
+        )
+        bundle = self._make_license_bundle([claim], [anc1, anc2], joint_adequacies=[ja])
+
+        ms = MachineState()
+        ms.adequacy_store = {
+            "per_anchor_task": {
+                "anc1:predict": {"truth": "T", "reason": None, "per_assessment": []},
+                "anc2:predict": {"truth": "T", "reason": None, "per_assessment": []},
+            },
+            "joint": {},
+        }
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {"__bundle__": bundle}
+
+        result, _, diags = compose_license("c1", step_ctx, ms, services)
+
+        assert result.overall.truth == "N"
+        anc1_entry = next(e for e in result.individual if e.anchor_id == "anc1")
+        assert anc1_entry.reason == "missing_joint_adequacy"
+        assert any(d.get("code") == "missing_joint_adequacy" for d in diags)
+
     def test_missing_joint_adequacy(self):
         """Anchor requires joint adequacy but no matching group → N[missing_joint_adequacy]."""
         claim = ClaimNode(

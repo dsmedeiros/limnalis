@@ -1121,13 +1121,13 @@ def compose_license(
         joint_partners = set(anchor.requiresJointWith)
         needed_joint_set = {anchor_id} | (joint_partners & uses_set)
 
-        found_joint = False
+        found_joint_with_result = False
         for ja in bundle.jointAdequacies:
             ja_anchor_set = set(ja.anchors)
             if needed_joint_set == ja_anchor_set:
-                found_joint = True
                 ja_result = joint_store.get(ja.id)
                 if ja_result is not None:
+                    found_joint_with_result = True
                     anchors_covered_by_joint.update(ja_anchor_set & uses_set)
                     if ja.id not in processed_joint_ids:
                         ja_truth: TruthValue = ja_result.get("truth", "N")
@@ -1140,9 +1140,9 @@ def compose_license(
                         ))
                         all_truths.append(ja_truth)
                         processed_joint_ids.add(ja.id)
-                break
+                    break
 
-        if not found_joint:
+        if not found_joint_with_result:
             missing_joint_partners[anchor_id] = sorted(joint_partners)
 
     for anchor_id in claim.usesAnchors:
