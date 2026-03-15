@@ -332,6 +332,21 @@ class TestTransportErrorIsolation:
 # ---------------------------------------------------------------------------
 
 
+class TestServicesBundleIsolation:
+    """Verify run_step always injects the current bundle into services."""
+
+    def test_run_step_overwrites_bundle_in_reused_services(self):
+        shared_services: dict = {}
+
+        bundle1 = _bundle(claims=[ClaimNode(id="c1", kind="atomic", expr=PredicateExprNode(name="P"))])
+        run_step(bundle1, _session(), _step("s1"), _env(), services=shared_services)
+        assert shared_services.get("__bundle__") is bundle1
+
+        bundle2 = _bundle(claims=[ClaimNode(id="c2", kind="atomic", expr=PredicateExprNode(name="Q"))])
+        run_step(bundle2, _session(), _step("s2"), _env(), services=shared_services)
+
+        assert shared_services.get("__bundle__") is bundle2
+
 class TestRunSession:
     """Verify run_session executes all steps and returns SessionResult."""
 

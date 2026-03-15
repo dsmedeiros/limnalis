@@ -1013,6 +1013,30 @@ class TestExecuteTransport:
         assert result.status == "degraded"
         assert result.dstAggregate.truth == "N"
 
+    def test_remap_recompute_handler_exception_returns_unresolved(self):
+        """remap_recompute should report unresolved when claim_map_handler raises."""
+        bridge = _bridge(mode="remap_recompute", claim_map="map_fn")
+        src_eval = EvalNode(truth="T", support="supported", provenance=["ev1"])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        def failing_claim_map(claim_id, claim_map_binding, bridge, step_ctx, machine_state):
+            raise RuntimeError("claim map failed")
+
+        services: dict = {
+            "__transport_queries__": [{"bridgeId": "br1", "claimId": "c1", "id": "tq1"}],
+            "__per_claim_aggregates__": {"c1": src_eval},
+            "__bundle__": _bundle(claims=[_pred_claim(id="c1")]),
+            "__claim_map_handler__": failing_claim_map,
+        }
+
+        result, _, diags = execute_transport(bridge, step_ctx, ms, services)
+
+        assert result.status == "unresolved"
+        assert result.dstAggregate is not None
+        assert result.dstAggregate.reason == "transport_remap_error"
+        assert any(d.get("code") == "transport_remap_error" for d in diags)
+
     def test_remap_recompute_with_fake_claim_map_handler(self):
         """remap_recompute: claim_map handler + fake destination evaluator."""
         bridge = _bridge(mode="remap_recompute", claim_map="map_fn")

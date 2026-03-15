@@ -2092,13 +2092,33 @@ def _execute_remap_recompute(
                 mapped_truth = map_result[0]
                 mapped_reason = map_result[1] if len(map_result) > 1 else None
         except Exception as exc:
-            diags.append({
+            diag = {
                 "severity": "error",
                 "code": "transport_remap_error",
                 "bridge_id": bridge.id,
                 "claim_id": claim_id,
                 "message": str(exc),
-            })
+            }
+            diags.append(diag)
+            dst_aggregate = EvalNode(
+                truth="N",
+                reason="transport_remap_error",
+                support=src_aggregate.support if src_aggregate else "absent",
+                provenance=sorted(set(
+                    (src_aggregate.provenance if src_aggregate else [])
+                    + [bridge.id, bridge.via]
+                )),
+            )
+            return TransportResult(
+                status="unresolved",
+                srcAggregate=src_aggregate,
+                dstAggregate=dst_aggregate,
+                metadata=metadata,
+                mappedClaim=None,
+                per_evaluator={},
+                provenance=[bridge.id, bridge.via, claim_id],
+                diagnostics=[diag],
+            )
     else:
         # No explicit handler; use default remap behavior.
         # Intentionally "F" (false), not "N" (unknown). Per the spec, a missing
