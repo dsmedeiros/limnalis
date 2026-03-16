@@ -400,6 +400,33 @@ class TestConformanceTransportQueries:
         assert queries[2]["__fixture_step_index__"] == 1
 
 
+    def test_build_transport_queries_counts_implicit_default_steps(self):
+        case = SimpleNamespace(
+            environment={
+                "sessions": [
+                    {"id": "s0", "steps": []},
+                    {
+                        "id": "s1",
+                        "steps": [
+                            {
+                                "id": "step0",
+                                "transport_queries": [
+                                    {"id": "step_q", "bridgeId": "br1", "claimId": "c1"}
+                                ],
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+
+        queries = _build_transport_queries_from_case(case)
+
+        assert [q["id"] for q in queries] == ["step_q"]
+        assert queries[0]["__fixture_step_index__"] == 1
+
+
+
 class TestAdequacyComparison:
     """Verify adequacy comparison merges stores across sessions."""
 

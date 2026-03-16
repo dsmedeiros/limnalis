@@ -453,9 +453,16 @@ def _build_transport_queries_from_case(case: FixtureCase) -> list[dict[str, Any]
             queries.append(dict(query))
 
     # Step-scoped queries are bound to the corresponding global step index.
+    # Keep indexing aligned with _build_sessions_from_case, which creates an
+    # implicit step0 for sessions that omit an explicit step list.
     step_index = 0
     for sess_env in case.environment.get("sessions", []):
-        for step_env in sess_env.get("steps", []):
+        session_steps = sess_env.get("steps", [])
+        if not session_steps:
+            step_index += 1
+            continue
+
+        for step_env in session_steps:
             for query in step_env.get("transport_queries", []):
                 if not isinstance(query, dict):
                     continue
