@@ -685,9 +685,17 @@ def _evaluate_single_assessment(
         if not adequate:
             reason = "threshold_not_met"
     else:
-        # Score-omitted computed assessments: adequate by default
-        adequate = True
-        truth = "T"
+        # No explicit score and no usable method binding -> unresolved adequacy.
+        adequate = False
+        truth = "N"
+        reason = "missing_binding"
+        diags.append({
+            "severity": "error",
+            "code": "adequacy_method_binding_missing",
+            "phase": "license",
+            "subject": aa.id,
+            "message": f"No adequacy handler produced score for method '{aa.method}'",
+        })
 
     return AdequacyResult(
         assessment_id=aa.id,

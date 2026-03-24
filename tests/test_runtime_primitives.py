@@ -1505,14 +1505,33 @@ class TestEvaluateAdequacySet:
         assert per_assessment["aa1"].truth == "F"
         assert per_assessment["aa1"].adequate is False
 
-    def test_score_omitted_adequate_by_default(self):
-        """Score-omitted assessments → adequate by default."""
+    def test_score_omitted_without_handler_is_unresolved(self):
+        """Score-omitted assessments without method handlers -> N[missing_binding]."""
         aa = _assessment(id="aa1", score=None, threshold=0.5)
         anc = _anchor(id="anc1", adequacy=[aa])
         bundle = self._make_bundle_with_anchors([anc])
         step_ctx = StepContext(effective_frame=_frame())
         ms = MachineState()
         services: dict = {"__bundle__": bundle}
+
+        results, _, diags = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
+
+        assert results["per_assessment"]["aa1"].truth == "N"
+        assert results["per_assessment"]["aa1"].adequate is False
+        assert results["per_assessment"]["aa1"].reason == "missing_binding"
+        assert any(d.get("code") == "adequacy_method_binding_missing" for d in diags)
+
+    def test_score_omitted_with_handler_uses_computed_score(self):
+        """Score-omitted assessments should evaluate via adequacy method handler."""
+        aa = _assessment(id="aa1", method="calc", score=None, threshold=0.5)
+        anc = _anchor(id="anc1", adequacy=[aa])
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+        services: dict = {
+            "__bundle__": bundle,
+            "adequacy_handlers": {"calc": lambda assessment: 0.8},
+        }
 
         results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
 
@@ -1563,11 +1582,15 @@ class TestEvaluateAdequacySet:
         bundle = self._make_bundle_with_anchors([anc])
         step_ctx = StepContext(effective_frame=_frame())
         ms = MachineState()
-        services: dict = {"__bundle__": bundle, "__resolution_policies__": {"adeq_pol": pol}}
+        services: dict = {
+            "__bundle__": bundle,
+            "__resolution_policies__": {"adeq_pol": pol},
+            "adequacy_handlers": {aa1.method: lambda assessment: 0.9},
+        }
 
         results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, ms, services)
 
-        # p1 has score=None → T (adequate by default), which is non-N, so priority picks it
+        # p1 score is computed via handler (T), so priority picks it first.
         per_anchor_task = results["per_anchor_task"]
         assert per_anchor_task["anc1:predict"].truth == "T"
 
