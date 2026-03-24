@@ -655,15 +655,22 @@ def run_step(
     services["__per_claim_aggregates__"] = per_claim_aggregates
     transport_results: dict[str, TransportResult] = {}
     stubbed_transport = False
+    def _normalize_transport_result(value: Any) -> TransportResult:
+        if isinstance(value, TransportResult):
+            return value
+        if isinstance(value, dict):
+            return TransportResult.model_validate(value)
+        raise TypeError(f"unsupported transport result type: {type(value).__name__}")
+
     for bridge in bundle.bridges:
         try:
             tr_result, machine, tr_diags = primitives.execute_transport(
                 bridge, step_ctx, machine, services
             )
             diags.extend(tr_diags)
-            # Store transport result keyed by bridge id
-            if isinstance(tr_result, TransportResult):
-                transport_results[bridge.id] = tr_result
+            # Store transport result keyed by bridge id (normalize dict outputs
+            # from injected/test-double primitives).
+            transport_results[bridge.id] = _normalize_transport_result(tr_result)
         except NotImplementedError as exc:
             stubbed_diag = _stubbed_diag(phase, "execute_transport", exc)
             stubbed_diag["bridge_id"] = bridge.id
@@ -682,7 +689,7 @@ def run_step(
     # Also gather any query-keyed results from machine state
     for key, tr in machine.transport_store.items():
         if key not in transport_results:
-            transport_results[key] = tr
+            transport_results[key] = _normalize_transport_result(tr)
 
     result_summary = f"ok, results={len(transport_results)}"
     if stubbed_transport:

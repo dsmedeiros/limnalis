@@ -321,7 +321,7 @@ class TestTransportErrorIsolation:
         def flaky_execute_transport(bridge, step_ctx, machine_state, services):
             if bridge.id == "b1":
                 raise RuntimeError("boom")
-            return {"unexpected": "result"}, machine_state, []
+            return {"status": "transported"}, machine_state, []
 
         bundle = _bundle(bridges=[self._bridge("b1"), self._bridge("b2")])
         primitives = PrimitiveSet(execute_transport=flaky_execute_transport)
@@ -334,6 +334,7 @@ class TestTransportErrorIsolation:
         ]
         assert len(phase_errors) == 1
         assert phase_errors[0].get("bridge_id") == "b1"
+        assert result.transport_results["b2"].status == "transported"
 
         transport_trace = [t for t in result.trace if t.primitive == "execute_transport"][0]
         assert transport_trace.result_summary.startswith("ok")
