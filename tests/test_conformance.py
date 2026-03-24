@@ -464,6 +464,35 @@ class TestAdequacyComparison:
 
         assert mismatches == []
 
+    def test_compare_adequacy_preserves_flat_entries_with_nested_sections(self):
+        bundle_result = SimpleNamespace(
+            session_results=[
+                SimpleNamespace(
+                    adequacy_store={
+                        "per_assessment": {"aa_nested_1": {"truth": "T"}},
+                        "aa_flat_1": {"truth": "F"},
+                    }
+                ),
+                SimpleNamespace(
+                    adequacy_store={
+                        "per_anchor_task": {"at_nested_1": {"truth": "B"}},
+                        "aa_flat_2": {"truth": "N"},
+                    }
+                ),
+            ]
+        )
+        expected = {
+            "aa_nested_1": {"truth": "T"},
+            "at_nested_1": {"truth": "B"},
+            "aa_flat_1": {"truth": "F"},
+            "aa_flat_2": {"truth": "N"},
+        }
+        mismatches: list[FieldMismatch] = []
+
+        _compare_adequacy("adequacy_expectations", expected, bundle_result, mismatches)
+
+        assert mismatches == []
+
 
 class TestLicenseComparison:
     """Verify license comparison catches joint-list mismatches."""

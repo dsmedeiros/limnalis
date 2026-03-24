@@ -615,23 +615,24 @@ def _flatten_adequacy_store(raw_store: dict[str, Any]) -> dict[str, dict[str, An
     """
     flat: dict[str, dict[str, Any]] = {}
 
-    # Check for the nested structure
-    if "per_assessment" in raw_store or "per_anchor_task" in raw_store or "joint" in raw_store:
-        for sub_key in ("per_assessment", "per_anchor_task", "joint"):
-            sub = raw_store.get(sub_key, {})
-            if isinstance(sub, dict):
-                for entry_id, entry_val in sub.items():
-                    if isinstance(entry_val, dict):
-                        flat[entry_id] = entry_val
-                    elif hasattr(entry_val, "model_dump"):
-                        flat[entry_id] = entry_val.model_dump(exclude_none=True)
-    else:
-        # Already flat or unknown structure
-        for k, v in raw_store.items():
-            if isinstance(v, dict):
-                flat[k] = v
-            elif hasattr(v, "model_dump"):
-                flat[k] = v.model_dump(exclude_none=True)
+    def _store_entry(entry_id: str, entry_val: Any) -> None:
+        if isinstance(entry_val, dict):
+            flat[entry_id] = entry_val
+        elif hasattr(entry_val, "model_dump"):
+            flat[entry_id] = entry_val.model_dump(exclude_none=True)
+
+    # Always preserve top-level adequacy entries (flat shape), while also
+    # flattening any nested runtime sections that may coexist in mixed-shape runs.
+    for k, v in raw_store.items():
+        if k in {"per_assessment", "per_anchor_task", "joint"}:
+            continue
+        _store_entry(k, v)
+
+    for sub_key in ("per_assessment", "per_anchor_task", "joint"):
+        sub = raw_store.get(sub_key, {})
+        if isinstance(sub, dict):
+            for entry_id, entry_val in sub.items():
+                _store_entry(entry_id, entry_val)
 
     return flat
 
@@ -648,6 +649,10 @@ def _merge_adequacy_store(acc: dict[str, Any], incoming: dict[str, Any]) -> dict
     )
 
     if has_nested_sections:
+        for k, v in incoming.items():
+            if k not in {"per_assessment", "per_anchor_task", "joint"}:
+                acc[k] = v
+
         for sub_key in ("per_assessment", "per_anchor_task", "joint"):
             sub = incoming.get(sub_key)
             if isinstance(sub, dict):
@@ -659,6 +664,7 @@ def _merge_adequacy_store(acc: dict[str, Any], incoming: dict[str, Any]) -> dict
         acc.update(incoming)
 
     return acc
+
 def _compare_adequacy(
     path: str,
     expected: dict[str, dict[str, Any]],
