@@ -118,9 +118,6 @@ def _facets_to_frame(facets: dict[str, str | None]) -> FrameOrPatternNode:
         )
     # Build a pattern with only non-None facets
     non_none = {k: v for k, v in facets.items() if v is not None}
-    if not non_none:
-        # Degenerate case: no facets at all — return minimal pattern
-        non_none = {"system": "unknown"}
     return FramePatternNode(facets=FacetValueMap(**non_none))
 
 
@@ -141,14 +138,19 @@ def build_step_context(
     # --- frame merge ---
     merged_facets = _merge_frame_facets(bundle.frame, session.base_frame, step.frame_override)
 
-    # Emit diagnostic if all merged facets are None (degenerate case)
+    # Emit diagnostic if all merged facets are None (unresolved frame context).
     if all(v is None for v in merged_facets.values()):
         diags.append({
-            "severity": "warning",
-            "code": "empty_effective_frame",
-            "message": "All frame facets are None after merging bundle, session, and step frames; "
-                       "falling back to degenerate frame. This may indicate misconfiguration.",
+            "severity": "error",
+            "code": "frame_unresolved_for_evaluation",
+            "step_id": step.id,
+            "message": (
+                "All frame facets are unresolved after merging bundle/session/step "
+                "frame inputs; evaluation context is unresolved."
+            ),
         })
+        # Keep StepContext valid while clearly marking the frame as unresolved.
+        merged_facets["system"] = "__unresolved__"
 
     effective_frame = _facets_to_frame(merged_facets)
 

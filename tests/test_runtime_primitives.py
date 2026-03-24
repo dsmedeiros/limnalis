@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import limnalis.runtime.builtins as builtins_mod
 from limnalis.models.ast import (
     AdequacyAssessmentNode,
     AnchorNode,
@@ -233,6 +234,32 @@ class TestBuildStepContext:
 
         ctx = build_step_context(bundle, session, step, env)
         assert ctx.effective_time is None
+
+    def test_unresolved_frame_emits_error_diagnostic(self, monkeypatch):
+        bundle = _bundle()
+        session = SessionConfig(id="s1")
+        step = StepConfig(id="step1")
+        env = EvaluationEnvironment()
+
+        monkeypatch.setattr(
+            builtins_mod,
+            "_merge_frame_facets",
+            lambda *args, **kwargs: {
+                "system": None,
+                "namespace": None,
+                "scale": None,
+                "task": None,
+                "regime": None,
+                "observer": None,
+                "version": None,
+            },
+        )
+
+        ctx = build_step_context(bundle, session, step, env)
+
+        assert any(d.get("code") == "frame_unresolved_for_evaluation" for d in ctx.diagnostics)
+        assert isinstance(ctx.effective_frame, FramePatternNode)
+        assert ctx.effective_frame.facets.system == "__unresolved__"
 
     def test_history_step_binding_overrides_env(self):
         """step.history_binding > env.history."""

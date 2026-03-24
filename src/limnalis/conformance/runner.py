@@ -557,11 +557,31 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     try:
         norm_result = normalize_surface_text(case.source, validate_schema=True)
     except Exception as exc:
-        return CaseRunResult(case_id=case.id, error=f"Parse/normalize error: {exc}")
+        return CaseRunResult(
+            case_id=case.id,
+            bundle_result=BundleResult(
+                bundle_id=case.id,
+                session_results=[],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "parse_normalize_error",
+                    "message": str(exc),
+                }],
+            ),
+        )
 
     if norm_result.canonical_ast is None:
         return CaseRunResult(
-            case_id=case.id, error="Normalization produced no canonical AST"
+            case_id=case.id,
+            bundle_result=BundleResult(
+                bundle_id=case.id,
+                session_results=[],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "normalize_missing_ast",
+                    "message": "Normalization produced no canonical AST",
+                }],
+            ),
         )
 
     bundle = norm_result.canonical_ast

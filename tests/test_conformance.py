@@ -185,6 +185,25 @@ class TestMismatchDetection:
         assert len(comparison.mismatches) > 0
 
 
+class TestConformanceParseFailures:
+    """Verify parse/normalize failures remain comparable in conformance output."""
+
+    def test_run_case_parse_error_returns_bundle_result_for_comparison(self):
+        case = SimpleNamespace(
+            id="BAD_PARSE",
+            source="<<< definitely not limnalis surface text >>>",
+            expected={"diagnostics": [{"code": "parse_normalize_error", "severity": "error"}]},
+        )
+
+        run_result = run_case(case, None)
+
+        assert run_result.error is None
+        assert run_result.bundle_result is not None
+
+        comparison = compare_case(case, run_result)
+        assert comparison.passed
+
+
 class TestConformanceCountStrictness:
     """Verify compare_case enforces exact session/step counts."""
 
