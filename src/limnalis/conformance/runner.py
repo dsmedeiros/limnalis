@@ -610,6 +610,12 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # Build services dict
     services: dict[str, Any] = {}
 
+    # Fixture adequacy handlers for method-computed assessments used in corpus
+    # cases (e.g., A12 aa2 / aa_circular).
+    services["adequacy_handlers"] = {
+        "test://adequacy/compute_pass_v1": lambda assessment: 1.0,
+    }
+
     # Inject transport queries from environment/session-step fixtures.
     transport_queries = _build_transport_queries_from_case(case)
     if transport_queries:
