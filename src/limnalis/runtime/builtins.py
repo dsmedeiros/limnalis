@@ -355,7 +355,7 @@ def _aggregate_support(
     - conflicted if any evaluator conflicted OR aggregate truth is B[evaluator_conflict]
     - else partial if any partial
     - else supported if any supported
-    - else inapplicable if all inapplicable
+    - else inapplicable if any inapplicable
     - else absent
     """
     supports = [e.support for e in evals if e.support is not None]
@@ -375,7 +375,7 @@ def _aggregate_support(
         return "partial"
     if "supported" in supports:
         return "supported"
-    if all(s == "inapplicable" for s in supports):
+    if "inapplicable" in supports:
         return "inapplicable"
     return "absent"
 

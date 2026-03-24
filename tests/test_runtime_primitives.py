@@ -634,6 +634,15 @@ class TestApplyResolutionPolicy:
         result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
         assert result.support == "inapplicable"
 
+    def test_union_support_inapplicable_beats_absent(self):
+        """Inapplicable should outrank absent per support precedence."""
+        ev1 = EvalNode(truth="T", support="inapplicable", provenance=["ev1"])
+        ev2 = EvalNode(truth="T", support="absent", provenance=["ev2"])
+        policy = _policy_union("ev1", "ev2")
+
+        result = apply_resolution_policy({"ev1": ev1, "ev2": ev2}, policy)
+        assert result.support == "inapplicable"
+
     def test_union_support_absent_fallback(self):
         """All evaluators absent => absent."""
         ev1 = EvalNode(truth="T", support="absent", provenance=["ev1"])
