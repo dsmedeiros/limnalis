@@ -784,20 +784,28 @@ def run_session(
         result = run_step(bundle, session, step, env, primitives, services, adjudicator)
         step_results.append(result)
 
-    # Extract session-level state artifacts from final step's machine state
     baseline_states: dict[str, Any] = {}
     adequacy_store: dict[str, Any] = {}
-    if step_results:
-        final_machine = step_results[-1].machine_state
-        baseline_states = {}
-        for bid, bs in final_machine.baseline_store.items():
+    for step_result in step_results:
+        machine = step_result.machine_state
+
+        for bid, bs in machine.baseline_store.items():
             if hasattr(bs, "model_dump"):
                 baseline_states[bid] = bs.model_dump()
             elif isinstance(bs, dict):
                 baseline_states[bid] = dict(bs)
             else:
                 baseline_states[bid] = bs
-        adequacy_store = dict(final_machine.adequacy_store)
+
+        for key, value in machine.adequacy_store.items():
+            if key in {"per_assessment", "per_anchor_task", "joint"} and isinstance(value, dict):
+                target = adequacy_store.setdefault(key, {})
+                if isinstance(target, dict):
+                    target.update(value)
+                else:
+                    adequacy_store[key] = dict(value)
+            else:
+                adequacy_store[key] = value
 
     return SessionResult(
         session_id=session.id,

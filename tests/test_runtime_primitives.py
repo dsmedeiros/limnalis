@@ -1066,7 +1066,7 @@ class TestExecuteTransport:
         assert result.status == "unresolved"
         assert result.dstAggregate is not None
         assert result.dstAggregate.reason == "transport_remap_error"
-        assert any(d.get("code") == "transport_remap_error" for d in diags)
+        assert sum(1 for d in diags if d.get("code") == "transport_remap_error") == 1
 
     def test_remap_recompute_with_fake_claim_map_handler(self):
         """remap_recompute: claim_map handler + fake destination evaluator."""

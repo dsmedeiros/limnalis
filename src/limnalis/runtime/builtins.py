@@ -2175,7 +2175,6 @@ def _execute_remap_recompute(
                 "claim_id": claim_id,
                 "message": str(exc),
             }
-            diags.append(diag)
             dst_aggregate = EvalNode(
                 truth="N",
                 reason="transport_remap_error",

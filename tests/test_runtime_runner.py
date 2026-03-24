@@ -427,6 +427,29 @@ class TestRunSession:
 
         assert result.baseline_states["bl_custom"] == {"status": "tracked", "source": "custom"}
 
+    def test_run_session_aggregates_state_across_steps(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1"), StepConfig(id="s2")])
+
+        def step_state_injector(claim, ev_id, step_ctx, machine, services):
+            step_index = services.get("__fixture_step_index__", 0)
+            if step_index == 0:
+                machine.baseline_store["bl_s1"] = {"status": "ready"}
+                machine.adequacy_store["per_assessment"] = {"aa_s1": {"truth": "T"}}
+            else:
+                machine.baseline_store["bl_s2"] = {"status": "deferred"}
+                machine.adequacy_store["per_assessment"] = {"aa_s2": {"truth": "F"}}
+            return TruthCore(truth="N", reason="fixture"), machine, []
+
+        primitives = PrimitiveSet(eval_expr=step_state_injector)
+
+        result = run_session(bundle, session, _env(), primitives=primitives)
+
+        assert result.baseline_states["bl_s1"] == {"status": "ready"}
+        assert result.baseline_states["bl_s2"] == {"status": "deferred"}
+        assert result.adequacy_store["per_assessment"]["aa_s1"]["truth"] == "T"
+        assert result.adequacy_store["per_assessment"]["aa_s2"]["truth"] == "F"
+
 class TestRunBundle:
     """Verify run_bundle executes all sessions."""
 
