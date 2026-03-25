@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="json_output",
         action="store_true",
         default=False,
-        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+        help="Output a compact machine-readable status JSON instead of the full bundle payload",
     )
 
     fixtures_cmd = sub.add_parser(
@@ -277,7 +277,7 @@ def _load_allowlist(path: Path | None) -> dict[str, str]:
     except FileNotFoundError:
         _error(f"allowlist file not found: {path}")
         sys.exit(1)
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         _error(f"failed to parse allowlist: {path}", detail=str(exc))
         sys.exit(1)
 
@@ -400,7 +400,7 @@ def _cmd_validate_ast(args: argparse.Namespace) -> int:
     except FileNotFoundError:
         _error(f"file not found: {args.path}")
         return 1
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         if isinstance(exc, json.JSONDecodeError):
             _error(f"invalid JSON in {args.path}", detail=str(exc))
         elif isinstance(exc, SchemaValidationError):
@@ -433,7 +433,7 @@ def _cmd_validate_fixtures(args: argparse.Namespace) -> int:
     except FileNotFoundError:
         _error(f"file not found: {args.path}")
         return 1
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         if isinstance(exc, json.JSONDecodeError):
             _error(f"invalid JSON in {args.path}", detail=str(exc))
         elif isinstance(exc, SchemaValidationError):

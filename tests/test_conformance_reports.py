@@ -26,6 +26,7 @@ class TestConformanceReportJson:
     def test_json_report_is_valid_json(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         # Must be valid JSON
         report = json.loads(captured.out)
@@ -34,6 +35,7 @@ class TestConformanceReportJson:
     def test_json_report_has_expected_structure(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
         # Expected top-level keys
@@ -55,6 +57,7 @@ class TestConformanceReportJson:
     def test_json_report_case_entries_have_required_fields(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
         for case_entry in report["cases"]:
@@ -68,6 +71,7 @@ class TestConformanceReportJson:
     def test_json_report_totals_are_consistent(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
         summary = report["summary"]
@@ -92,6 +96,7 @@ class TestConformanceReportMarkdown:
     def test_markdown_report_has_header(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
+        assert code == 0
 
         lines = captured.out.strip().split("\n")
         assert len(lines) > 0
@@ -101,6 +106,7 @@ class TestConformanceReportMarkdown:
     def test_markdown_report_has_summary(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
+        assert code == 0
 
         # Should contain summary statistics
         assert "Summary" in captured.out
@@ -110,6 +116,7 @@ class TestConformanceReportMarkdown:
     def test_markdown_report_has_results_table(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
+        assert code == 0
 
         # Should contain a markdown table
         assert "| Case |" in captured.out
@@ -127,6 +134,7 @@ class TestConformanceReportVersion:
     def test_json_report_includes_version(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
         assert "version" in report
@@ -138,6 +146,7 @@ class TestConformanceReportVersion:
     def test_markdown_report_includes_version(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
+        assert code == 0
 
         # Version info should appear in the report
         assert "limnalis" in captured.out.lower()
@@ -155,6 +164,7 @@ class TestConformanceReportFailingCases:
     def test_failing_case_has_mismatches_in_json_report(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
 
@@ -175,6 +185,7 @@ class TestConformanceReportFailingCases:
     def test_report_diagnostics_count_is_non_negative(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "json"])
         captured = capsys.readouterr()
+        assert code == 0
 
         report = json.loads(captured.out)
         for case_entry in report["cases"]:
