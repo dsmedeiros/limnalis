@@ -5,15 +5,18 @@ from __future__ import annotations
 import pytest
 
 from limnalis.models.ast import (
+    BridgeNode,
     BundleNode,
     ClaimNode,
     ClaimBlockNode,
     EvaluatorNode,
+    FramePatternNode,
     ResolutionPolicyNode,
     FrameNode,
     NoteExprNode,
     PredicateExprNode,
     TimeCtxNode,
+    TransportNode,
 )
 from limnalis.runtime.models import (
     EvaluationEnvironment,
@@ -46,7 +49,7 @@ def _frame(**overrides):
     return FrameNode(**defaults)
 
 
-def _bundle(claims=None, evaluators=None, policy=None):
+def _bundle(claims=None, evaluators=None, policy=None, bridges=None):
     frame = _frame()
     evaluators = evaluators or [EvaluatorNode(id="ev1", kind="model", binding="b1")]
     policy = policy or ResolutionPolicyNode(id="pol", kind="single", members=["ev1"])
@@ -56,6 +59,7 @@ def _bundle(claims=None, evaluators=None, policy=None):
         frame=frame,
         evaluators=evaluators,
         resolutionPolicy=policy,
+        bridges=bridges or [],
         claimBlocks=[ClaimBlockNode(id="blk1", stratum="local", claims=claims)],
     )
 
@@ -83,6 +87,7 @@ EXPECTED_PRIMITIVES = [
     "resolve_ref",
     "resolve_baseline",
     "evaluate_adequacy_set",
+    "compose_license",
     "build_evidence_view",
     "classify_claim",
     "eval_expr",
@@ -95,15 +100,15 @@ EXPECTED_PRIMITIVES = [
 
 
 class TestPhaseTraceOrder:
-    """Verify the runner executes all 12 phases in order."""
+    """Verify the runner executes all 13 phases in order."""
 
-    def test_trace_contains_all_12_phases(self):
+    def test_trace_contains_all_13_phases(self):
         bundle = _bundle()
         result = run_step(bundle, _session(), _step(), _env())
 
-        assert len(result.trace) == 12
+        assert len(result.trace) == 13
         phases = [event.phase for event in result.trace]
-        assert phases == list(range(1, 13))
+        assert phases == list(range(1, 14))
 
     def test_trace_primitive_names_match(self):
         bundle = _bundle()
@@ -169,6 +174,18 @@ class TestNoteExprBypass:
 
         eval_node = result.per_claim_per_evaluator["note1"]["ev1"]
         assert eval_node.support == "inapplicable"
+
+    def test_note_expr_receives_license_result(self):
+        note_claim = ClaimNode(id="note1", kind="note", expr=NoteExprNode(text="just a note"))
+        bundle = _bundle(claims=[note_claim])
+
+        result = run_step(bundle, _session(), _step(), _env())
+
+        assert "note1" in result.per_claim_licenses
+        assert result.per_claim_licenses["note1"].overall.truth == "T"
+        claim_result = next(cr for cr in result.claim_results if cr.claim_id == "note1")
+        assert claim_result.license is not None
+        assert claim_result.license.overall.truth == "T"
 
 
 # ---------------------------------------------------------------------------
@@ -276,9 +293,88 @@ class TestFoldBlockFallback:
         assert fold_diags[0]["severity"] == "error"
 
 
+class TestTransportErrorIsolation:
+    """Verify phase 13 isolates errors per bridge."""
+
+    @staticmethod
+    def _bridge(bridge_id: str) -> BridgeNode:
+        fp = FramePatternNode(
+            facets={
+                "system": "sys",
+                "namespace": "ns",
+                "scale": "macro",
+                "task": "predict",
+                "regime": "standard",
+            }
+        )
+        return BridgeNode(
+            id=bridge_id,
+            from_=fp,
+            to=fp,
+            via="test",
+            preserve=[],
+            lose=[],
+            transport=TransportNode(mode="metadata_only"),
+        )
+
+    def test_transport_continues_after_per_bridge_error(self):
+        def flaky_execute_transport(bridge, step_ctx, machine_state, services):
+            if bridge.id == "b1":
+                raise RuntimeError("boom")
+            return {"status": "transported"}, machine_state, []
+
+        bundle = _bundle(bridges=[self._bridge("b1"), self._bridge("b2")])
+        primitives = PrimitiveSet(execute_transport=flaky_execute_transport)
+
+        result = run_step(bundle, _session(), _step(), _env(), primitives=primitives)
+
+        phase_errors = [
+            d for d in result.diagnostics
+            if d.get("code") == "phase_error" and d.get("primitive") == "execute_transport"
+        ]
+        assert len(phase_errors) == 1
+        assert phase_errors[0].get("bridge_id") == "b1"
+        assert result.transport_results["b2"].status == "transported"
+
+        transport_trace = [t for t in result.trace if t.primitive == "execute_transport"][0]
+        assert transport_trace.result_summary.startswith("ok")
+
+
 # ---------------------------------------------------------------------------
 # run_session and run_bundle
 # ---------------------------------------------------------------------------
+
+
+class TestServicesBundleIsolation:
+    """Verify run_step always injects the current bundle into services."""
+
+    def test_run_step_overwrites_bundle_in_reused_services(self):
+        shared_services: dict = {}
+
+        bundle1 = _bundle(claims=[ClaimNode(id="c1", kind="atomic", expr=PredicateExprNode(name="P"))])
+        run_step(bundle1, _session(), _step("s1"), _env(), services=shared_services)
+        assert shared_services.get("__bundle__") is bundle1
+
+        bundle2 = _bundle(claims=[ClaimNode(id="c2", kind="atomic", expr=PredicateExprNode(name="Q"))])
+        run_step(bundle2, _session(), _step("s2"), _env(), services=shared_services)
+
+        assert shared_services.get("__bundle__") is bundle2
+
+class TestFixtureStepIndexService:
+    """Verify run_step exposes a monotonic fixture step index in services."""
+
+    def test_run_step_increments_fixture_step_index_on_reused_services(self):
+        shared_services: dict = {}
+        bundle = _bundle()
+        session = _session()
+
+        run_step(bundle, session, _step("s1"), _env(), services=shared_services)
+        assert shared_services.get("__fixture_step_index__") == 0
+        assert shared_services.get("__fixture_step_counter__") == 1
+
+        run_step(bundle, session, _step("s2"), _env(), services=shared_services)
+        assert shared_services.get("__fixture_step_index__") == 1
+        assert shared_services.get("__fixture_step_counter__") == 2
 
 
 class TestRunSession:
@@ -303,7 +399,7 @@ class TestRunSession:
         result = run_session(bundle, session, _env())
 
         for step_result in result.step_results:
-            assert len(step_result.trace) == 12
+            assert len(step_result.trace) == 13
 
     def test_run_session_empty_steps_produces_diagnostic(self):
         session = SessionConfig(id="sess_empty", steps=[])
@@ -315,6 +411,44 @@ class TestRunSession:
         assert len(result.step_results) == 0
         assert any(d["code"] == "empty_session" for d in result.diagnostics)
 
+
+
+    def test_run_session_serializes_plain_dict_baseline_state(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1")])
+
+        def baseline_dict_injector(claim, ev_id, step_ctx, machine, services):
+            machine.baseline_store["bl_custom"] = {"status": "tracked", "source": "custom"}
+            return TruthCore(truth="N", reason="fixture"), machine, []
+
+        primitives = PrimitiveSet(eval_expr=baseline_dict_injector)
+
+        result = run_session(bundle, session, _env(), primitives=primitives)
+
+        assert result.baseline_states["bl_custom"] == {"status": "tracked", "source": "custom"}
+
+    def test_run_session_aggregates_state_across_steps(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1"), StepConfig(id="s2")])
+
+        def step_state_injector(claim, ev_id, step_ctx, machine, services):
+            step_index = services.get("__fixture_step_index__", 0)
+            if step_index == 0:
+                machine.baseline_store["bl_s1"] = {"status": "ready"}
+                machine.adequacy_store["per_assessment"] = {"aa_s1": {"truth": "T"}}
+            else:
+                machine.baseline_store["bl_s2"] = {"status": "deferred"}
+                machine.adequacy_store["per_assessment"] = {"aa_s2": {"truth": "F"}}
+            return TruthCore(truth="N", reason="fixture"), machine, []
+
+        primitives = PrimitiveSet(eval_expr=step_state_injector)
+
+        result = run_session(bundle, session, _env(), primitives=primitives)
+
+        assert result.baseline_states["bl_s1"] == {"status": "ready"}
+        assert result.baseline_states["bl_s2"] == {"status": "deferred"}
+        assert result.adequacy_store["per_assessment"]["aa_s1"]["truth"] == "T"
+        assert result.adequacy_store["per_assessment"]["aa_s2"]["truth"] == "F"
 
 class TestRunBundle:
     """Verify run_bundle executes all sessions."""

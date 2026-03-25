@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ from ..models.ast import (
     FramePatternNode,
     TimeCtxNode,
 )
-from ..models.conformance import EvalSnapshot, SupportValue, TruthValue
+from ..models.conformance import EvalSnapshot, SupportValue, TransportStatus, TruthValue
 
 
 # ---------------------------------------------------------------------------
@@ -130,16 +130,132 @@ class ClaimEvidenceView(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Adequacy result models
+# ---------------------------------------------------------------------------
+
+
+class AdequacyResult(BaseModel):
+    """Result of evaluating a single adequacy assessment."""
+
+    assessment_id: str
+    task: str
+    producer: str
+    adequate: bool
+    truth: TruthValue
+    reason: str | None = None
+    score: float | None = None
+    threshold: float | None = None
+    provenance: list[str] = Field(default_factory=list)
+
+
+class AnchorAdequacyResult(BaseModel):
+    """Aggregated adequacy result for an anchor, scoped by task."""
+
+    anchor_id: str
+    task: str
+    truth: TruthValue
+    reason: str | None = None
+    per_assessment: list[AdequacyResult] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+
+
+class JointAdequacyResult(BaseModel):
+    """Result of evaluating a joint adequacy group."""
+
+    joint_id: str
+    anchors: list[str]
+    truth: TruthValue
+    reason: str | None = None
+    per_assessment: list[AdequacyResult] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # License result (placeholder for future use)
 # ---------------------------------------------------------------------------
+
+
+class AnchorLicenseEntry(BaseModel):
+    """Per-anchor adequacy result within a license evaluation."""
+
+    anchor_id: str
+    task: str
+    truth: TruthValue
+    reason: str | None = None
+
+
+class JointLicenseEntry(BaseModel):
+    """Per-joint-group adequacy result within a license evaluation."""
+
+    joint_id: str
+    anchors: list[str]
+    truth: TruthValue
+    reason: str | None = None
+
+
+class LicenseOverall(BaseModel):
+    """Overall license truth and reason."""
+
+    truth: TruthValue
+    reason: str | None = None
 
 
 class LicenseResult(BaseModel):
     """Result of license composition for a claim."""
 
     claim_id: str
-    licensed: bool
+    overall: LicenseOverall
+    individual: list[AnchorLicenseEntry] = Field(default_factory=list)
+    joint: list[JointLicenseEntry] = Field(default_factory=list)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Transport result
+# ---------------------------------------------------------------------------
+
+
+class TransportResult(BaseModel):
+    """Result of executing a transport query for a bridge."""
+
+    status: TransportStatus
+    srcAggregate: EvalNode | None = None
+    dstAggregate: EvalNode | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    mappedClaim: str | None = None
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    provenance: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Claim result (per-claim structured output)
+# ---------------------------------------------------------------------------
+
+
+class ClaimResult(BaseModel):
+    """Structured per-claim evaluation result."""
+
+    claim_id: str
+    classification: ClaimClassification | None = None
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    aggregate: EvalNode | None = None
+    license: LicenseResult | None = None
+    is_evaluable: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Block result (per-block structured output)
+# ---------------------------------------------------------------------------
+
+
+class BlockResult(BaseModel):
+    """Structured per-block evaluation result."""
+
+    block_id: str
+    per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
+    aggregate: EvalNode | None = None
+    claims: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +293,9 @@ class MachineState(BaseModel):
     resolution_store: ResolutionStore = Field(default_factory=ResolutionStore)
     baseline_store: dict[str, BaselineState] = Field(default_factory=dict)
     adequacy_store: dict[str, Any] = Field(default_factory=dict)
+    license_store: dict[str, Any] = Field(default_factory=dict)
     evidence_views: dict[str, ClaimEvidenceView] = Field(default_factory=dict)
+    transport_store: dict[str, TransportResult] = Field(default_factory=dict)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -193,3 +311,56 @@ class PrimitiveTraceEvent(BaseModel):
     primitive: str
     inputs_summary: str = ""
     result_summary: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics sorting helper
+# ---------------------------------------------------------------------------
+
+
+def sort_diagnostics(diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort diagnostics deterministically by (phase, code, subject).
+
+    Missing keys sort as empty string to ensure stable ordering.
+    """
+    # Phase ordering: numeric phases sort naturally, string phases sort after.
+    # We normalise to (type_rank, comparable_value) so int and str never compare directly.
+    def _phase_key(phase: Any) -> tuple[int, Any]:
+        if isinstance(phase, int):
+            return (0, phase)
+        if isinstance(phase, str) and phase.isdigit():
+            return (0, int(phase))
+        return (1, str(phase) if phase is not None else "")
+
+    return sorted(
+        diagnostics,
+        key=lambda d: (
+            _phase_key(d.get("phase", "")),
+            str(d.get("code", "") or ""),
+            str(
+                d.get("subject", d.get("claim_id", d.get("block_id", d.get("primitive", ""))))
+                or ""
+            ),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Evaluator bindings protocol for eval_expr dispatch
+# ---------------------------------------------------------------------------
+
+# Handler signature: (expr, claim, step_ctx, machine_state) -> TruthCore
+ExprHandler = Callable[[Any, Any, "StepContext", "MachineState"], "TruthCore"]
+
+
+@runtime_checkable
+class EvaluatorBindings(Protocol):
+    """Protocol for looking up expression evaluation handlers by evaluator_id.
+
+    The bindings registry maps evaluator_id -> expr_type -> handler.
+    The handler signature is: handler(expr, claim, step_ctx, machine_state) -> TruthCore
+    """
+
+    def get_handler(self, evaluator_id: str, expr_type: str) -> ExprHandler | None:
+        """Return a handler for the given evaluator and expression type, or None."""
+        ...

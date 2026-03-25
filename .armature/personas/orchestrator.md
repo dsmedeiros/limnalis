@@ -86,6 +86,21 @@ Session state and the governance journal are not optional. The orchestrator main
 
 **Self-check:** Before committing any accepted work, verify that session state reflects the current delegation and reviewer verdict. If session state is stale, update it first.
 
+## Multi-Fix and Bug-Fix Delegation
+
+When multiple issues arrive together (e.g., PR review feedback, batch bug reports), the orchestrator MUST still delegate — never implement directly. Apply this protocol:
+
+1. **Triage** — Read each issue to understand scope, affected files, and inter-dependencies
+2. **Partition** — Group fixes by scope (runtime, conformance, tests, etc.). Independent fixes to different scopes can run in parallel agents.
+3. **Delegate** — Spawn implementer agents, one per scope group. If all fixes touch the same scope, a single implementer handles them sequentially. If fixes span scopes, spawn parallel implementers.
+4. **Review** — Spawn the reviewer after all implementers complete (or per-implementer if sequential). Never commit without a reviewer verdict.
+5. **Never self-implement** — Even "small" one-line fixes are delegated. The orchestrator reads governance files and diffs, not application source. The temptation to "just fix it quickly" is the exact failure mode this rule prevents.
+
+**Decision heuristic for parallelism:**
+- Fixes to different files in different scopes → parallel agents
+- Fixes to the same file or tightly coupled files → single agent, sequential
+- Mixed → group by coupling, parallelize across groups
+
 ## Token Discipline
 
 - Read AGENTS.md frontmatter (YAML headers only) to build delegation plans

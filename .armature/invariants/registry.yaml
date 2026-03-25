@@ -168,7 +168,7 @@ invariants:
 
   # --- Runtime Execution ---
   RUNTIME-001:
-    rule: "The step runner must execute all 12 phases in strict ascending order (1-12). Phase ordering must not be altered without spec change."
+    rule: "The step runner must execute all 13 phases in strict ascending order (1-13). Phase ordering must not be altered without spec change."
     severity: high
     defined-in: .armature/invariants/invariants.md
     enforced-by:
