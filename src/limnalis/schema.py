@@ -12,7 +12,7 @@ from typing import Any, Literal
 import yaml
 from jsonschema import Draft202012Validator
 
-from limnalis import SPEC_VERSION
+from . import SPEC_VERSION
 
 SchemaName = Literal["ast", "fixture_corpus", "conformance_result"]
 

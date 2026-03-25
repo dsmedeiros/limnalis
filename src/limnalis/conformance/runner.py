@@ -80,7 +80,11 @@ def _build_conformance_result_payload(run_result: CaseRunResult) -> dict[str, An
 
             # Claims — union of per_evaluator and aggregate keys
             claims_data: dict[str, Any] = {}
-            all_claim_ids = set(step.per_claim_per_evaluator.keys()) | set(step.per_claim_aggregates.keys())
+            all_claim_ids = list(step.per_claim_per_evaluator.keys()) + [
+                claim_id
+                for claim_id in step.per_claim_aggregates.keys()
+                if claim_id not in step.per_claim_per_evaluator
+            ]
             for claim_id in all_claim_ids:
                 claim_entry: dict[str, Any] = {}
 

@@ -495,10 +495,16 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
     # Collect all diagnostics from bundle + sessions + steps
     all_actual_diags = _collect_all_diagnostics(bundle_result)
     expected_diags = expected.get("diagnostics")
-    if expected_diags:
-        _compare_diagnostics(
+    if expected_diags is not None:
+        unmatched_diags = _compare_diagnostics(
             "diagnostics", expected_diags, all_actual_diags, mismatches
         )
+        if not expected_diags and unmatched_diags:
+            for i, extra in enumerate(unmatched_diags):
+                if extra.get("severity") in {"error", "fatal"}:
+                    mismatches.append(
+                        FieldMismatch(f"diagnostics[{i}]", "none expected", extra)
+                    )
 
     # Compare baseline_states if specified
     baseline_states_exp = expected.get("baseline_states")

@@ -64,6 +64,7 @@ def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys
     assert code == 1
     assert payload["status"] == "error"
     assert payload["phase"] == "normalize"
+    assert payload["message"]
 
 
 def test_print_schema_cli_smoke(capsys) -> None:
