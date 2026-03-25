@@ -11,10 +11,6 @@ from .loader import load_ast_bundle, load_fixture_corpus, normalize_surface_file
 from .normalizer import NormalizationError
 from .schema import SchemaValidationError, load_schema
 
-_DEFAULT_SUPPORTED_CONFORMANCE_CASES = [
-    "A1", "A3", "A5", "A6", "A10", "A11", "A12", "A13", "A14", "B1", "B2",
-]
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="limnalis", description="Limnalis tooling scaffold")
@@ -228,11 +224,7 @@ def _run_conformance(args: argparse.Namespace) -> int:
         if case_ids:
             cases_to_run = [corpus.get_case(cid) for cid in case_ids]
         else:
-            cases_to_run = [
-                corpus.get_case(cid)
-                for cid in _DEFAULT_SUPPORTED_CONFORMANCE_CASES
-                if corpus.get_case(cid) is not None
-            ]
+            cases_to_run = corpus.cases
 
         total = len(cases_to_run)
         passed = 0
