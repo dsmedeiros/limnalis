@@ -15,6 +15,7 @@ from typing import Any, Callable
 from ..models.ast import (
     AdequacyAssessmentNode,
     AnchorNode,
+    BaselineNode,
     BridgeNode,
     BundleNode,
     CausalExprNode,
@@ -596,8 +597,64 @@ def resolve_baseline(
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[Any, MachineState, Diagnostics]:
-    """Stub: resolve a baseline. Requires domain logic."""
-    raise NotImplementedError("resolve_baseline requires domain-specific implementation")
+    """Resolve a baseline: determine its runtime state based on kind and evaluationMode.
+
+    State logic:
+      - evaluationMode=on_reference (any kind)    -> deferred (lazy)
+      - kind=moving + evaluationMode != tracked    -> unresolved + diagnostic
+      - everything else (point/fixed, moving+tracked) -> ready
+    """
+    diags: Diagnostics = []
+
+    # Look up the BaselineNode from the bundle injected into services
+    bundle: BundleNode | None = services.get("__bundle__")
+    baseline_node: BaselineNode | None = None
+    if bundle is not None:
+        for bl in bundle.baselines:
+            if bl.id == baseline_id:
+                baseline_node = bl
+                break
+
+    if baseline_node is None:
+        # No baseline definition found; mark unresolved with diagnostic
+        diags.append({
+            "severity": "warning",
+            "code": "baseline_not_found",
+            "subject": baseline_id,
+            "phase": "baseline",
+            "message": f"baseline '{baseline_id}' not found in bundle definitions",
+        })
+        machine_state.baseline_store[baseline_id] = BaselineState(
+            baseline_id=baseline_id, status="unresolved"
+        )
+        return None, machine_state, diags
+
+    # Determine baseline state
+    kind = baseline_node.kind
+    eval_mode = baseline_node.evaluationMode
+
+    if eval_mode == "on_reference":
+        # Any baseline with lazy evaluation mode is deferred regardless of kind
+        status = "deferred"
+    elif kind == "moving" and eval_mode != "tracked":
+        # Invalid: moving baselines require evaluationMode='tracked' (or on_reference)
+        status = "unresolved"
+        diags.append({
+            "severity": "error",
+            "code": "baseline_mode_invalid",
+            "subject": baseline_id,
+            "phase": "baseline",
+            "message": f"invalid baseline '{baseline_id}': moving baselines require evaluationMode='tracked'",
+        })
+    else:
+        # Non-moving baselines or moving+tracked are immediately ready
+        status = "ready"
+
+    machine_state.baseline_store[baseline_id] = BaselineState(
+        baseline_id=baseline_id, status=status
+    )
+
+    return None, machine_state, diags
 
 
 def _detect_basis_cycles(

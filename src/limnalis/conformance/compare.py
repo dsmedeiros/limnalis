@@ -399,11 +399,14 @@ def _compare_diagnostics(
     expected_diags: list[dict[str, Any]],
     actual_diags: list[dict[str, Any]],
     mismatches: list[FieldMismatch],
-) -> None:
+) -> list[dict[str, Any]]:
     """Compare expected diagnostics to actual.
 
     Matching is done by (code, severity) pair. Subject is compared
     only when specified in expected.
+
+    Returns the list of actual diagnostics that were not matched by any
+    expected entry (i.e. unmatched extras).
     """
     remaining_actuals = list(actual_diags)  # mutable copy to consume matches
 
@@ -435,6 +438,10 @@ def _compare_diagnostics(
                     "not found in actual diagnostics",
                 )
             )
+
+    # Return remaining unmatched actuals so the caller can decide whether
+    # to treat them as failures (e.g. when expected was explicitly empty).
+    return remaining_actuals
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +494,11 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
     # Compare top-level diagnostics
     # Collect all diagnostics from bundle + sessions + steps
     all_actual_diags = _collect_all_diagnostics(bundle_result)
-    expected_diags = expected.get("diagnostics", [])
+    expected_diags = expected.get("diagnostics")
     if expected_diags:
-        _compare_diagnostics("diagnostics", expected_diags, all_actual_diags, mismatches)
+        _compare_diagnostics(
+            "diagnostics", expected_diags, all_actual_diags, mismatches
+        )
 
     # Compare baseline_states if specified
     baseline_states_exp = expected.get("baseline_states")

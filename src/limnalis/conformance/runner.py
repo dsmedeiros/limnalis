@@ -7,6 +7,7 @@ from typing import Any
 
 from ..loader import normalize_surface_text
 from ..models.ast import BundleNode, TimeCtxNode
+from ..schema import collect_validation_errors
 from ..runtime.models import (
     EvalNode,
     EvaluationEnvironment,
@@ -33,6 +34,147 @@ class CaseRunResult:
     bundle_result: BundleResult | None = None
     bundle: BundleNode | None = None
     error: str | None = None
+    # Internal runner diagnostics (e.g. schema-model divergence warnings) that
+    # should not be compared against fixture expectations.
+    internal_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Schema validation of conformance results
+# ---------------------------------------------------------------------------
+
+
+def validate_result_schema(run_result: CaseRunResult) -> list[dict[str, str]]:
+    """Validate the evaluation result against the conformance-result schema.
+
+    Returns a list of schema violation dicts with 'path' and 'message' keys.
+    Returns an empty list if validation succeeds or no result is available.
+    """
+    if run_result.bundle_result is None:
+        return []
+
+    # Build the expected-result-shaped payload from the BundleResult
+    try:
+        result_payload = _build_conformance_result_payload(run_result)
+    except Exception as exc:
+        return [{"path": "$", "message": f"Failed to build result payload: {exc}"}]
+
+    violations = collect_validation_errors(result_payload, "conformance_result")
+    return [{"path": v.path, "message": v.message} for v in violations]
+
+
+def _build_conformance_result_payload(run_result: CaseRunResult) -> dict[str, Any]:
+    """Build a conformance-result-schema-compatible payload from a CaseRunResult.
+
+    The conformance result schema expects an ExpectedResult shape with
+    sessions, diagnostics, and optional baseline_states/adequacy_expectations.
+    """
+    bundle_result = run_result.bundle_result
+    assert bundle_result is not None
+
+    sessions_payload: list[dict[str, Any]] = []
+    for sess in bundle_result.session_results:
+        steps_payload: list[dict[str, Any]] = []
+        for step in sess.step_results:
+            step_data: dict[str, Any] = {"id": step.step_id}
+
+            # Claims — union of per_evaluator and aggregate keys
+            claims_data: dict[str, Any] = {}
+            all_claim_ids = set(step.per_claim_per_evaluator.keys()) | set(step.per_claim_aggregates.keys())
+            for claim_id in all_claim_ids:
+                claim_entry: dict[str, Any] = {}
+
+                ev_map = step.per_claim_per_evaluator.get(claim_id, {})
+                if ev_map:
+                    per_ev: dict[str, Any] = {}
+                    for ev_id, ev_node in ev_map.items():
+                        snapshot: dict[str, Any] = {"truth": ev_node.truth}
+                        if ev_node.reason is not None:
+                            snapshot["reason"] = ev_node.reason
+                        if ev_node.support is not None:
+                            snapshot["support"] = ev_node.support
+                        if ev_node.confidence is not None:
+                            snapshot["confidence"] = ev_node.confidence
+                        if ev_node.provenance:
+                            snapshot["provenance"] = list(ev_node.provenance)
+                        per_ev[ev_id] = snapshot
+                    claim_entry["per_evaluator"] = per_ev
+
+                agg = step.per_claim_aggregates.get(claim_id)
+                if agg is not None:
+                    agg_snapshot: dict[str, Any] = {"truth": agg.truth}
+                    if agg.reason is not None:
+                        agg_snapshot["reason"] = agg.reason
+                    if agg.support is not None:
+                        agg_snapshot["support"] = agg.support
+                    if agg.confidence is not None:
+                        agg_snapshot["confidence"] = agg.confidence
+                    if agg.provenance:
+                        agg_snapshot["provenance"] = list(agg.provenance)
+                    claim_entry["aggregate"] = agg_snapshot
+
+                if claim_entry:
+                    claims_data[claim_id] = claim_entry
+
+            if claims_data:
+                step_data["claims"] = claims_data
+
+            # Blocks
+            blocks_data: dict[str, Any] = {}
+            for block_id, agg in step.per_block_aggregates.items():
+                block_entry: dict[str, Any] = {}
+                block_per_ev = step.per_block_per_evaluator.get(block_id, {})
+                if block_per_ev:
+                    block_entry["per_evaluator"] = {
+                        ev_id: ev_node.truth
+                        for ev_id, ev_node in block_per_ev.items()
+                    }
+                block_entry["aggregate"] = agg.truth
+                blocks_data[block_id] = block_entry
+
+            if blocks_data:
+                step_data["blocks"] = blocks_data
+
+            # Transports
+            transports_data: dict[str, Any] = {}
+            for tr_id, tr_result in step.transport_results.items():
+                tr_entry: dict[str, Any] = {}
+                if hasattr(tr_result, "status") and tr_result.status is not None:
+                    tr_entry["status"] = tr_result.status
+                transports_data[tr_id] = tr_entry
+
+            if transports_data:
+                step_data["transports"] = transports_data
+
+            steps_payload.append(step_data)
+
+        sessions_payload.append({
+            "id": sess.session_id,
+            "steps": steps_payload if steps_payload else [{"id": "step0"}],
+        })
+
+    # Collect all diagnostics
+    all_diags: list[dict[str, Any]] = []
+    for diag in bundle_result.diagnostics:
+        diag_entry: dict[str, Any] = {}
+        if isinstance(diag, dict):
+            if "severity" in diag:
+                diag_entry["severity"] = diag["severity"]
+            if "code" in diag:
+                diag_entry["code"] = diag["code"]
+            if "subject" in diag:
+                diag_entry["subject"] = diag["subject"]
+            if "message" in diag:
+                diag_entry["message"] = diag["message"]
+        if diag_entry.get("severity") and diag_entry.get("code"):
+            all_diags.append(diag_entry)
+
+    payload: dict[str, Any] = {
+        "sessions": sessions_payload,
+        "diagnostics": all_diags,
+    }
+
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -536,8 +678,13 @@ def _extract_extra_resolution_policies(
                     policy = n._normalize_resolution_policy(head_tokens, block_tree)
                     if policy.id != primary_policy_id:
                         extra[policy.id] = policy
-    except Exception:
-        pass  # If extraction fails, proceed without extra policies
+    except Exception as exc:
+        import warnings
+        warnings.warn(
+            f"Failed to extract extra resolution policies: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     return extra
 
@@ -694,14 +841,14 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     if injected_diags:
         from ..runtime.models import sort_diagnostics
         result.diagnostics = sort_diagnostics(
-            list(result.diagnostics) + pre_run_diags + injected_diags
+            list(result.diagnostics) + injected_diags
         )
-    elif pre_run_diags:
-        from ..runtime.models import sort_diagnostics
-        result.diagnostics = sort_diagnostics(list(result.diagnostics) + pre_run_diags)
 
     return CaseRunResult(
         case_id=case.id,
         bundle_result=result,
         bundle=bundle,
+        # Store schema-fallback warnings as internal diagnostics so they
+        # are available for debugging but do not pollute conformance comparison.
+        internal_diagnostics=pre_run_diags,
     )

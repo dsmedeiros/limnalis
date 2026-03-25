@@ -103,13 +103,13 @@ def test_fixture_corpus_cases_normalize_to_schema_valid_ast(case_id: str) -> Non
     assert result.canonical_ast.id == FIXTURE_CASES[case_id]["source"].split()[1]
 
 
-def test_normalizer_rejects_invalid_moving_baseline_fixture() -> None:
+def test_normalizer_accepts_invalid_moving_baseline_fixture() -> None:
+    """A4 moving+fixed baseline normalizes OK; validation is at runtime."""
     tree = LimnalisParser().parse_text(FIXTURE_CASES["A4"]["source"])
-
-    with pytest.raises(
-        NormalizationError, match="moving baselines require evaluationMode='tracked'"
-    ):
-        Normalizer().normalize(tree)
+    result = Normalizer().normalize(tree)
+    baselines = {bl.id: bl for bl in result.canonical_ast.baselines}
+    assert baselines["b_invalid"].kind == "moving"
+    assert baselines["b_invalid"].evaluationMode == "fixed"
 
 
 def test_normalizer_synthesizes_ids_for_authored_adequacy_blocks() -> None:

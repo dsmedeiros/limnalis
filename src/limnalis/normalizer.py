@@ -9,6 +9,7 @@ from typing import Any
 from lark import Token, Tree
 from pydantic import ValidationError
 
+from . import SPEC_VERSION
 from .diagnostics import Diagnostic, SourcePosition, SourceSpan
 from .models.ast import (
     AdequacyAssessmentNode,
@@ -300,7 +301,7 @@ class Normalizer:
                     code="evaluator_kind_canonicalized",
                     message=(
                         "Canonicalized authored evaluator kind 'audit' to canonical "
-                        "AST kind 'process' because schema v0.2.2 does not admit "
+                        f"AST kind 'process' because schema {SPEC_VERSION} does not admit "
                         "'audit' as an Evaluator.kind value."
                     ),
                     source_node=source_tree,

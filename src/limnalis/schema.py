@@ -12,12 +12,14 @@ from typing import Any, Literal
 import yaml
 from jsonschema import Draft202012Validator
 
+from limnalis import SPEC_VERSION
+
 SchemaName = Literal["ast", "fixture_corpus", "conformance_result"]
 
 _SCHEMA_FILES = {
-    "ast": "limnalis_ast_schema_v0.2.2.json",
-    "fixture_corpus": "limnalis_fixture_corpus_schema_v0.2.2.json",
-    "conformance_result": "limnalis_conformance_result_schema_v0.2.2.json",
+    "ast": f"limnalis_ast_schema_{SPEC_VERSION}.json",
+    "fixture_corpus": f"limnalis_fixture_corpus_schema_{SPEC_VERSION}.json",
+    "conformance_result": f"limnalis_conformance_result_schema_{SPEC_VERSION}.json",
 }
 
 

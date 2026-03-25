@@ -1,7 +1,7 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 3B: Broaden Limnalis evaluator — transport semantics, policy overrides, adequacy handling, conformance harness
+Milestone 3C: Full conformance pass, end-to-end pipeline hardening, evaluator stabilization for Limnalis v0.2.2
 
 ## Build Candidate
 {none}
@@ -9,26 +9,23 @@ Milestone 3B: Broaden Limnalis evaluator — transport semantics, policy overrid
 ## Task Status
 | Task | Status | Scope |
 |------|--------|-------|
-| T1 eval_expr delegated leaf dispatch | DONE | runtime |
-| T2 synthesize_support + policy override | DONE | runtime |
-| T3 evaluate_adequacy_set expansion | DONE | runtime |
-| T4 compose_license | DONE | runtime |
-| T5 execute_transport | DONE | runtime |
-| T6 apply_resolution_policy metadata | DONE | runtime |
-| T7 EvaluationResult shaping | DONE | runtime |
-| T8 Conformance harness + CLI | DONE | core+conformance |
-| T9 Unit tests for primitives | DONE | tests |
-| T10 Corpus conformance execution | DONE | tests |
-| T11 Docs note | DONE | docs |
+| T1 Fix A2 unresolved frame | DONE | conformance |
+| T2 Fix A4 baseline validation | DONE | models+runtime |
+| T3 CLI evaluate + report commands | DONE | core |
+| T4 Schema validation hardening | DONE | conformance |
+| T5 Diagnostic contract enforcement | DONE | conformance+tests |
+| T6 Source-driven pipeline tests | DONE | tests |
+| T7 Stability/determinism tests | DONE | tests |
+| T8 Report artifact + status doc | DONE | core+docs |
 
 ## Active Delegation
-{none — milestone 3B complete}
+{none — milestone 3C complete}
 
 ## Pending Reviews
-{none}
+T3-T7 review in progress
 
 ## Invariants Touched
-RUNTIME-001 (phase count 12→13, compose_license added as phase 5)
+FIXTURE-001 (confirmed: corpus remains conformance authority; A4 validation moved to runtime to match corpus)
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->

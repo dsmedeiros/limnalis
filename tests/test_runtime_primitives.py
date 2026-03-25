@@ -2177,3 +2177,116 @@ class TestApplyResolutionPolicyMetadata:
         )
         assert result.provenance == ["adj_prov", "model_prov"]
         assert result.confidence == 0.99
+
+
+# ===================================================================
+# Tests: resolve_baseline
+# ===================================================================
+
+
+class TestResolveBaseline:
+    """Tests for the resolve_baseline primitive."""
+
+    @staticmethod
+    def _baseline_node(
+        id: str = "bl1",
+        kind: str = "point",
+        evaluation_mode: str = "fixed",
+    ):
+        """Create a minimal BaselineNode."""
+        from limnalis.models.ast import BaselineNode, CriterionRefNode
+        return BaselineNode(
+            id=id,
+            kind=kind,
+            criterion=CriterionRefNode(ref="some_ref"),
+            frame=_frame(),
+            evaluationMode=evaluation_mode,
+        )
+
+    @staticmethod
+    def _services_with_baselines(baselines):
+        """Build a services dict with a bundle containing given baselines."""
+        bundle = BundleNode(
+            id="bundle1",
+            frame=_frame(),
+            evaluators=[_evaluator()],
+            resolutionPolicy=_policy_single("ev1"),
+            claimBlocks=[_block([_pred_claim()])],
+            baselines=baselines,
+        )
+        return {"__bundle__": bundle}
+
+    def test_resolve_baseline_fixed_is_ready(self):
+        """kind=point, evaluationMode=fixed -> status=ready."""
+        from limnalis.runtime.builtins import resolve_baseline
+
+        bl = self._baseline_node(kind="point", evaluation_mode="fixed")
+        services = self._services_with_baselines([bl])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        _, ms_out, diags = resolve_baseline("bl1", step_ctx, ms, services)
+
+        assert ms_out.baseline_store["bl1"].status == "ready"
+        assert diags == []
+
+    def test_resolve_baseline_lazy_is_deferred(self):
+        """kind=point, evaluationMode=on_reference -> status=deferred."""
+        from limnalis.runtime.builtins import resolve_baseline
+
+        bl = self._baseline_node(kind="point", evaluation_mode="on_reference")
+        services = self._services_with_baselines([bl])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        _, ms_out, diags = resolve_baseline("bl1", step_ctx, ms, services)
+
+        assert ms_out.baseline_store["bl1"].status == "deferred"
+        assert diags == []
+
+    def test_resolve_baseline_moving_tracked_is_ready(self):
+        """kind=moving, evaluationMode=tracked -> status=ready."""
+        from limnalis.runtime.builtins import resolve_baseline
+
+        bl = self._baseline_node(kind="moving", evaluation_mode="tracked")
+        services = self._services_with_baselines([bl])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        _, ms_out, diags = resolve_baseline("bl1", step_ctx, ms, services)
+
+        assert ms_out.baseline_store["bl1"].status == "ready"
+        assert diags == []
+
+    def test_resolve_baseline_moving_invalid_is_unresolved(self):
+        """kind=moving, evaluationMode=fixed -> status=unresolved + baseline_mode_invalid diagnostic."""
+        from limnalis.runtime.builtins import resolve_baseline
+
+        bl = self._baseline_node(kind="moving", evaluation_mode="fixed")
+        services = self._services_with_baselines([bl])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        _, ms_out, diags = resolve_baseline("bl1", step_ctx, ms, services)
+
+        assert ms_out.baseline_store["bl1"].status == "unresolved"
+        assert len(diags) == 1
+        assert diags[0]["code"] == "baseline_mode_invalid"
+        assert diags[0]["subject"] == "bl1"
+        assert diags[0]["severity"] == "error"
+
+    def test_resolve_baseline_not_found_is_unresolved(self):
+        """Unknown baseline ID -> status=unresolved + baseline_not_found diagnostic."""
+        from limnalis.runtime.builtins import resolve_baseline
+
+        services = self._services_with_baselines([])
+        step_ctx = StepContext(effective_frame=_frame())
+        ms = MachineState()
+
+        _, ms_out, diags = resolve_baseline("nonexistent", step_ctx, ms, services)
+
+        assert ms_out.baseline_store["nonexistent"].status == "unresolved"
+        assert len(diags) == 1
+        assert diags[0]["code"] == "baseline_not_found"
+        assert diags[0]["subject"] == "nonexistent"
+        assert diags[0]["severity"] == "warning"

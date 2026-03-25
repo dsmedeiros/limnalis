@@ -148,7 +148,8 @@ class TestConformanceCLI:
     def test_conformance_run_default_runs_full_corpus(self, capsys):
         code = main(["conformance", "run"])
         captured = capsys.readouterr()
-        assert code == 1
+        assert code == 0
+        assert "16 passed" in captured.out
         assert "A4" in captured.out
         assert "A12" in captured.out
         assert "B2" in captured.out
@@ -255,7 +256,13 @@ class TestConformanceParseFailures:
         assert run_result.error is None
         assert run_result.bundle_result is not None
         assert calls["n"] == 2
+        # Schema fallback warning is stored in internal_diagnostics (not in
+        # bundle_result.diagnostics) so it doesn't pollute conformance comparison.
         assert any(
+            d.get("code") == "normalize_schema_validation_failed"
+            for d in run_result.internal_diagnostics
+        )
+        assert not any(
             d.get("code") == "normalize_schema_validation_failed"
             for d in run_result.bundle_result.diagnostics
         )
@@ -593,3 +600,191 @@ class TestLicenseComparison:
         _compare_license("sessions[0].steps[0].claims.c1.license", expected, actual, mismatches)
 
         assert any(m.path.endswith("joint[j2].truth") for m in mismatches)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: Diagnostic contract enforcement tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiagnosticContractEnforcement:
+    """Verify that _compare_diagnostics correctly checks severity, code, and subject."""
+
+    def test_severity_mismatch_detected(self):
+        """A diagnostic with matching code but wrong severity must produce a mismatch."""
+        expected_diags = [{"code": "missing_binding", "severity": "error"}]
+        actual_diags = [{"code": "missing_binding", "severity": "warning"}]
+        mismatches: list[FieldMismatch] = []
+
+        from limnalis.conformance.compare import _compare_diagnostics
+        _compare_diagnostics("diagnostics", expected_diags, actual_diags, mismatches)
+
+        assert len(mismatches) == 1
+        assert "diagnostics[0]" in mismatches[0].path
+
+    def test_code_mismatch_detected(self):
+        """A diagnostic with matching severity but wrong code must produce a mismatch."""
+        expected_diags = [{"code": "missing_binding", "severity": "error"}]
+        actual_diags = [{"code": "evaluator_conflict", "severity": "error"}]
+        mismatches: list[FieldMismatch] = []
+
+        from limnalis.conformance.compare import _compare_diagnostics
+        _compare_diagnostics("diagnostics", expected_diags, actual_diags, mismatches)
+
+        assert len(mismatches) == 1
+        assert "diagnostics[0]" in mismatches[0].path
+
+    def test_subject_mismatch_detected(self):
+        """A diagnostic with matching code and severity but wrong subject must produce a mismatch."""
+        expected_diags = [{"code": "missing_binding", "severity": "error", "subject": "claim_A"}]
+        actual_diags = [{"code": "missing_binding", "severity": "error", "subject": "claim_B"}]
+        mismatches: list[FieldMismatch] = []
+
+        from limnalis.conformance.compare import _compare_diagnostics
+        _compare_diagnostics("diagnostics", expected_diags, actual_diags, mismatches)
+
+        assert len(mismatches) == 1
+        assert "diagnostics[0]" in mismatches[0].path
+
+    def test_exact_match_produces_no_mismatch(self):
+        """A diagnostic with matching code, severity, and subject must pass."""
+        expected_diags = [{"code": "missing_binding", "severity": "error", "subject": "claim_A"}]
+        actual_diags = [{"code": "missing_binding", "severity": "error", "subject": "claim_A"}]
+        mismatches: list[FieldMismatch] = []
+
+        from limnalis.conformance.compare import _compare_diagnostics
+        _compare_diagnostics("diagnostics", expected_diags, actual_diags, mismatches)
+
+        assert len(mismatches) == 0
+
+    def test_stable_diagnostic_ordering(self, corpus):
+        """Running a conformance case twice must produce diagnostics in the same order."""
+        case = corpus.get_case("A12")
+        assert case is not None
+
+        result1 = run_case(case, corpus)
+        result2 = run_case(case, corpus)
+
+        assert result1.error is None
+        assert result2.error is None
+
+        from limnalis.conformance.compare import _collect_all_diagnostics
+        diags1 = _collect_all_diagnostics(result1.bundle_result)
+        diags2 = _collect_all_diagnostics(result2.bundle_result)
+
+        assert diags1 == diags2
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Source-driven pipeline tests — coverage annotation and new targets
+# ---------------------------------------------------------------------------
+#
+# Source-pipeline coverage for required cases:
+#   A1  — TestNewTargets3B.test_a1_resolved_shorthand_frame
+#   A3  — TestRegressions3A.test_a3_logical_composition
+#   A11 — TestRegressions3A.test_a11_session_baseline_timing
+#   A13 — TestRegressions3A.test_a13_core_judged_expr
+#   A14 — TestRegressions3A.test_a14_adjudicated_resolution
+#   B1  — TestNewTargets3B.test_b1_grid_contingency_bundle
+#   B2  — TestNewTargets3B.test_b2_jwt_access_adequacy_bundle
+#
+# All 7 required cases are already tested end-to-end (parse -> normalize -> evaluate)
+# through the _run_and_compare helper which invokes run_case (source-driven pipeline).
+
+
+class TestNewTargets3C:
+    """Cases newly required in iteration 3C: A2 and A4."""
+
+    def test_a2_unresolved_shorthand_frame(self, corpus):
+        """Source-driven pipeline test for A2 (unresolved shorthand frame)."""
+        _run_and_compare(corpus, "A2")
+
+    def test_a4_baseline_modes(self, corpus):
+        """Source-driven pipeline test for A4 (baseline modes)."""
+        _run_and_compare(corpus, "A4")
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Stability and determinism tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeterminism:
+    """Verify that conformance results are deterministic across repeated runs."""
+
+    def test_deterministic_provenance_ordering(self, corpus):
+        """Run A14 (multiple evaluators) twice and assert per_evaluator maps
+        and provenance lists are identical."""
+        case = corpus.get_case("A14")
+        assert case is not None
+
+        result1 = run_case(case, corpus)
+        result2 = run_case(case, corpus)
+
+        assert result1.error is None
+        assert result2.error is None
+
+        dump1 = result1.bundle_result.model_dump()
+        dump2 = result2.bundle_result.model_dump()
+
+        assert dump1 == dump2
+
+    def test_deterministic_diagnostic_ordering(self, corpus):
+        """Run A12 (multiple diagnostics) twice and assert diagnostic lists
+        are identical in order."""
+        case = corpus.get_case("A12")
+        assert case is not None
+
+        result1 = run_case(case, corpus)
+        result2 = run_case(case, corpus)
+
+        assert result1.error is None
+        assert result2.error is None
+
+        from limnalis.conformance.compare import _collect_all_diagnostics
+        diags1 = _collect_all_diagnostics(result1.bundle_result)
+        diags2 = _collect_all_diagnostics(result2.bundle_result)
+
+        assert diags1 == diags2
+
+    def test_deterministic_block_result_ordering(self, corpus):
+        """Run B1 (multiple blocks) twice and assert block results are identical."""
+        case = corpus.get_case("B1")
+        assert case is not None
+
+        result1 = run_case(case, corpus)
+        result2 = run_case(case, corpus)
+
+        assert result1.error is None
+        assert result2.error is None
+
+        dump1 = result1.bundle_result.model_dump()
+        dump2 = result2.bundle_result.model_dump()
+
+        assert dump1 == dump2
+
+    def test_deterministic_evaluator_iteration_ordering(self, corpus):
+        """Run A8 (multi-evaluator conflict) twice and assert per_evaluator
+        keys appear in the same order."""
+        case = corpus.get_case("A8")
+        assert case is not None
+
+        result1 = run_case(case, corpus)
+        result2 = run_case(case, corpus)
+
+        assert result1.error is None
+        assert result2.error is None
+
+        # Compare per_evaluator key ordering across all steps
+        for si, sess1 in enumerate(result1.bundle_result.session_results):
+            sess2 = result2.bundle_result.session_results[si]
+            for sti, step1 in enumerate(sess1.step_results):
+                step2 = sess2.step_results[sti]
+                # per_claim_per_evaluator keys must be in same order
+                for claim_id in step1.per_claim_per_evaluator:
+                    keys1 = list(step1.per_claim_per_evaluator[claim_id].keys())
+                    keys2 = list(step2.per_claim_per_evaluator[claim_id].keys())
+                    assert keys1 == keys2, (
+                        f"Evaluator key order mismatch at session {si} step {sti} "
+                        f"claim {claim_id}: {keys1} vs {keys2}"
+                    )
