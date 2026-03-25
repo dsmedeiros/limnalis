@@ -261,6 +261,34 @@ class TestBuildStepContext:
         assert isinstance(ctx.effective_frame, FramePatternNode)
         assert ctx.effective_frame.facets.system == "__unresolved__"
 
+    def test_partial_frame_gaps_emit_unresolved_diagnostic(self, monkeypatch):
+        bundle = _bundle()
+        session = SessionConfig(id="s1")
+        step = StepConfig(id="step1")
+        env = EvaluationEnvironment()
+
+        monkeypatch.setattr(
+            builtins_mod,
+            "_merge_frame_facets",
+            lambda *args, **kwargs: {
+                "system": "Grid",
+                "namespace": "Power",
+                "scale": None,
+                "task": None,
+                "regime": None,
+                "observer": None,
+                "version": None,
+            },
+        )
+
+        ctx = build_step_context(bundle, session, step, env)
+
+        unresolved = [d for d in ctx.diagnostics if d.get("code") == "frame_unresolved_for_evaluation"]
+        assert len(unresolved) == 1
+        assert unresolved[0].get("missing_facets") == ["scale", "task", "regime"]
+        assert isinstance(ctx.effective_frame, FramePatternNode)
+        assert ctx.effective_frame.facets.system == "Grid"
+
     def test_history_step_binding_overrides_env(self):
         """step.history_binding > env.history."""
         bundle = _bundle()

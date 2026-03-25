@@ -138,19 +138,22 @@ def build_step_context(
     # --- frame merge ---
     merged_facets = _merge_frame_facets(bundle.frame, session.base_frame, step.frame_override)
 
-    # Emit diagnostic if all merged facets are None (unresolved frame context).
-    if all(v is None for v in merged_facets.values()):
+    required_facets = ("system", "namespace", "scale", "task", "regime")
+    missing_required = [f for f in required_facets if merged_facets.get(f) is None]
+    if missing_required:
         diags.append({
             "severity": "error",
             "code": "frame_unresolved_for_evaluation",
             "step_id": step.id,
+            "missing_facets": missing_required,
             "message": (
-                "All frame facets are unresolved after merging bundle/session/step "
-                "frame inputs; evaluation context is unresolved."
+                "Required frame facets are unresolved after merging "
+                "bundle/session/step frame inputs."
             ),
         })
-        # Keep StepContext valid while clearly marking the frame as unresolved.
-        merged_facets["system"] = "__unresolved__"
+        if all(v is None for v in merged_facets.values()):
+            # Keep StepContext valid while clearly marking the frame as unresolved.
+            merged_facets["system"] = "__unresolved__"
 
     effective_frame = _facets_to_frame(merged_facets)
 

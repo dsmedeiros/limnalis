@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from types import SimpleNamespace
 
+import limnalis.conformance.runner as conformance_runner_mod
 from limnalis.cli import main
 from limnalis.conformance.compare import (
     FieldMismatch,
@@ -202,6 +203,54 @@ class TestConformanceParseFailures:
 
         comparison = compare_case(case, run_result)
         assert comparison.passed
+
+    def test_run_case_schema_validation_fallback_preserves_specific_diagnostic(
+        self, monkeypatch
+    ):
+        calls = {"n": 0}
+
+        fake_bundle = SimpleNamespace(
+            resolutionPolicy=SimpleNamespace(id="rp0", kind="single")
+        )
+
+        def fake_normalize(source, validate_schema=True):
+            calls["n"] += 1
+            if validate_schema:
+                raise ValueError("baseline-mode-invalid")
+            return SimpleNamespace(canonical_ast=fake_bundle)
+
+        monkeypatch.setattr(conformance_runner_mod, "normalize_surface_text", fake_normalize)
+        monkeypatch.setattr(conformance_runner_mod, "_build_sessions_from_case", lambda case: [])
+        monkeypatch.setattr(
+            conformance_runner_mod, "_extract_extra_resolution_policies",
+            lambda source, primary_policy_id: {},
+        )
+        monkeypatch.setattr(
+            conformance_runner_mod, "run_bundle",
+            lambda *args, **kwargs: SimpleNamespace(
+                bundle_id="X",
+                session_results=[],
+                diagnostics=[],
+            ),
+        )
+
+        case = SimpleNamespace(
+            id="X",
+            source="dummy source",
+            expected={},
+            environment={},
+            expected_sessions=lambda: [],
+        )
+
+        run_result = run_case(case, None)
+
+        assert run_result.error is None
+        assert run_result.bundle_result is not None
+        assert calls["n"] == 2
+        assert any(
+            d.get("code") == "normalize_schema_validation_failed"
+            for d in run_result.bundle_result.diagnostics
+        )
 
 
 class TestConformanceCountStrictness:

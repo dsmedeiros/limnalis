@@ -553,34 +553,49 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     Parses the fixture source into a BundleNode, builds fixture-backed
     eval_expr bindings from expected results, and runs the evaluator.
     """
+    pre_run_diags: list[dict[str, Any]] = []
+
     # Parse the surface source into an AST bundle
     try:
         norm_result = normalize_surface_text(case.source, validate_schema=True)
     except Exception as exc:
-        return CaseRunResult(
-            case_id=case.id,
-            bundle_result=BundleResult(
-                bundle_id=case.id,
-                session_results=[],
-                diagnostics=[{
-                    "severity": "error",
-                    "code": "parse_normalize_error",
-                    "message": str(exc),
-                }],
-            ),
-        )
+        try:
+            # Fallback path: allow execution without schema validation so fixtures
+            # expecting semantic/runtime diagnostics can still be compared.
+            norm_result = normalize_surface_text(case.source, validate_schema=False)
+            pre_run_diags.append({
+                "severity": "warning",
+                "code": "normalize_schema_validation_failed",
+                "message": str(exc),
+            })
+        except Exception as fallback_exc:
+            return CaseRunResult(
+                case_id=case.id,
+                bundle_result=BundleResult(
+                    bundle_id=case.id,
+                    session_results=[],
+                    diagnostics=[{
+                        "severity": "error",
+                        "code": "parse_normalize_error",
+                        "message": str(fallback_exc),
+                        "error_type": type(fallback_exc).__name__,
+                    }],
+                ),
+            )
 
     if norm_result.canonical_ast is None:
+        diags = list(pre_run_diags)
+        diags.append({
+            "severity": "error",
+            "code": "normalize_missing_ast",
+            "message": "Normalization produced no canonical AST",
+        })
         return CaseRunResult(
             case_id=case.id,
             bundle_result=BundleResult(
                 bundle_id=case.id,
                 session_results=[],
-                diagnostics=[{
-                    "severity": "error",
-                    "code": "normalize_missing_ast",
-                    "message": "Normalization produced no canonical AST",
-                }],
+                diagnostics=diags,
             ),
         )
 
@@ -678,7 +693,12 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     injected_diags = _build_injected_diagnostics(case)
     if injected_diags:
         from ..runtime.models import sort_diagnostics
-        result.diagnostics = sort_diagnostics(list(result.diagnostics) + injected_diags)
+        result.diagnostics = sort_diagnostics(
+            list(result.diagnostics) + pre_run_diags + injected_diags
+        )
+    elif pre_run_diags:
+        from ..runtime.models import sort_diagnostics
+        result.diagnostics = sort_diagnostics(list(result.diagnostics) + pre_run_diags)
 
     return CaseRunResult(
         case_id=case.id,
