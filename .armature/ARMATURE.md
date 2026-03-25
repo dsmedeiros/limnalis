@@ -60,7 +60,8 @@ project-root/
 │   ├── config.yaml                        ← Project metadata and topology
 │   ├── personas/
 │   │   ├── orchestrator.md                ← Orchestrator persona
-│   │   ├── reviewer.md                    ← Reviewer persona
+│   │   ├── reviewer.md                    ← Reviewer persona (compliance)
+│   │   ├── reviewer-redteam.md            ← Red team reviewer persona (adversarial)
 │   │   ├── planner.md                     ← Opt-in planner persona
 │   │   └── implementers/
 │   │       └── {component}.md             ← Per-component implementer personas
@@ -82,6 +83,7 @@ project-root/
 ├── .claude/
 │   ├── agents/
 │   │   ├── reviewer.md                    ← Claude Code subagent → .armature/personas/reviewer.md
+│   │   ├── reviewer-redteam.md            ← Claude Code subagent → .armature/personas/reviewer-redteam.md
 │   │   ├── planner.md                     ← Claude Code subagent → .armature/personas/planner.md
 │   │   └── {component}-impl.md            ← Claude Code subagent → .armature/personas/implementers/{component}.md
 │   └── commands/
@@ -263,13 +265,14 @@ invariants:
 
 ### 4.1 Overview
 
-Armature defines four agent personas organized by decision authority, not skill level:
+Armature defines five agent personas organized by decision authority, not skill level:
 
 | Persona | Authority | Scope | Writes Code? | Agent Level |
 |---|---|---|---|---|
 | Orchestrator | Planning, delegation, acceptance | Global | No | Main agent |
 | Implementer | Execution within declared scope | Per-component | Yes | Subagent |
 | Reviewer | Invariant compliance, veto | Global (read-only) | No | Subagent |
+| Red Team Reviewer | Adversarial engineering quality, veto | Global (read-only) | No | Subagent |
 | Planner | Step-by-step decomposition | Per-task (opt-in) | No | Subagent |
 
 The orchestrator runs as the main Claude Code agent (established by directive in CLAUDE.md). Implementers, reviewers, and planners are subagents spawned by the orchestrator. This keeps the hierarchy to two levels maximum — clean context boundaries, no nesting problems.
@@ -444,7 +447,37 @@ The reviewer is an independent compliance checker with veto authority. It:
 - Override its own verdict
 - Trigger rollback (it recommends; the orchestrator decides)
 
-### 4.5 Planner (Opt-In)
+### 4.5 Red Team Reviewer
+
+**File:** `.armature/personas/reviewer-redteam.md`
+**Claude Code subagent:** `.claude/agents/reviewer-redteam.md`
+
+The red team reviewer is an adversarial engineering quality checker with veto authority. It operates after the standard reviewer passes, taking an aggressive posture toward code changes to hunt for subtle bugs, silent regressions, semantic drift, edge-case failures, and breaking changes that pass compliance review.
+
+Where the standard reviewer checks governance compliance (invariants, scope boundaries, exceptions), the red team reviewer checks engineering correctness:
+
+- Reads every line of changed code (not just frontmatter and registries)
+- Traces data flow through inputs, dependencies, and consumers
+- Attacks test quality — looking for tautological tests, missing negative tests, and false greens
+- Stresses interfaces for schema/reality mismatches and forward/backward compatibility
+- Runs tests independently and feeds edge-case inputs to verify behavior
+- Produces a structured verdict at `.armature/reviews/{task-id}-redteam.md`
+
+**Verdict outcomes:** PASS, FAIL, or PASS_WITH_ADVISORIES. A FAIL blocks the commit even if the standard reviewer passed. PASS_WITH_ADVISORIES tracks non-blocking issues.
+
+**Severity calibration:**
+- CRITICAL: Silent wrong output, data corruption, security issue — always blocks
+- HIGH: Crash on valid input, regression, nondeterminism — blocks unless explicitly accepted
+- MEDIUM: Missing edge-case handling, test gap — tracked but does not block
+- LOW: Style, naming — never blocks
+
+**The red team reviewer must not:**
+- Write or modify application code
+- Write or modify governance files (except its verdict file)
+- Suggest implementation approaches (only identify what is wrong and why)
+- Override its own verdict
+
+### 4.6 Planner (Opt-In)
 
 **File:** `.armature/personas/planner.md`
 **Claude Code subagent:** `.claude/agents/planner.md`
@@ -466,7 +499,7 @@ The orchestrator decides when to invoke the planner based on task complexity. No
 ### 5.1 In-Session Pipeline (Agentic)
 
 ```
-Human ←→ Orchestrator → PRD → Taskmaster → [Planner?] → Implementer → Reviewer → Orchestrator
+Human ←→ Orchestrator → PRD → Taskmaster → [Planner?] → Implementer → Reviewer → [Red Team?] → Orchestrator
               ↑                                                                        ↓
               └──────────────────────── Accept / Reject / Escalate ────────────────────┘
 ```
@@ -520,9 +553,11 @@ The orchestrator decides which path to use. When in doubt, use the full pipeline
 12. Implementer executes, reports changeset
 13. Orchestrator spawns reviewer against the changeset
 14. Reviewer writes structured verdict to `.armature/reviews/{task-id}.md`
-15. Orchestrator evaluates:
-   - **PASS** → Commit with structured message, update Taskmaster, tag build candidate if milestone, write to journal if governance-relevant
-   - **FAIL** → Re-delegate to implementer with verdict file reference (max 3 cycles)
+15. On reviewer PASS, orchestrator optionally spawns red team reviewer for deeper adversarial analysis
+16. Red team reviewer writes verdict to `.armature/reviews/{task-id}-redteam.md` (if spawned)
+17. Orchestrator evaluates:
+   - **PASS** (both reviewers) → Commit with structured message, update Taskmaster, tag build candidate if milestone, write to journal if governance-relevant
+   - **FAIL** (either reviewer) → Re-delegate to implementer with verdict file reference (max 3 cycles)
    - **ESCALATE** → Write to `.armature/escalations/` and `.armature/journal.md`, surface to human
 
 ### 5.2 On-Stop Hooks (Mechanical)
