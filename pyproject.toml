@@ -4,13 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "limnalis"
-version = "0.1.0"
-description = "Reference Python scaffold for the Limnalis v0.2.2 parser/normalizer stack"
+version = "0.2.2rc1"
+description = "Limnalis v0.2.2 reference implementation — parser, normalizer, evaluator, and conformance harness"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary / internal draft" }
 authors = [
   { name = "OpenAI scaffold for Dave" }
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
 ]
 dependencies = [
   "pydantic>=2.12,<3",
@@ -25,9 +33,18 @@ dev = [
   "ruff>=0.11,<0.12",
   "mypy>=1.11,<2",
 ]
+test = [
+  "pytest>=8.3,<9",
+  "hypothesis>=6.100,<7",
+]
+docs = []
 
 [project.scripts]
 limnalis = "limnalis.cli:main"
+
+[project.urls]
+Repository = "https://github.com/dsmedeiros/limnal"
+Documentation = "https://github.com/dsmedeiros/limnal#readme"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -68,4 +85,3 @@ strict = false
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true
-

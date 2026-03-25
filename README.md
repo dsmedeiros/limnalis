@@ -1,139 +1,104 @@
-# Limnalis Python scaffold (Pydantic-first)
+# Limnalis v0.2.2 Reference Implementation
 
-This repo is the starter implementation scaffold for the **Limnalis v0.2.2** parser / normalizer
-workstream.
+Limnalis is a Python reference implementation for parsing authored Limnalis surface syntax (`.lmn` files) into permissive raw parse trees, normalizing them into canonical Pydantic-validated AST nodes, and validating against vendored JSON Schemas. The runtime layer provides execution scaffolding with primitive operations and a phase-ordered step runner.
 
-The AST/runtime layer is intentionally **Pydantic-first** rather than plain dataclasses.
-That gives you:
+**Package version:** 0.2.2rc1 | **Spec version:** v0.2.2
 
-- runtime validation via `BaseModel` and `model_validate`,
-- stable JSON serialization via `model_dump` / `model_dump_json`,
-- and model-emitted JSON Schema via `model_json_schema`, which keeps the design schema-first and
-  machine-readable. Pydantic v2 documentation also explicitly treats model validation,
-  serialization, and JSON Schema generation as first-class features.
+## Quickstart
 
-Current scope:
-
-- [x] Canonical AST classes as **Pydantic models**
-- [x] Vendored v0.2.2 schemas and fixture corpus
-- [x] JSON/YAML loaders
-- [x] JSON Schema validation helpers
-- [x] Parser / normalizer entry points and CLI stubs
-- [x] Surface-language parser implementation (Milestone 1 raw parse tree)
-- [x] AST normalizer implementation (Milestone 2 authored subset)
-- [x] Normalized AST schema validation against the vendored schema package (Milestone 3)
-- [ ] Evaluator implementation
-
-## Why Pydantic now?
-
-Moving the AST classes to Pydantic before parser work avoids a churny migration later. The parser,
-normalizer, schema-validation layer, and eventual evaluator can all share the same typed runtime
-objects and serialization path.
-
-It also keeps a clean path open for later schema-driven work. I am **not** claiming direct LinkML
-support here; the point is that the AST is now validated, serializable, and schema-emitting by
-construction.
-
-## Current normalized source coverage
-
-The authored-source pipeline now supports parsing, normalizing, and schema-validating the
-current authored subset exercised by the vendored fixture corpus.
-
-That coverage includes:
-
-- bundle ids and block ordering
-- `frame { ... }` blocks, shorthand `frame @System:Namespace::regime`, and inline facet patterns like `@{...}`
-- evaluator panels, explicit `resolution_policy` blocks, and synthetic single-evaluator defaulting
-- `baseline`, `evidence`, `evidence_relation`, `anchor`, `joint_adequacy`, `bridge`, `adequacy`, `assessment`, and `transport` blocks
-- `local`, `systemic`, and `meta` claim blocks with synthetic ids like `local#1`
-- claim metadata for `refs`, `uses`, `requires`, and `annotations`
-- claim expressions for atomic predicates, predicate calls, logical expressions, `judged_by`, `note`, `declare ... within ...`, causal `=>[...]`, and `EMRG ... --> ...` authored forms
-
-A few authored forms still normalize with explicit compatibility diagnostics because the canonical
-v0.2.2 bundle schema cannot represent them 1:1:
-
-- extra authored `resolution_policy` blocks beyond the single bundle-level `resolutionPolicy` slot are omitted from the canonical bundle and reported via `extra_resolution_policy_omitted`
-- surface `evaluator kind audit` is canonicalized to AST `kind="process"` and reported via `evaluator_kind_canonicalized`
-- authored `adequacy` / `assessment` blocks without ids receive synthetic ids and matching diagnostics
-
-Semantically invalid authored input still fails fast during normalization. The fixture corpus case
-`A4` remains the concrete example: `BaselineNode(kind="moving")` requires
-`evaluationMode="tracked"`.
-
-## Known vendored-schema issue
-
-The shipped `limnalis_ast_schema_v0.2.2.json` contains a `$ref` typo: some `time` fields point to
-`#/$defs/FixtureTimeSpec`, while the actual definition is `TimeCtxNode`.
-
-The repo keeps the upstream schema file intact, but the runtime loader in `limnalis.schema`
-includes an opt-in repair pass so schema validation works in practice.
-
-## Repo layout
-
-```text
-limnalis/
-  grammar/
-    limnalis.lark
-  src/limnalis/
-    __init__.py
-    __main__.py
-    cli.py
-    diagnostics.py
-    loader.py
-    normalizer.py
-    parser.py
-    schema.py
-    models/
-      __init__.py
-      ast.py
-      base.py
-      conformance.py
-  schemas/
-    limnalis_ast_schema_v0.2.2.json
-    limnalis_conformance_result_schema_v0.2.2.json
-    limnalis_fixture_corpus_schema_v0.2.2.json
-  fixtures/
-    limnalis_fixture_corpus_v0.2.2.yaml
-    limnalis_fixture_corpus_v0.2.2.json
-  tests/
-    ...
-```
-
-## Quick start
+### Installation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .[dev]
-python -m pytest
+# Standard install
+pip install .
+
+# Development install with test dependencies
+pip install -e ".[dev,test]"
 ```
 
-Normalize authored surface syntax into canonical AST JSON:
+### Quick usage
+
+Parse surface syntax into a raw parse tree:
+
+```bash
+limnalis parse examples/minimal_bundle.lmn
+```
+
+Normalize into canonical AST JSON:
 
 ```bash
 limnalis normalize examples/minimal_bundle.lmn
 ```
 
-Validate authored surface syntax end to end:
+Run the full evaluation pipeline:
 
 ```bash
-limnalis validate-source examples/minimal_bundle.lmn
+limnalis evaluate examples/minimal_bundle.lmn
 ```
 
-Validate the fixture corpus:
+Run conformance against the fixture corpus:
 
 ```bash
-limnalis validate-fixtures fixtures/limnalis_fixture_corpus_v0.2.2.json
+limnalis conformance run --all
 ```
 
-Validate a canonical AST JSON payload:
+### Public API
+
+```python
+from limnalis.api.normalizer import normalize_surface_file
+from limnalis.api.evaluator import run_bundle
+
+result = normalize_surface_file("examples/minimal_bundle.lmn")
+bundle = result.canonical_ast
+evaluation = run_bundle(bundle)
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `parse` | Parse a `.lmn` file and print the raw parse tree |
+| `normalize` | Normalize a `.lmn` file into canonical AST JSON |
+| `validate-source` | Parse, normalize, and schema-validate a `.lmn` file |
+| `validate-ast` | Validate a canonical AST JSON/YAML payload against the schema |
+| `validate-fixtures` | Validate a fixture corpus JSON/YAML file |
+| `evaluate` | Run the full evaluation pipeline and output JSON result |
+| `print-schema` | Print a vendored JSON Schema (`ast`, `fixture_corpus`, `conformance_result`) |
+| `conformance list` | List all available fixture cases |
+| `conformance show` | Show details for a fixture case |
+| `conformance run` | Run conformance cases and report pass/fail |
+| `conformance report` | Generate a conformance report (JSON or Markdown) |
+| `version` | Print version info as JSON |
+
+Global flags: `--version`, `--json` (on applicable commands), `--strict`, `--allowlist` (on conformance commands).
+
+## Design Principles
+
+The AST layer is **Pydantic-first**: all AST nodes inherit from `LimnalisModel` (a strict `BaseModel` with `extra='forbid'`), providing runtime validation, stable JSON serialization via `model_dump`, and model-emitted JSON Schema via `model_json_schema`.
+
+## Repo Layout
+
+```text
+limnalis/
+  grammar/limnalis.lark          # Lark grammar for surface syntax
+  src/limnalis/
+    api/                          # Stable public API surface
+    models/                       # Pydantic AST models
+    runtime/                      # 13-phase step runner and builtins
+    conformance/                  # Fixture-based conformance harness
+    parser.py, normalizer.py, loader.py, schema.py, cli.py, diagnostics.py
+  schemas/                        # Vendored JSON Schemas (v0.2.2)
+  fixtures/                       # Vendored fixture corpus (v0.2.2)
+  tests/                          # Unit, integration, property, and conformance tests
+  docs/                           # Architecture, ADRs, and status documents
+```
+
+## Running Tests
 
 ```bash
-limnalis validate-ast examples/minimal_bundle_ast.json
+python -m pytest tests/ -q
 ```
 
-## Next implementation milestones
+## Known Vendored-Schema Issue
 
-1. [x] wire gold cases A1, A3, A11, A14, B1, and B2 into snapshot tests
-2. [ ] implement the evaluator and conformance pipeline
-3. [ ] expose evaluator/conformance execution through the CLI
+The shipped `limnalis_ast_schema_v0.2.2.json` contains a `$ref` typo where some `time` fields point to `#/$defs/FixtureTimeSpec` instead of `TimeCtxNode`. The runtime loader in `limnalis.schema` includes an opt-in repair pass so schema validation works in practice.

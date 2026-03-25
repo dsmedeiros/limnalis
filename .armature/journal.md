@@ -33,3 +33,19 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Results:** 16/16 corpus cases PASS, 231 tests passing, schema validation active
 **Deliverables:** evaluate CLI, conformance report CLI, schema-validated outputs, diagnostic contract tests, determinism tests, status document at docs/milestone_3c_status.md
 **Approved by:** Orchestrator (pending reviewer verdict on T3-T7)
+
+## 2026-03-25 — Milestone 4: RC Hardening complete
+**Event:** Milestone completion
+**Milestone:** 4 — Release Candidate hardening, interface freeze, packaging, governance
+**Results:** 308 tests passing (up from 236), 16/16 conformance PASS (strict mode), package version 0.2.2rc1
+**Deliverables:**
+- Public API freeze: `limnalis.api.{parser, normalizer, evaluator, conformance}`
+- Version/manifest metadata: `limnalis.version`, CLI `--version` and `version` command
+- Packaging: pyproject.toml cleaned, extras (dev/test/docs), classifiers, URLs
+- CLI stabilization: consistent exit codes, `--json`, `--strict`, `--allowlist`, clean error handling
+- Conformance hardening: stable JSON/markdown reports, strict mode, deviation allowlist, version metadata
+- Hardening tests: 72 new tests (public API, determinism, property/Hypothesis, parser robustness, CLI, conformance reports)
+- Documentation: README quickstart, architecture.md, 4 ADRs, compatibility/deviation policy, RC status report
+**Reviews:** Standard reviewer PASS, Red team PASS_WITH_ADVISORIES (all advisories resolved)
+**Red team fixes:** S1 (SPEC_VERSION single-sourced), S2 (allowlist error-priority), S3 (test quality)
+**Approved by:** Orchestrator (reviewer + red team verdicts received)

@@ -59,12 +59,10 @@ def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys
     code = main(["validate-source", str(path)])
 
     captured = capsys.readouterr()
-    payload = json.loads(captured.out)
 
     assert code == 1
-    assert payload["status"] == "error"
-    assert payload["phase"] == "normalize"
-    assert payload["message"]
+    assert "error:" in captured.err
+    assert "normalization" in captured.err.lower() or "normalize" in captured.err.lower()
 
 
 def test_print_schema_cli_smoke(capsys) -> None:
@@ -74,3 +72,107 @@ def test_print_schema_cli_smoke(capsys) -> None:
 
     assert code == 0
     assert json.loads(captured.out)["title"] == "Limnalis v0.2.2 canonical AST schema"
+
+
+# ---------------------------------------------------------------------------
+# T8.3 – Additional CLI smoke tests
+# ---------------------------------------------------------------------------
+
+
+def test_version_command(capsys) -> None:
+    """Test 'limnalis version' prints version info as JSON."""
+    code = main(["version"])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    info = json.loads(captured.out)
+    assert "package" in info
+    assert "spec" in info
+
+
+def test_version_flag() -> None:
+    """Test 'limnalis --version' flag."""
+    import pytest as _pytest
+    with _pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    assert exc_info.value.code == 0
+
+
+def test_parse_invalid_file(tmp_path: Path, capsys) -> None:
+    """Test 'limnalis parse' with a non-existent file returns exit code 1."""
+    nonexistent = tmp_path / "nonexistent.lmn"
+    code = main(["parse", str(nonexistent)])
+    assert code == 1, f"Expected exit code 1 for missing file, got {code}"
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+
+
+def test_normalize_invalid_file(tmp_path: Path, capsys) -> None:
+    """Test 'limnalis normalize' with a non-existent file returns exit code 1."""
+    nonexistent = tmp_path / "nonexistent.lmn"
+    code = main(["normalize", str(nonexistent)])
+    assert code == 1, f"Expected exit code 1 for missing file, got {code}"
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+
+
+def test_evaluate_with_valid_fixture(capsys) -> None:
+    """Test 'limnalis evaluate' with a valid fixture file."""
+    code = main(["evaluate", str(ROOT / "examples" / "minimal_bundle.lmn")])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert "bundle_id" in payload or "session_results" in payload
+
+
+def test_conformance_list(capsys) -> None:
+    """Test 'limnalis conformance list' exits cleanly."""
+    code = main(["conformance", "list"])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    # Should list at least one case
+    assert len(captured.out.strip()) > 0
+
+
+def test_conformance_run_all(capsys) -> None:
+    """Test 'limnalis conformance run --all' exits cleanly."""
+    code = main(["conformance", "run", "--all"])
+
+    captured = capsys.readouterr()
+    # Should print results summary
+    assert "Results:" in captured.out
+    assert code == 0
+
+
+def test_conformance_run_all_strict(capsys) -> None:
+    """Test 'limnalis conformance run --all --strict' exits 0 when all cases pass."""
+    code = main(["conformance", "run", "--all", "--strict"])
+
+    captured = capsys.readouterr()
+    assert "Results:" in captured.out
+    assert code == 0
+
+
+def test_conformance_report_json(capsys) -> None:
+    """Test 'limnalis conformance report --format json' produces valid JSON."""
+    code = main(["conformance", "report", "--format", "json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    report = json.loads(captured.out)
+    assert "summary" in report
+    assert "cases" in report
+    assert report["summary"]["total"] > 0
+
+
+def test_conformance_report_markdown(capsys) -> None:
+    """Test 'limnalis conformance report --format markdown' produces output."""
+    code = main(["conformance", "report", "--format", "markdown"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "# Conformance Report" in captured.out
+    assert "## Summary" in captured.out
+    assert "## Results" in captured.out
