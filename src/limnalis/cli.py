@@ -7,7 +7,6 @@ from pathlib import Path
 
 from lark import UnexpectedInput
 
-from . import SPEC_VERSION
 from .version import PACKAGE_VERSION, get_version_info
 from .loader import load_ast_bundle, load_fixture_corpus, normalize_surface_file
 from .normalizer import NormalizationError
