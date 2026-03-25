@@ -31,7 +31,7 @@ You MUST NOT:
 ## Pipeline
 
 ```
-Conversation → PRD → Task Graph → Delegation → Review → Acceptance
+Conversation → PRD → Task Graph → Delegation → Review → [Red Team?] → Acceptance
 ```
 
 **Fast path (complexity ≤ 3):** For small, single-scope changes with clear intent, skip PRD/Taskmaster/planner:
@@ -119,3 +119,9 @@ Claude Code's Agent tool does not auto-load `.claude/agents/` files. You must ex
 4. Spawn via Agent tool with `subagent_type: "general-purpose"`
 
 **After every implementer completes, you MUST spawn the reviewer.** Do not commit without a reviewer verdict.
+
+**Optionally, after the standard reviewer passes, spawn the red team reviewer** (`.claude/agents/reviewer-redteam.md`) for deeper adversarial analysis. The red team reviewer hunts for logic errors, silent regressions, edge-case failures, and test gaps that compliance review misses. Its FAIL verdict blocks the commit even if the standard reviewer passed. Use the red team reviewer for:
+- Changes touching critical invariants (SCHEMA-001, MODEL-001, MODEL-002, NORM-001)
+- Cross-cutting or multi-file changes
+- Complex logic changes (normalizer, parser, runtime execution)
+- When the human requests deep review

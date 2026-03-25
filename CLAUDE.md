@@ -47,12 +47,13 @@ Full registry: `.armature/invariants/registry.yaml`
 
 ## Agent Workflow
 
-Pipeline: `Human ←→ Orchestrator → [Planner?] → Implementer → Reviewer → Accept/Reject/Escalate`
+Pipeline: `Human ←→ Orchestrator → [Planner?] → Implementer → Reviewer → [Red Team?] → Accept/Reject/Escalate`
 
 Personas (see `.armature/personas/`):
 - **Orchestrator** (you, main agent): plans, delegates, accepts
 - **Implementer** (subagent): executes within declared scope
 - **Reviewer** (subagent): checks invariant compliance, has veto
+- **Red Team Reviewer** (subagent, opt-in): adversarial engineering quality, has veto
 - **Planner** (subagent, opt-in): decomposes complex tasks
 
 Subagent definitions: `.claude/agents/`
