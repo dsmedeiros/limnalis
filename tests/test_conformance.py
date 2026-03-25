@@ -145,6 +145,14 @@ class TestConformanceCLI:
         assert "PASS" in captured.out
         assert "A5" in captured.out
 
+    def test_conformance_run_default_uses_supported_required_cases(self, capsys):
+        code = main(["conformance", "run"])
+        captured = capsys.readouterr()
+        assert code == 0
+        assert "A4" not in captured.out
+        assert "A12" in captured.out
+        assert "B2" in captured.out
+
 
 # ---------------------------------------------------------------------------
 # Intentional mismatch test
