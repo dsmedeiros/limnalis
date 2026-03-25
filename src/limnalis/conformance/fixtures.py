@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import SPEC_VERSION
 from ..schema import fixtures_dir, load_json_or_yaml
 
 
@@ -83,7 +84,7 @@ class FixtureCorpus:
 # Loading
 # ---------------------------------------------------------------------------
 
-_DEFAULT_CORPUS_FILENAME = "limnalis_fixture_corpus_v0.2.2.json"
+_DEFAULT_CORPUS_FILENAME = f"limnalis_fixture_corpus_{SPEC_VERSION}.json"
 
 
 def load_corpus(path: str | Path) -> FixtureCorpus:

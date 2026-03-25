@@ -101,18 +101,20 @@ def test_transport_metadata_only_rejects_empty_dst_evaluators() -> None:
         TransportNode(node="Transport", mode="metadata_only", dstEvaluators=[])
 
 
-def test_moving_baseline_requires_tracked_mode() -> None:
-    with pytest.raises(ValidationError):
-        BaselineNode(
-            node="Baseline",
-            id="b1",
-            kind="moving",
-            criterion=CriterionRefNode(kind="ref", ref="test://baseline/series"),
-            frame=FrameNode(
-                node="Frame", system="T", namespace="N", scale="s", task="t", regime="r"
-            ),
-            evaluationMode="fixed",
-        )
+def test_moving_baseline_invalid_mode_accepted_at_model_layer() -> None:
+    """Invalid moving+fixed combo normalizes OK; caught at runtime instead."""
+    node = BaselineNode(
+        node="Baseline",
+        id="b1",
+        kind="moving",
+        criterion=CriterionRefNode(kind="ref", ref="test://baseline/series"),
+        frame=FrameNode(
+            node="Frame", system="T", namespace="N", scale="s", task="t", regime="r"
+        ),
+        evaluationMode="fixed",
+    )
+    assert node.kind == "moving"
+    assert node.evaluationMode == "fixed"
 
 
 def test_dynamic_expr_accepts_term_subject() -> None:

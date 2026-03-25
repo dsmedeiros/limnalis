@@ -376,12 +376,6 @@ class BaselineNode(LimnalisModel):
     frame: FrameOrPatternNode
     evaluationMode: BaselineMode
 
-    @model_validator(mode="after")
-    def _moving_requires_tracked(self) -> "BaselineNode":
-        if self.kind == "moving" and self.evaluationMode != "tracked":
-            raise ValueError("moving baselines require evaluationMode='tracked'")
-        return self
-
 
 class EvidenceNode(LimnalisModel):
     node: Literal["Evidence"] = "Evidence"

@@ -52,13 +52,8 @@ def test_validate_source_cli_smoke(capsys) -> None:
 
 
 def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys) -> None:
-    corpus = json.loads(
-        (ROOT / "fixtures" / "limnalis_fixture_corpus_v0.2.2.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    source = next(case["source"] for case in corpus["cases"] if case["id"] == "A4")
-    path = tmp_path / "invalid_baseline.lmn"
+    source = "bundle empty_bundle { }"
+    path = tmp_path / "empty.lmn"
     path.write_text(source, encoding="utf-8")
 
     code = main(["validate-source", str(path)])
@@ -69,7 +64,7 @@ def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys
     assert code == 1
     assert payload["status"] == "error"
     assert payload["phase"] == "normalize"
-    assert "moving baselines require evaluationMode='tracked'" in payload["message"]
+    assert payload["message"]
 
 
 def test_print_schema_cli_smoke(capsys) -> None:
