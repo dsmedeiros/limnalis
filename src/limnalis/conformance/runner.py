@@ -157,21 +157,24 @@ def _build_conformance_result_payload(run_result: CaseRunResult) -> dict[str, An
             "steps": steps_payload if steps_payload else [{"id": "step0"}],
         })
 
-    # Collect all diagnostics
-    all_diags: list[dict[str, Any]] = []
-    for diag in bundle_result.diagnostics:
-        diag_entry: dict[str, Any] = {}
-        if isinstance(diag, dict):
-            if "severity" in diag:
-                diag_entry["severity"] = diag["severity"]
-            if "code" in diag:
-                diag_entry["code"] = diag["code"]
-            if "subject" in diag:
-                diag_entry["subject"] = diag["subject"]
-            if "message" in diag:
-                diag_entry["message"] = diag["message"]
-        if diag_entry.get("severity") and diag_entry.get("code"):
-            all_diags.append(diag_entry)
+    # Collect all diagnostics (bundle + session + step) without dropping malformed
+    # entries so schema validation can detect invalid diagnostic shapes.
+    all_diags: list[Any] = []
+
+    def _to_schema_diag(diag: Any) -> Any:
+        if not isinstance(diag, dict):
+            return diag
+        return {
+            key: diag[key]
+            for key in ("severity", "code", "subject", "message")
+            if key in diag
+        }
+
+    all_diags.extend(_to_schema_diag(diag) for diag in bundle_result.diagnostics)
+    for sess in bundle_result.session_results:
+        all_diags.extend(_to_schema_diag(diag) for diag in sess.diagnostics)
+        for step in sess.step_results:
+            all_diags.extend(_to_schema_diag(diag) for diag in step.diagnostics)
 
     payload: dict[str, Any] = {
         "sessions": sessions_payload,
