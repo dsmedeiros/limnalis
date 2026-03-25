@@ -80,12 +80,12 @@ All commands support `--version` (global) and `--json` (where applicable). Confo
 
 ## Test Coverage
 
-**308 tests total**, comprising:
+**309 tests total**, comprising:
 
 - Unit tests for parser, normalizer, models, schema validation, loader, diagnostics
 - Integration tests for the full source pipeline (parse, normalize, evaluate)
 - Conformance tests for all 16 fixture corpus cases
-- Property tests (Hypothesis) for parser and normalizer robustness
+- Property tests (Hypothesis) for four-valued logic lattice properties (commutativity, associativity, idempotency, annihilation, block fold order-independence)
 - Determinism tests verifying normalization and evaluation produce identical results across runs
 - Parser robustness tests for edge cases and malformed input
 
@@ -114,6 +114,6 @@ All release criteria are met:
 - Full corpus conformance (16/16 PASS)
 - Public API frozen and documented
 - CLI command set stable with consistent flags and exit codes
-- 308 tests passing (unit, integration, property, determinism, robustness)
+- 309 tests passing (unit, integration, property, determinism, robustness)
 - No known deviations from the v0.2.2 spec
 - Schema validation operational with known upstream typo repaired at runtime

@@ -53,11 +53,8 @@ class TestFourValuedLogicProperties:
 
     @given(a=truth_values_abbrev)
     def test_join_annihilator_B(self, a: str) -> None:
-        """B is the annihilator for JOIN: a JOIN B == B (except N JOIN B = B)."""
-        # B absorbs everything in the join lattice
-        assert _TRUTH_JOIN[(a, "B")] == "B" or a == "N"
-        # More precisely, the join of anything with B is B
-        # (N JOIN B = B per the table, and everything else JOIN B = B)
+        """B is the annihilator for JOIN: a JOIN B == B for all a."""
+        # B absorbs everything in the join lattice (including N JOIN B = B)
         assert _TRUTH_JOIN[(a, "B")] == "B"
 
     @given(a=truth_values_abbrev)
@@ -65,14 +62,15 @@ class TestFourValuedLogicProperties:
         """JOIN is idempotent: a JOIN a == a."""
         assert _TRUTH_JOIN[(a, a)] == a
 
-    @given(values=st.lists(truth_values_abbrev, min_size=1, max_size=10))
-    def test_aggregate_truth_commutative(self, values: list[str]) -> None:
+    @given(
+        values=st.lists(truth_values_abbrev, min_size=1, max_size=10),
+        rng=st.randoms(use_true_random=False),
+    )
+    def test_aggregate_truth_commutative(self, values: list[str], rng) -> None:
         """_aggregate_truth is order-independent (commutative fold)."""
-        import random
-
         result1 = _aggregate_truth(values)
         shuffled = values.copy()
-        random.shuffle(shuffled)
+        rng.shuffle(shuffled)
         result2 = _aggregate_truth(shuffled)
         assert result1 == result2
 
@@ -89,14 +87,15 @@ class TestFourValuedLogicProperties:
 class TestBlockFoldProperties:
     """Property tests for block fold truth aggregation."""
 
-    @given(values=st.lists(truth_values_abbrev, min_size=1, max_size=10))
-    def test_fold_block_truth_order_independent(self, values: list[str]) -> None:
+    @given(
+        values=st.lists(truth_values_abbrev, min_size=1, max_size=10),
+        rng=st.randoms(use_true_random=False),
+    )
+    def test_fold_block_truth_order_independent(self, values: list[str], rng) -> None:
         """Block fold truth is order-independent for the same set of values."""
-        import random
-
         result1 = _fold_block_truth(values)
         shuffled = values.copy()
-        random.shuffle(shuffled)
+        rng.shuffle(shuffled)
         result2 = _fold_block_truth(shuffled)
         assert result1 == result2
 

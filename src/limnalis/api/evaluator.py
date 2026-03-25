@@ -5,6 +5,11 @@ Imports from this module are supported across patch releases.
 
 from __future__ import annotations
 
+from ..runtime.models import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+)
 from ..runtime.runner import (
     BundleResult,
     EvaluationResult,
@@ -18,9 +23,12 @@ from ..runtime.runner import (
 
 __all__ = [
     "BundleResult",
+    "EvaluationEnvironment",
     "EvaluationResult",
     "PrimitiveSet",
+    "SessionConfig",
     "SessionResult",
+    "StepConfig",
     "StepResult",
     "run_bundle",
     "run_session",

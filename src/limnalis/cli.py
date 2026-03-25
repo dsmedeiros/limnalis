@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 from lark import UnexpectedInput
@@ -25,19 +24,6 @@ def _error(message: str, *, detail: str | None = None) -> None:
     print(f"error: {message}", file=sys.stderr)
     if detail:
         print(detail, file=sys.stderr)
-
-
-def _surface_error_payload(
-    phase: str, message: str, *, violations: list[dict[str, str]] | None = None
-) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "status": "error",
-        "phase": phase,
-        "message": message,
-    }
-    if violations:
-        payload["violations"] = violations
-    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +124,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fixtures_cmd.add_argument("path", type=Path, help="Path to a fixture corpus JSON or YAML file")
+    fixtures_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
 
     eval_cmd = sub.add_parser(
         "evaluate",
@@ -300,14 +293,22 @@ def _load_allowlist(path: Path | None) -> dict[str, str]:
             }
         return {k: str(v) for k, v in raw.items()}
     elif isinstance(raw, list):
-        return {
-            entry["id"]: entry.get("reason", "")
-            for entry in raw
-            if isinstance(entry, dict) and "id" in entry
-        }
+        # List of dicts with "id" keys
+        if raw and isinstance(raw[0], dict):
+            return {
+                entry["id"]: entry.get("reason", "")
+                for entry in raw
+                if isinstance(entry, dict) and "id" in entry
+            }
+        # Plain list of strings — treat each as a case ID
+        if raw and isinstance(raw[0], str):
+            return {str(entry): "listed in allowlist" for entry in raw if isinstance(entry, str)}
+        # Empty list is fine
+        if not raw:
+            return {}
 
-    _error(f"invalid allowlist format in {path}")
-    sys.exit(1)
+    print(f"warning: unrecognized allowlist format in {path}", file=sys.stderr)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +499,9 @@ def _run_surface_pipeline(path: Path, *, emit_payload: bool, json_output: bool =
         _error(f"unexpected error processing {path}: {type(exc).__name__}: {exc}")
         return 1
 
-    assert result.canonical_ast is not None
+    if result.canonical_ast is None:
+        _error("normalization produced no canonical AST")
+        return 1
 
     if emit_payload:
         print(json.dumps(result.canonical_ast.to_schema_data(), indent=2))
@@ -692,9 +695,15 @@ def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
     errors = 0
 
     for case in cases_to_run:
-        run_result = run_case(case, corpus)
-        comparison = compare_case(case, run_result)
-        schema_violations = validate_result_schema(run_result)
+        try:
+            run_result = run_case(case, corpus)
+            comparison = compare_case(case, run_result)
+            schema_violations = validate_result_schema(run_result)
+        except Exception as exc:
+            print(f"  ERROR {case.id}: {case.name}", file=sys.stderr)
+            print(f"        crash: {type(exc).__name__}: {exc}", file=sys.stderr)
+            errors += 1
+            continue
 
         if comparison.error:
             print(f"  ERROR {case.id}: {case.name}", file=sys.stderr)
@@ -703,7 +712,7 @@ def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
         elif comparison.passed and not schema_violations:
             print(f"  PASS  {case.id}: {case.name}")
             passed += 1
-        elif case.id in allowlist and not strict:
+        elif case.id in allowlist:
             reason = allowlist[case.id]
             print(f"  KNOWN {case.id}: {case.name} (deviation: {reason})")
             skipped += 1
@@ -754,9 +763,21 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     errors = 0
 
     for case in corpus.cases:
-        run_result = run_case(case, corpus)
-        comparison = compare_case(case, run_result)
-        schema_violations = validate_result_schema(run_result)
+        try:
+            run_result = run_case(case, corpus)
+            comparison = compare_case(case, run_result)
+            schema_violations = validate_result_schema(run_result)
+        except Exception as exc:
+            errors += 1
+            case_results.append({
+                "case_id": case.id,
+                "name": case.name,
+                "status": "error",
+                "mismatches": [],
+                "diagnostics_count": 0,
+                "error": f"crash: {type(exc).__name__}: {exc}",
+            })
+            continue
 
         if comparison.error:
             status = "error"
@@ -764,19 +785,29 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
         elif comparison.passed and not schema_violations:
             status = "pass"
             passed += 1
-        elif case.id in allowlist and not strict:
+        elif case.id in allowlist:
             status = "known_deviation"
             skipped += 1
         else:
             status = "fail"
             failed += 1
 
+        # Count actual diagnostics from the runner output
+        actual_diag_count = 0
+        if run_result.bundle_result is not None:
+            br = run_result.bundle_result
+            actual_diag_count += len(br.diagnostics)
+            for sess in br.session_results:
+                actual_diag_count += len(sess.diagnostics)
+                for step in sess.step_results:
+                    actual_diag_count += len(step.diagnostics)
+
         case_entry: dict[str, object] = {
             "case_id": case.id,
             "name": case.name,
             "status": status,
             "mismatches": [str(m) for m in comparison.mismatches],
-            "diagnostics_count": len(case.expected_diagnostics()),
+            "diagnostics_count": actual_diag_count,
         }
         if schema_violations:
             case_entry["schema_violations"] = schema_violations

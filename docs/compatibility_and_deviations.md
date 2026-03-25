@@ -74,3 +74,15 @@ Deprecated public API functions or classes will:
 ### Internal APIs
 
 Internal module paths (`limnalis.normalizer`, `limnalis.runtime.runner`, etc.) are not subject to deprecation policy. They may change without notice between any releases. Consumers should use `limnalis.api.*` exclusively.
+
+## Known Limitations of the Conformance Harness
+
+### Extra-diagnostic blindness (non-blocking)
+
+**Severity:** non-blocking
+**Status:** accepted
+**Milestone:** deferred to post-v0.2.2
+
+The conformance comparator does not flag unexpected additional diagnostics when at least one expected diagnostic matches. This means a regression that introduces spurious error diagnostics may go undetected in cases with existing expected diagnostics.
+
+This is a design gap in the comparator's matching strategy, not a correctness bug in the implementation. The current comparator checks that every expected diagnostic is present in the actual output, but does not verify that no extra diagnostics were emitted. A future milestone should tighten the comparator to optionally enforce an exact-match mode for diagnostics.

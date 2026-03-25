@@ -63,8 +63,9 @@ class TestApiAllExports:
                 "normalize_surface_file", "normalize_surface_text",
             ]),
             ("limnalis.api.evaluator", [
-                "BundleResult", "EvaluationResult", "PrimitiveSet",
-                "SessionResult", "StepResult", "run_bundle", "run_session", "run_step",
+                "BundleResult", "EvaluationEnvironment", "EvaluationResult",
+                "PrimitiveSet", "SessionConfig", "SessionResult", "StepConfig",
+                "StepResult", "run_bundle", "run_session", "run_step",
             ]),
             ("limnalis.api.conformance", [
                 "FixtureCase", "compare_case", "load_corpus",
@@ -109,7 +110,7 @@ class TestMinimalPublicApiUsage:
     def test_evaluate_via_public_api(self) -> None:
         from limnalis.api.evaluator import run_bundle, BundleResult
         from limnalis.api.normalizer import normalize_surface_file
-        from limnalis.runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
+        from limnalis.api.evaluator import EvaluationEnvironment, SessionConfig, StepConfig
 
         minimal_lmn = ROOT / "examples" / "minimal_bundle.lmn"
         result = normalize_surface_file(minimal_lmn, validate_schema=True)
@@ -159,3 +160,21 @@ class TestVersionMetadata:
 
         info = get_version_info()
         assert limnalis.__version__ == info["package"]
+
+    def test_version_matches_pyproject_toml(self) -> None:
+        """Verify limnalis.__version__ matches the version declared in pyproject.toml."""
+        import tomllib
+
+        import limnalis
+
+        pyproject_path = ROOT / "pyproject.toml"
+        assert pyproject_path.exists(), f"pyproject.toml not found at {pyproject_path}"
+
+        with open(pyproject_path, "rb") as f:
+            pyproject = tomllib.load(f)
+
+        toml_version = pyproject["project"]["version"]
+        assert limnalis.__version__ == toml_version, (
+            f"Version mismatch: limnalis.__version__={limnalis.__version__!r} "
+            f"!= pyproject.toml version={toml_version!r}"
+        )
