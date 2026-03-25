@@ -268,18 +268,11 @@ def _load_allowlist(path: Path | None) -> dict[str, str]:
     """Load a deviation allowlist from a JSON/YAML file.
 
     Returns a dict mapping case_id -> reason.
-    Raises SystemExit on error (file not found, parse error).
+    Raises on file/parse errors so command handlers can return exit codes.
     """
     if path is None:
         return {}
-    try:
-        raw = load_json_or_yaml(path)
-    except FileNotFoundError:
-        _error(f"allowlist file not found: {path}")
-        sys.exit(1)
-    except Exception as exc:
-        _error(f"failed to parse allowlist: {path}", detail=str(exc))
-        sys.exit(1)
+    raw = load_json_or_yaml(path)
 
     if isinstance(raw, dict):
         # Accept both {case_id: reason} and {"deviations": [{id, reason}]}
@@ -669,7 +662,15 @@ def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
     from .conformance.runner import run_case, validate_result_schema
 
     strict = getattr(args, "strict", False)
-    allowlist = _load_allowlist(getattr(args, "allowlist", None))
+    allowlist_path = getattr(args, "allowlist", None)
+    try:
+        allowlist = _load_allowlist(allowlist_path)
+    except FileNotFoundError:
+        _error(f"allowlist file not found: {allowlist_path}")
+        return 1
+    except Exception as exc:
+        _error(f"failed to parse allowlist: {allowlist_path}", detail=str(exc))
+        return 1
 
     case_ids: list[str] | None = None
     if args.cases:
@@ -751,7 +752,15 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     from .conformance.runner import run_case, validate_result_schema
 
     strict = getattr(args, "strict", False)
-    allowlist = _load_allowlist(getattr(args, "allowlist", None))
+    allowlist_path = getattr(args, "allowlist", None)
+    try:
+        allowlist = _load_allowlist(allowlist_path)
+    except FileNotFoundError:
+        _error(f"allowlist file not found: {allowlist_path}")
+        return 1
+    except Exception as exc:
+        _error(f"failed to parse allowlist: {allowlist_path}", detail=str(exc))
+        return 1
     version_info = get_version_info()
 
     case_results: list[dict[str, object]] = []
@@ -820,6 +829,11 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     if args.format == "json":
         report = {
             "version": version_info,
+            # Backward-compatible top-level counters.
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "errors": errors,
             "summary": {
                 "total": total,
                 "passed": passed,

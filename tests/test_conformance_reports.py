@@ -40,6 +40,10 @@ class TestConformanceReportJson:
         report = json.loads(captured.out)
         # Expected top-level keys
         assert "version" in report
+        assert "total" in report
+        assert "passed" in report
+        assert "failed" in report
+        assert "errors" in report
         assert "summary" in report
         assert "cases" in report
 

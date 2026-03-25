@@ -176,3 +176,13 @@ def test_conformance_report_markdown(capsys) -> None:
     assert "# Conformance Report" in captured.out
     assert "## Summary" in captured.out
     assert "## Results" in captured.out
+
+
+def test_conformance_allowlist_missing_returns_error_code(capsys, tmp_path) -> None:
+    """Test allowlist load errors return code 1 (no SystemExit from main)."""
+    missing_path = tmp_path / "missing_allowlist.json"
+    code = main(["conformance", "run", "--allowlist", str(missing_path)])
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "allowlist file not found" in captured.err
