@@ -46,11 +46,18 @@ limnalis conformance run --all
 
 ```python
 from limnalis.api.normalizer import normalize_surface_file
-from limnalis.api.evaluator import run_bundle
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
 
 result = normalize_surface_file("examples/minimal_bundle.lmn")
 bundle = result.canonical_ast
-evaluation = run_bundle(bundle)
+sessions = [SessionConfig(id="default", steps=[StepConfig(id="step0")])]
+env = EvaluationEnvironment()
+evaluation = run_bundle(bundle, sessions, env)
 ```
 
 ## CLI Commands
