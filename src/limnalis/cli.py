@@ -2,66 +2,207 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
+import sys
 from pathlib import Path
 
 from lark import UnexpectedInput
 
-from . import SPEC_VERSION
+from .version import PACKAGE_VERSION, get_version_info
 from .loader import load_ast_bundle, load_fixture_corpus, normalize_surface_file
 from .normalizer import NormalizationError
 from .schema import SchemaValidationError, load_json_or_yaml, load_schema
 
 
+# ---------------------------------------------------------------------------
+# Error helpers
+# ---------------------------------------------------------------------------
+
+
+def _error(message: str, *, detail: str | None = None) -> None:
+    """Print an error message to stderr."""
+    print(f"error: {message}", file=sys.stderr)
+    if detail:
+        print(detail, file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Parser construction
+# ---------------------------------------------------------------------------
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="limnalis", description="Limnalis tooling scaffold")
+    parser = argparse.ArgumentParser(
+        prog="limnalis",
+        description="Limnalis surface-syntax toolchain: parse, normalize, validate, and evaluate .lmn files.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"limnalis {PACKAGE_VERSION}"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    parse_cmd = sub.add_parser("parse", help="Parse Limnalis surface source (raw parse tree only)")
-    parse_cmd.add_argument("path", type=Path)
+    sub.add_parser(
+        "version",
+        help="Print version info as JSON",
+        description="Print package, spec, schema, and corpus version metadata as JSON.",
+    )
+
+    parse_cmd = sub.add_parser(
+        "parse",
+        help="Parse a .lmn file and print the raw parse tree",
+        description=(
+            "Parse Limnalis surface source into a raw Lark parse tree.\n\n"
+            "Example: limnalis parse examples/minimal_bundle.lmn"
+        ),
+    )
+    parse_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
+    parse_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output parse tree as JSON instead of pretty-printed text",
+    )
 
     normalize_cmd = sub.add_parser(
-        "normalize", help="Normalize Limnalis surface source into canonical AST JSON"
+        "normalize",
+        help="Normalize a .lmn file into canonical AST JSON",
+        description=(
+            "Parse and normalize Limnalis surface source into canonical AST JSON.\n\n"
+            "Example: limnalis normalize examples/minimal_bundle.lmn"
+        ),
     )
-    normalize_cmd.add_argument("path", type=Path)
+    normalize_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
+    normalize_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
 
     validate_source_cmd = sub.add_parser(
         "validate-source",
-        help="Parse, normalize, and schema-validate Limnalis surface source",
+        help="Parse, normalize, and schema-validate a .lmn file",
+        description=(
+            "Full validation pipeline: parse, normalize, and schema-validate surface source.\n\n"
+            "Example: limnalis validate-source examples/minimal_bundle.lmn"
+        ),
     )
-    validate_source_cmd.add_argument("path", type=Path)
+    validate_source_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
+    validate_source_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
 
-    ast_cmd = sub.add_parser("validate-ast", help="Validate a canonical AST JSON/YAML payload")
-    ast_cmd.add_argument("path", type=Path)
+    ast_cmd = sub.add_parser(
+        "validate-ast",
+        help="Validate a canonical AST JSON/YAML payload against the schema",
+        description=(
+            "Load and validate a canonical AST JSON or YAML file against the vendored schema.\n\n"
+            "Example: limnalis validate-ast examples/minimal_bundle_ast.json"
+        ),
+    )
+    ast_cmd.add_argument("path", type=Path, help="Path to a canonical AST JSON or YAML file")
+    ast_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output a compact machine-readable status JSON instead of the full bundle payload",
+    )
 
-    fixtures_cmd = sub.add_parser("validate-fixtures", help="Validate the fixture corpus JSON/YAML")
-    fixtures_cmd.add_argument("path", type=Path)
+    fixtures_cmd = sub.add_parser(
+        "validate-fixtures",
+        help="Validate a fixture corpus JSON/YAML file",
+        description=(
+            "Load and validate a fixture corpus file against the vendored schema.\n\n"
+            "Example: limnalis validate-fixtures fixtures/limnalis_fixture_corpus_v0.2.2.json"
+        ),
+    )
+    fixtures_cmd.add_argument("path", type=Path, help="Path to a fixture corpus JSON or YAML file")
+    fixtures_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
 
-    # Evaluate command
     eval_cmd = sub.add_parser(
-        "evaluate", help="Run full evaluation pipeline and output JSON result"
+        "evaluate",
+        help="Run the full evaluation pipeline and output JSON result",
+        description=(
+            "Parse, normalize, and evaluate a Limnalis bundle, producing a JSON evaluation result.\n\n"
+            "Example: limnalis evaluate examples/minimal_bundle.lmn\n"
+            "         limnalis evaluate --normalized examples/minimal_bundle_ast.json"
+        ),
     )
-    eval_cmd.add_argument("path", type=Path)
+    eval_cmd.add_argument("path", type=Path, help="Path to a .lmn file or normalized AST JSON/YAML")
     eval_cmd.add_argument(
         "--normalized",
         action="store_true",
         default=False,
         help="Treat input as normalized AST JSON/YAML instead of surface source",
     )
+    eval_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
 
-    schema_cmd = sub.add_parser("print-schema", help="Print a vendored schema")
-    schema_cmd.add_argument("name", choices=["ast", "fixture_corpus", "conformance_result"])
+    schema_cmd = sub.add_parser(
+        "print-schema",
+        help="Print a vendored JSON Schema",
+        description=(
+            "Print one of the vendored Limnalis JSON Schemas to stdout.\n\n"
+            "Example: limnalis print-schema ast"
+        ),
+    )
+    schema_cmd.add_argument(
+        "name",
+        choices=["ast", "fixture_corpus", "conformance_result"],
+        help="Schema to print: ast, fixture_corpus, or conformance_result",
+    )
 
     # Conformance subcommands
-    conf_cmd = sub.add_parser("conformance", help="Conformance harness commands")
+    conf_cmd = sub.add_parser(
+        "conformance",
+        help="Conformance harness commands",
+        description="Run, inspect, and report on conformance fixture cases.",
+    )
     conf_sub = conf_cmd.add_subparsers(dest="conf_command", required=True)
 
-    conf_list = conf_sub.add_parser("list", help="List all available fixture cases")
+    conf_sub.add_parser(
+        "list",
+        help="List all available fixture cases",
+        description="List all fixture cases from the default conformance corpus.",
+    )
 
-    conf_show = conf_sub.add_parser("show", help="Show details for a fixture case")
+    conf_show = conf_sub.add_parser(
+        "show",
+        help="Show details for a fixture case",
+        description=(
+            "Show detailed information about a specific fixture case.\n\n"
+            "Example: limnalis conformance show A1"
+        ),
+    )
     conf_show.add_argument("case_id", type=str, help="Case ID (e.g. A1, B2)")
 
-    conf_run = conf_sub.add_parser("run", help="Run conformance cases and report pass/fail")
+    conf_run = conf_sub.add_parser(
+        "run",
+        help="Run conformance cases and report pass/fail",
+        description=(
+            "Execute conformance cases and print pass/fail results.\n\n"
+            "Example: limnalis conformance run\n"
+            "         limnalis conformance run --cases A1,A2\n"
+            "         limnalis conformance run --strict"
+        ),
+    )
     conf_run.add_argument(
         "--cases",
         type=str,
@@ -74,51 +215,127 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Run all cases (default behavior, accepted for explicitness)",
     )
+    conf_run.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Fail (exit 1) if ANY case fails, even if covered by allowlist",
+    )
+    conf_run.add_argument(
+        "--allowlist",
+        type=Path,
+        default=None,
+        help="Path to a JSON/YAML file listing known deviation case IDs with reasons",
+    )
 
-    conf_report = conf_sub.add_parser("report", help="Generate a conformance report")
+    conf_report = conf_sub.add_parser(
+        "report",
+        help="Generate a conformance report",
+        description=(
+            "Generate a full conformance report in JSON or Markdown format.\n\n"
+            "Example: limnalis conformance report --format json\n"
+            "         limnalis conformance report --format markdown"
+        ),
+    )
     conf_report.add_argument(
         "--format",
         choices=["json", "markdown"],
         default="json",
         help="Output format (default: json)",
     )
+    conf_report.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Fail (exit 1) if ANY case fails, even if covered by allowlist",
+    )
+    conf_report.add_argument(
+        "--allowlist",
+        type=Path,
+        default=None,
+        help="Path to a JSON/YAML file listing known deviation case IDs with reasons",
+    )
 
     return parser
+
+
+# ---------------------------------------------------------------------------
+# Allowlist loading
+# ---------------------------------------------------------------------------
+
+
+def _load_allowlist(path: Path | None) -> dict[str, str]:
+    """Load a deviation allowlist from a JSON/YAML file.
+
+    Returns a dict mapping case_id -> reason.
+    Raises on file/parse errors so command handlers can return exit codes.
+    """
+    if path is None:
+        return {}
+    raw = load_json_or_yaml(path)
+
+    if isinstance(raw, dict):
+        # Accept both {case_id: reason} and {"deviations": [{id, reason}]}
+        deviations = raw.get("deviations")
+        if isinstance(deviations, list):
+            return {
+                entry["id"]: entry.get("reason", "")
+                for entry in deviations
+                if isinstance(entry, dict) and "id" in entry
+            }
+        return {k: str(v) for k, v in raw.items()}
+    elif isinstance(raw, list):
+        # List of dicts with "id" keys
+        if raw and isinstance(raw[0], dict):
+            return {
+                entry["id"]: entry.get("reason", "")
+                for entry in raw
+                if isinstance(entry, dict) and "id" in entry
+            }
+        # Plain list of strings — treat each as a case ID
+        if raw and isinstance(raw[0], str):
+            return {str(entry): "listed in allowlist" for entry in raw if isinstance(entry, str)}
+        # Empty list is fine
+        if not raw:
+            return {}
+
+    print(f"warning: unrecognized allowlist format in {path}", file=sys.stderr)
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "parse":
-        from .parser import LimnalisParser
-
-        tree = LimnalisParser().parse_file(args.path)
-        print(tree.pretty())
+    if args.command == "version":
+        print(json.dumps(get_version_info(), indent=2))
         return 0
+
+    if args.command == "parse":
+        return _cmd_parse(args)
 
     if args.command == "normalize":
-        return _run_surface_pipeline(args.path, emit_payload=True)
+        return _run_surface_pipeline(args.path, emit_payload=True, json_output=getattr(args, "json_output", False))
 
     if args.command == "validate-source":
-        return _run_surface_pipeline(args.path, emit_payload=False)
+        return _run_surface_pipeline(args.path, emit_payload=False, json_output=getattr(args, "json_output", False))
 
     if args.command == "validate-ast":
-        bundle = load_ast_bundle(args.path)
-        print(bundle.model_dump_json(indent=2, exclude_none=True))
-        return 0
+        return _cmd_validate_ast(args)
 
     if args.command == "validate-fixtures":
-        corpus = load_fixture_corpus(args.path)
-        print(json.dumps({"status": "ok", "version": corpus.get("version")}, indent=2))
-        return 0
+        return _cmd_validate_fixtures(args)
 
     if args.command == "evaluate":
         return _run_evaluate(args)
 
     if args.command == "print-schema":
-        print(json.dumps(load_schema(args.name), indent=2))
-        return 0
+        return _cmd_print_schema(args)
 
     if args.command == "conformance":
         return _run_conformance(args)
@@ -127,29 +344,160 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _run_surface_pipeline(path: Path, *, emit_payload: bool) -> int:
+# ---------------------------------------------------------------------------
+# Command: parse
+# ---------------------------------------------------------------------------
+
+
+def _cmd_parse(args: argparse.Namespace) -> int:
+    """Parse a .lmn file and print the raw parse tree."""
+    from .parser import LimnalisParser
+
     try:
-        result = normalize_surface_file(path, validate_schema=True)
+        tree = LimnalisParser().parse_file(args.path)
+    except FileNotFoundError:
+        _error(f"file not found: {args.path}")
+        return 1
     except UnexpectedInput as exc:
-        print(json.dumps(_surface_error_payload("parse", str(exc)), indent=2))
+        _error(f"parse error in {args.path}", detail=str(exc))
         return 1
-    except NormalizationError as exc:
-        print(json.dumps(_surface_error_payload("normalize", str(exc)), indent=2))
-        return 1
-    except SchemaValidationError as exc:
-        print(
-            json.dumps(
-                _surface_error_payload(
-                    "schema",
-                    str(exc),
-                    violations=[asdict(violation) for violation in exc.violations],
-                ),
-                indent=2,
-            )
-        )
+    except Exception as exc:
+        _error(f"unexpected error parsing {args.path}: {type(exc).__name__}: {exc}")
         return 1
 
-    assert result.canonical_ast is not None
+    if getattr(args, "json_output", False):
+        # Serialize the tree to a JSON-compatible structure
+        def _tree_to_dict(node):  # type: ignore[no-untyped-def]
+            if hasattr(node, "data"):
+                return {
+                    "type": str(node.data),
+                    "children": [_tree_to_dict(c) for c in node.children],
+                }
+            return str(node)
+
+        print(json.dumps(_tree_to_dict(tree), indent=2))
+    else:
+        print(tree.pretty())
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: validate-ast
+# ---------------------------------------------------------------------------
+
+
+def _cmd_validate_ast(args: argparse.Namespace) -> int:
+    """Validate a canonical AST JSON/YAML payload."""
+    try:
+        bundle = load_ast_bundle(args.path)
+    except FileNotFoundError:
+        _error(f"file not found: {args.path}")
+        return 1
+    except Exception as exc:
+        if isinstance(exc, json.JSONDecodeError):
+            _error(f"invalid JSON in {args.path}", detail=str(exc))
+        elif isinstance(exc, SchemaValidationError):
+            _error(
+                f"schema validation failed for {args.path}",
+                detail="\n".join(
+                    f"  {v.path}: {v.message}" for v in exc.violations
+                ),
+            )
+        else:
+            _error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
+        return 1
+
+    if getattr(args, "json_output", False):
+        print(json.dumps({"status": "ok", "bundle": bundle.id}, indent=2))
+    else:
+        print(bundle.model_dump_json(indent=2, exclude_none=True))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: validate-fixtures
+# ---------------------------------------------------------------------------
+
+
+def _cmd_validate_fixtures(args: argparse.Namespace) -> int:
+    """Validate a fixture corpus JSON/YAML file."""
+    try:
+        corpus = load_fixture_corpus(args.path)
+    except FileNotFoundError:
+        _error(f"file not found: {args.path}")
+        return 1
+    except Exception as exc:
+        if isinstance(exc, json.JSONDecodeError):
+            _error(f"invalid JSON in {args.path}", detail=str(exc))
+        elif isinstance(exc, SchemaValidationError):
+            _error(
+                f"schema validation failed for {args.path}",
+                detail="\n".join(
+                    f"  {v.path}: {v.message}" for v in exc.violations
+                ),
+            )
+        else:
+            _error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
+        return 1
+
+    print(json.dumps({"status": "ok", "version": corpus.get("version")}, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: print-schema
+# ---------------------------------------------------------------------------
+
+
+def _cmd_print_schema(args: argparse.Namespace) -> int:
+    """Print a vendored schema."""
+    try:
+        print(json.dumps(load_schema(args.name), indent=2))
+    except FileNotFoundError:
+        _error(f"schema not found: {args.name}")
+        return 1
+    except Exception as exc:
+        _error(f"failed to load schema {args.name}: {type(exc).__name__}: {exc}")
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Pipeline: normalize / validate-source
+# ---------------------------------------------------------------------------
+
+
+def _run_surface_pipeline(path: Path, *, emit_payload: bool, json_output: bool = False) -> int:
+    def _emit_error(message: str, *, detail: str | None = None) -> int:
+        if json_output:
+            payload: dict[str, str] = {"status": "error", "error": message}
+            if detail:
+                payload["detail"] = detail
+            print(json.dumps(payload, indent=2))
+        else:
+            _error(message, detail=detail)
+        return 1
+
+    try:
+        result = normalize_surface_file(path, validate_schema=True)
+    except FileNotFoundError:
+        return _emit_error(f"file not found: {path}")
+    except UnexpectedInput as exc:
+        return _emit_error(f"parse error in {path}", detail=str(exc))
+    except NormalizationError as exc:
+        return _emit_error(f"normalization error in {path}", detail=str(exc))
+    except SchemaValidationError as exc:
+        return _emit_error(
+            f"schema validation failed for {path}",
+            detail="\n".join(
+                f"  {v.path}: {v.message}" for v in exc.violations
+            ),
+        )
+    except Exception as exc:
+        return _emit_error(f"unexpected error processing {path}: {type(exc).__name__}: {exc}")
+
+    if result.canonical_ast is None:
+        return _emit_error("normalization produced no canonical AST")
 
     if emit_payload:
         print(json.dumps(result.canonical_ast.to_schema_data(), indent=2))
@@ -167,17 +515,9 @@ def _run_surface_pipeline(path: Path, *, emit_payload: bool) -> int:
     return 0
 
 
-def _surface_error_payload(
-    phase: str, message: str, *, violations: list[dict[str, str]] | None = None
-) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "status": "error",
-        "phase": phase,
-        "message": message,
-    }
-    if violations:
-        payload["violations"] = violations
-    return payload
+# ---------------------------------------------------------------------------
+# Command: evaluate
+# ---------------------------------------------------------------------------
 
 
 def _run_evaluate(args: argparse.Namespace) -> int:
@@ -185,48 +525,43 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     from .runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
     from .runtime.runner import run_bundle
 
+    json_output = getattr(args, "json_output", False)
+
+    def _emit_error(message: str, *, detail: str | None = None) -> int:
+        if json_output:
+            payload: dict[str, str] = {"status": "error", "error": message}
+            if detail:
+                payload["detail"] = detail
+            print(json.dumps(payload, indent=2))
+        else:
+            _error(message, detail=detail)
+        return 1
+
     try:
         if args.normalized:
-            # Load pre-normalized AST JSON/YAML
             bundle = load_ast_bundle(args.path)
         else:
-            # Surface source: parse and normalize
             result = normalize_surface_file(args.path, validate_schema=True)
             if result.canonical_ast is None:
-                print(
-                    json.dumps(
-                        _surface_error_payload("normalize", "Normalization produced no canonical AST"),
-                        indent=2,
-                    )
-                )
-                return 1
+                return _emit_error("normalization produced no canonical AST")
             bundle = result.canonical_ast
+    except FileNotFoundError:
+        return _emit_error(f"file not found: {args.path}")
     except UnexpectedInput as exc:
-        print(json.dumps(_surface_error_payload("parse", str(exc)), indent=2))
-        return 1
+        return _emit_error(f"parse error in {args.path}", detail=str(exc))
     except NormalizationError as exc:
-        print(json.dumps(_surface_error_payload("normalize", str(exc)), indent=2))
-        return 1
+        return _emit_error(f"normalization error in {args.path}", detail=str(exc))
     except SchemaValidationError as exc:
-        print(
-            json.dumps(
-                _surface_error_payload(
-                    "schema",
-                    str(exc),
-                    violations=[asdict(violation) for violation in exc.violations],
-                ),
-                indent=2,
-            )
+        return _emit_error(
+            f"schema validation failed for {args.path}",
+            detail="\n".join(
+                f"  {v.path}: {v.message}" for v in exc.violations
+            ),
         )
-        return 1
+    except json.JSONDecodeError as exc:
+        return _emit_error(f"invalid JSON in {args.path}", detail=str(exc))
     except Exception as exc:
-        print(
-            json.dumps(
-                _surface_error_payload("load", str(exc)),
-                indent=2,
-            )
-        )
-        return 1
+        return _emit_error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
 
     # Run evaluation with a single default session
     sessions = [SessionConfig(id="default", steps=[StepConfig(id="step0")])]
@@ -235,16 +570,15 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     try:
         eval_result = run_bundle(bundle, sessions, env)
     except Exception as exc:
-        print(
-            json.dumps(
-                _surface_error_payload("evaluate", str(exc)),
-                indent=2,
-            )
-        )
-        return 1
+        return _emit_error(f"evaluation failed: {type(exc).__name__}: {exc}")
 
     print(eval_result.model_dump_json(indent=2, exclude_none=True))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: conformance
+# ---------------------------------------------------------------------------
 
 
 def _run_conformance(args: argparse.Namespace) -> int:
@@ -252,7 +586,14 @@ def _run_conformance(args: argparse.Namespace) -> int:
     from .conformance.fixtures import load_corpus_from_default
     from .conformance.runner import run_case
 
-    corpus = load_corpus_from_default()
+    try:
+        corpus = load_corpus_from_default()
+    except FileNotFoundError as exc:
+        _error("conformance fixture corpus not found", detail=str(exc))
+        return 1
+    except Exception as exc:
+        _error(f"failed to load conformance corpus: {type(exc).__name__}: {exc}")
+        return 1
 
     if args.conf_command == "list":
         for case in corpus.cases:
@@ -262,8 +603,10 @@ def _run_conformance(args: argparse.Namespace) -> int:
     if args.conf_command == "show":
         case = corpus.get_case(args.case_id)
         if case is None:
-            print(f"Case not found: {args.case_id}")
-            print(f"Available cases: {', '.join(corpus.case_ids())}")
+            _error(
+                f"case not found: {args.case_id}",
+                detail=f"Available cases: {', '.join(corpus.case_ids())}",
+            )
             return 1
         print(f"Case: {case.id}")
         print(f"Name: {case.name}")
@@ -311,58 +654,104 @@ def _run_conformance(args: argparse.Namespace) -> int:
         return _run_conformance_report(args, corpus)
 
     if args.conf_command == "run":
-        from .conformance.runner import validate_result_schema
-
-        case_ids: list[str] | None = None
-        if args.cases:
-            case_ids = [c.strip() for c in args.cases.split(",")]
-            # Validate case IDs
-            unknown = [c for c in case_ids if corpus.get_case(c) is None]
-            if unknown:
-                print(f"Unknown case(s): {', '.join(unknown)}")
-                print(f"Available cases: {', '.join(corpus.case_ids())}")
-                return 1
-
-        if case_ids:
-            cases_to_run = [corpus.get_case(cid) for cid in case_ids]
-        else:
-            cases_to_run = corpus.cases
-
-        total = len(cases_to_run)
-        passed = 0
-        failed = 0
-        errors = 0
-
-        for case in cases_to_run:
-            run_result = run_case(case, corpus)
-            comparison = compare_case(case, run_result)
-
-            # Schema validation of the result
-            schema_violations = validate_result_schema(run_result)
-
-            if comparison.passed and not schema_violations:
-                print(f"  PASS  {case.id}: {case.name}")
-                passed += 1
-            elif comparison.error:
-                print(f"  ERROR {case.id}: {case.name}")
-                print(f"        {comparison.error}")
-                errors += 1
-            else:
-                print(f"  FAIL  {case.id}: {case.name}")
-                for m in comparison.mismatches:
-                    print(f"        {m}")
-                if schema_violations:
-                    print(f"        Schema violations:")
-                    for v in schema_violations:
-                        print(f"          {v['path']}: {v['message']}")
-                failed += 1
-
-        print()
-        print(f"Results: {passed} passed, {failed} failed, {errors} errors out of {total} cases")
-
-        return 0 if (failed == 0 and errors == 0) else 1
+        return _run_conformance_run(args, corpus)
 
     return 2
+
+
+# ---------------------------------------------------------------------------
+# Conformance: run
+# ---------------------------------------------------------------------------
+
+
+def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
+    """Run conformance cases and report pass/fail."""
+    from .conformance.compare import compare_case
+    from .conformance.runner import run_case, validate_result_schema
+
+    strict = getattr(args, "strict", False)
+    allowlist_path = getattr(args, "allowlist", None)
+    try:
+        allowlist = _load_allowlist(allowlist_path)
+    except FileNotFoundError:
+        _error(f"allowlist file not found: {allowlist_path}")
+        return 1
+    except Exception as exc:
+        _error(f"failed to parse allowlist: {allowlist_path}", detail=str(exc))
+        return 1
+
+    case_ids: list[str] | None = None
+    if args.cases:
+        case_ids = [c.strip() for c in args.cases.split(",")]
+        unknown = [c for c in case_ids if corpus.get_case(c) is None]
+        if unknown:
+            _error(
+                f"unknown case(s): {', '.join(unknown)}",
+                detail=f"Available cases: {', '.join(corpus.case_ids())}",
+            )
+            return 1
+
+    if case_ids:
+        cases_to_run = [corpus.get_case(cid) for cid in case_ids]
+    else:
+        cases_to_run = corpus.cases
+
+    total = len(cases_to_run)
+    passed = 0
+    failed = 0
+    skipped = 0
+    errors = 0
+
+    for case in cases_to_run:
+        try:
+            run_result = run_case(case, corpus)
+            comparison = compare_case(case, run_result)
+            schema_violations = validate_result_schema(run_result)
+        except Exception as exc:
+            print(f"  ERROR {case.id}: {case.name}", file=sys.stderr)
+            print(f"        crash: {type(exc).__name__}: {exc}", file=sys.stderr)
+            errors += 1
+            continue
+
+        if comparison.error:
+            print(f"  ERROR {case.id}: {case.name}", file=sys.stderr)
+            print(f"        {comparison.error}", file=sys.stderr)
+            errors += 1
+        elif comparison.passed and not schema_violations:
+            print(f"  PASS  {case.id}: {case.name}")
+            passed += 1
+        elif case.id in allowlist:
+            reason = allowlist[case.id]
+            print(f"  KNOWN {case.id}: {case.name} (deviation: {reason})")
+            skipped += 1
+        else:
+            print(f"  FAIL  {case.id}: {case.name}")
+            for m in comparison.mismatches:
+                print(f"        {m}")
+            if schema_violations:
+                print(f"        Schema violations:")
+                for v in schema_violations:
+                    print(f"          {v['path']}: {v['message']}")
+            failed += 1
+
+    print()
+    summary_parts = [
+        f"{passed} passed",
+        f"{failed} failed",
+    ]
+    if skipped:
+        summary_parts.append(f"{skipped} known deviations")
+    summary_parts.append(f"{errors} errors out of {total} cases")
+    print(f"Results: {', '.join(summary_parts)}")
+
+    if strict:
+        return 0 if (failed == 0 and errors == 0 and skipped == 0) else 1
+    return 0 if (failed == 0 and errors == 0) else 1
+
+
+# ---------------------------------------------------------------------------
+# Conformance: report
+# ---------------------------------------------------------------------------
 
 
 def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
@@ -370,18 +759,41 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     from .conformance.compare import compare_case
     from .conformance.runner import run_case, validate_result_schema
 
+    strict = getattr(args, "strict", False)
+    allowlist_path = getattr(args, "allowlist", None)
+    try:
+        allowlist = _load_allowlist(allowlist_path)
+    except FileNotFoundError:
+        _error(f"allowlist file not found: {allowlist_path}")
+        return 1
+    except Exception as exc:
+        _error(f"failed to parse allowlist: {allowlist_path}", detail=str(exc))
+        return 1
+    version_info = get_version_info()
+
     case_results: list[dict[str, object]] = []
     total = len(corpus.cases)
     passed = 0
     failed = 0
+    skipped = 0
     errors = 0
 
     for case in corpus.cases:
-        run_result = run_case(case, corpus)
-        comparison = compare_case(case, run_result)
-
-        # Schema validation of the result
-        schema_violations = validate_result_schema(run_result)
+        try:
+            run_result = run_case(case, corpus)
+            comparison = compare_case(case, run_result)
+            schema_violations = validate_result_schema(run_result)
+        except Exception as exc:
+            errors += 1
+            case_results.append({
+                "case_id": case.id,
+                "name": case.name,
+                "status": "error",
+                "mismatches": [],
+                "diagnostics_count": 0,
+                "error": f"crash: {type(exc).__name__}: {exc}",
+            })
+            continue
 
         if comparison.error:
             status = "error"
@@ -389,58 +801,135 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
         elif comparison.passed and not schema_violations:
             status = "pass"
             passed += 1
+        elif case.id in allowlist:
+            status = "known_deviation"
+            skipped += 1
         else:
             status = "fail"
             failed += 1
 
+        # Count actual diagnostics from the runner output
+        actual_diag_count = 0
+        if run_result.bundle_result is not None:
+            br = run_result.bundle_result
+            actual_diag_count += len(br.diagnostics)
+            for sess in br.session_results:
+                actual_diag_count += len(sess.diagnostics)
+                for step in sess.step_results:
+                    actual_diag_count += len(step.diagnostics)
+
         case_entry: dict[str, object] = {
-            "id": case.id,
+            "case_id": case.id,
             "name": case.name,
             "status": status,
             "mismatches": [str(m) for m in comparison.mismatches],
-            "diagnostics_count": len(case.expected_diagnostics()),
+            "diagnostics_count": actual_diag_count,
         }
         if schema_violations:
             case_entry["schema_violations"] = schema_violations
         if comparison.error:
             case_entry["error"] = comparison.error
+        if status == "known_deviation":
+            case_entry["deviation_reason"] = allowlist.get(case.id, "")
 
         case_results.append(case_entry)
 
     if args.format == "json":
+        legacy_failed = failed + skipped
         report = {
-            "version": SPEC_VERSION,
+            "version": version_info,
+            # Backward-compatible top-level counters.
             "total": total,
             "passed": passed,
-            "failed": failed,
+            "failed": legacy_failed,
             "errors": errors,
+            "summary": {
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "skipped": skipped,
+                "errors": errors,
+            },
             "cases": case_results,
         }
         print(json.dumps(report, indent=2))
     elif args.format == "markdown":
-        print(f"# Conformance Report ({SPEC_VERSION})")
+        print(f"# Conformance Report")
         print()
-        print(f"**Total:** {total} | **Passed:** {passed} | **Failed:** {failed} | **Errors:** {errors}")
+        print(f"**Implementation:** limnalis {version_info['package']}")
+        print(f"**Spec:** {version_info['spec']} | **Schema:** {version_info['schema']} | **Corpus:** {version_info['corpus']}")
+        print()
+        print(f"## Summary")
+        print()
+        print(f"| Metric | Count |")
+        print(f"|--------|-------|")
+        print(f"| Total  | {total} |")
+        print(f"| Passed | {passed} |")
+        print(f"| Failed | {failed} |")
+        if skipped:
+            print(f"| Known Deviations | {skipped} |")
+        print(f"| Errors | {errors} |")
+        print()
+        print(f"## Results")
         print()
         print("| Case | Name | Status | Mismatches | Diagnostics |")
         print("|------|------|--------|------------|-------------|")
         for entry in case_results:
             mismatch_count = len(entry["mismatches"])
             print(
-                f"| {entry['id']} | {entry['name']} | {entry['status']} "
+                f"| {entry['case_id']} | {entry['name']} | {entry['status']} "
                 f"| {mismatch_count} | {entry['diagnostics_count']} |"
             )
-        # Show schema violations if any
-        has_schema_issues = any("schema_violations" in e for e in case_results)
+
+        # Show failures detail
+        has_failures = any(e["status"] == "fail" for e in case_results)
+        if has_failures:
+            print()
+            print("## Failures")
+            print()
+            for entry in case_results:
+                if entry["status"] != "fail":
+                    continue
+                print(f"### {entry['case_id']}: {entry['name']}")
+                for m in entry["mismatches"]:
+                    print(f"- {m}")
+                violations = entry.get("schema_violations", [])
+                if violations:
+                    print()
+                    print("**Schema Violations:**")
+                    for v in violations:
+                        print(f"- `{v['path']}`: {v['message']}")
+                print()
+
+        # Show known deviations
+        has_deviations = any(e["status"] == "known_deviation" for e in case_results)
+        if has_deviations:
+            print()
+            print("## Known Deviations")
+            print()
+            print("| Case | Name | Reason |")
+            print("|------|------|--------|")
+            for entry in case_results:
+                if entry["status"] != "known_deviation":
+                    continue
+                reason = entry.get("deviation_reason", "")
+                print(f"| {entry['case_id']} | {entry['name']} | {reason} |")
+
+        # Show schema violations
+        has_schema_issues = any("schema_violations" in e for e in case_results if e["status"] != "fail")
         if has_schema_issues:
             print()
             print("## Schema Violations")
             print()
             for entry in case_results:
+                if entry["status"] == "fail":
+                    continue  # already shown above
                 violations = entry.get("schema_violations", [])
                 if violations:
-                    print(f"### {entry['id']}: {entry['name']}")
+                    print(f"### {entry['case_id']}: {entry['name']}")
                     for v in violations:
                         print(f"- `{v['path']}`: {v['message']}")
 
+    if strict:
+        return 0 if (failed == 0 and errors == 0 and skipped == 0) else 1
     return 0 if (failed == 0 and errors == 0) else 1
