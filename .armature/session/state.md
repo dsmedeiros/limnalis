@@ -1,47 +1,44 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 5: Defect remediation — resolve verified issues from deep code review
+Milestone 5b: Red team advisory remediation — LOW fixes + dedicated tests
 
 ## Build Candidate
 {pending}
 
-## Task Status — Milestone 4 (complete)
-| Task | Status | Scope | Wave |
-|------|--------|-------|------|
-| T1–T12 | ALL DONE | various | W1–W4 |
+## Task Status — Milestone 5 (complete)
+D1–D10, F1 all DONE. 5-domain red team review complete.
 
-## Task Status — Milestone 5 (active)
+## Task Status — Milestone 5b (complete)
 | Task | Status | Scope | Group |
 |------|--------|-------|-------|
-| D1 M4: determinism fix (sorted reasons) | DONE | runtime | G1 |
-| D2 M5: fix misleading docstring (7 stubs) | DONE | runtime | G1 |
-| D3 M1: extra-diagnostic blindness | DONE | core | G5 |
-| D4 M2: one-directional evaluator comparison | DONE | core | G5 |
-| D5 M3: explicit operator precedence | DONE | core | G2 |
-| D6 L1: remove dead code (cli return 2) | DONE | core | G2 |
-| D7 L2: remove unused UniqueStringListModel | DONE | models | G3 |
-| D8 L3: fix silent exception skipping in tests | DONE | tests | G4 |
-| D9 L4: strengthen parser robustness assertions | DONE | tests | G4 |
-| D10 L5: strengthen markdown validation tests | DONE | tests | G4 |
+| R1 Remove unused field_validator import | DONE | models | G6 |
+| R2 Remove unused imports in runner.py F1 | DONE | core | G7 |
+| R3 Fix inconsistent path format in D4 | DONE | core | G7 |
+| R4 Fix inaccurate "none expected" message | DONE | core | G7 |
+| R5 Dedicated unit tests for D3/D4/F1 | DONE | tests | G8 |
+| R6 Operator precedence enforcement tests | DONE | tests | G8 |
 
 ## Active Delegation
 {none — all tasks complete}
 
 ## Pending Reviews
-Red team reviewer (M5 batch): PASS_WITH_ADVISORIES (3 non-blocking)
-Red team reviewer (D3/D4/F1): PASS_WITH_ADVISORIES (3 non-blocking)
+Red team reviewer (M5b): PASS (2 LOW advisories addressed in follow-up)
+Red team reviewer (advisory fixes): PASS_WITH_ADVISORIES (all issues resolved or pre-existing)
 
 ## Invariants Touched
-NORM-001 (determinism — D1, D5 strengthen enforcement)
+NORM-001 (R6 adds enforcement test for operator precedence)
+FIXTURE-001 (R5 adds dedicated unit tests for comparison logic)
 
 ## Test Results
-313 tests passing, 16/16 conformance cases PASS (strict mode)
+343 tests passing (up from 313), 16/16 conformance PASS
 
-## Reviewer Advisories (non-blocking)
-1. (LOW) Unused `field_validator` import in base.py exposed by D7
-2. (MEDIUM) No test enforces operator precedence order in normalizer
-3. (LOW) `assert tested > 0` guards in test_determinism.py are permissive
+## Advisory Sources
+- RT1 (runtime): PASS — 0 advisories to address
+- RT2 (conformance): R2, R3 from advisories A2, A3
+- RT3 (normalizer+models): R1, R6 from advisories A1, A2
+- RT4 (tests): no tasks (MEDIUM threshold/dead assertions deferred)
+- RT5 (integration): R4 from advisory A3
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->

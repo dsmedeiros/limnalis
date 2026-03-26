@@ -77,3 +77,21 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Results:** 313 tests passing, 16/16 conformance PASS (A1 and A2 both correct), all 10/10 defects now resolved
 **Reviews:** Red team PASS_WITH_ADVISORIES (3 non-blocking: unused imports in runner.py, block-level comparison blindness in _compare_block, no dedicated unit tests for D3/D4/F1)
 **Approved by:** Orchestrator (red team verdict received)
+
+## 2026-03-26 — Milestone 5b: Red team advisory remediation
+**Event:** Advisory remediation batch
+**Scope:** 5-domain red team review produced 9 deduplicated advisories (5 MEDIUM, 4 LOW). User requested all LOW fixes + dedicated unit tests + operator precedence enforcement tests.
+**Tasks resolved:**
+- R1: Removed unused `field_validator` import in models/base.py (LOW, RT3/RT5)
+- R2: Removed 4 unused imports in conformance/runner.py F1 block (LOW, RT2/RT5)
+- R3: Fixed inconsistent bracket→dot path notation in compare.py D4 FieldMismatch (LOW, RT2)
+- R4: Fixed inaccurate "none expected" → "not expected" message in compare.py D3 (LOW, RT5)
+- R5: Added 10 dedicated unit tests for D3 (extra-diagnostic), D4 (reverse evaluator), F1 (frame completion) in test_conformance_comparison.py (MEDIUM, RT2/RT5)
+- R6: Added 20 operator precedence enforcement tests covering all 4 operators + full first-match-wins transitivity chain (AND>IFF>IMPLIES>OR) in test_operator_precedence.py (MEDIUM, RT3)
+**Results:** 343 tests passing (up from 313), 16/16 conformance PASS
+**Reviews:** Red team PASS, then PASS_WITH_ADVISORIES (tautological assertion removed, missing IFF>IMPLIES test added, AND>IMPLIES and AND>OR tests confirmed present)
+**Remaining advisories (deferred):**
+- (MEDIUM) `_compare_block` missing reverse evaluator check — same D4 gap, low current risk
+- (MEDIUM) D8 threshold too permissive + not applied to test_full_pipeline_determinism
+- (MEDIUM) D9 assertions unreachable for deeply nested/long parser inputs
+**Approved by:** Orchestrator (reviewer verdicts received)

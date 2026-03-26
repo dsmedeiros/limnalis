@@ -762,8 +762,7 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     if frame_resolver is not None:
         completion_data = frame_resolver.get("bundle_frame_completion")
         if completion_data is not None:
-            from ..models.ast import FacetValueMap, FrameNode, FramePatternNode
-            from ..runtime.builtins import _merge_frame_facets, _facets_to_frame, _frame_facets
+            from ..runtime.builtins import _facets_to_frame, _frame_facets
 
             # Get existing facets from the bundle frame
             existing_facets = _frame_facets(bundle.frame)

@@ -122,7 +122,7 @@ def _compare_claim(
         extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
         for ev_id in sorted(extra_evs):
             mismatches.append(
-                FieldMismatch(f"{path}.per_evaluator[{ev_id}]", "not expected", actual_per_ev[ev_id])
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
             )
 
     # aggregate comparison
@@ -510,7 +510,7 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
             for i, extra in enumerate(unmatched_diags):
                 if extra.get("severity") in {"error", "fatal"}:
                     mismatches.append(
-                        FieldMismatch(f"diagnostics[{i}]", "none expected", extra)
+                        FieldMismatch(f"diagnostics[{i}]", "not expected", extra)
                     )
 
     # Compare baseline_states if specified
