@@ -68,3 +68,12 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 - D4: One-directional evaluator comparison — same FIXTURE-001 risk. Deferred with D3.
 **Reviews:** Red team PASS_WITH_ADVISORIES (3 non-blocking: unused import, no precedence test, permissive test guard)
 **Approved by:** Orchestrator (red team verdict received)
+
+## 2026-03-26 — Milestone 5 addendum: D3/D4/F1 coordinated fix
+**Event:** Deferred tasks resolved
+**Tasks:** D3 (extra-diagnostic blindness), D4 (one-directional evaluator comparison), F1 (frame completion in conformance runner)
+**Root cause:** Conformance runner injected `frame_pattern_completed` diagnostic but never actually completed the frame using fixture environment's `frame_resolver.bundle_frame_completion` data. Runtime correctly flagged missing scale/task facets. Old comparison logic hid the mismatch.
+**Fix:** F1 implements frame completion from fixture environment before running the case. D3 removes the `not expected_diags` guard on extra-diagnostic checks. D4 adds reverse evaluator check.
+**Results:** 313 tests passing, 16/16 conformance PASS (A1 and A2 both correct), all 10/10 defects now resolved
+**Reviews:** Red team PASS_WITH_ADVISORIES (3 non-blocking: unused imports in runner.py, block-level comparison blindness in _compare_block, no dedicated unit tests for D3/D4/F1)
+**Approved by:** Orchestrator (red team verdict received)

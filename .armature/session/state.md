@@ -16,8 +16,8 @@ Milestone 5: Defect remediation — resolve verified issues from deep code revie
 |------|--------|-------|-------|
 | D1 M4: determinism fix (sorted reasons) | DONE | runtime | G1 |
 | D2 M5: fix misleading docstring (7 stubs) | DONE | runtime | G1 |
-| D3 M1: extra-diagnostic blindness | DEFERRED | core | G2 |
-| D4 M2: one-directional evaluator comparison | DEFERRED | core | G2 |
+| D3 M1: extra-diagnostic blindness | DONE | core | G5 |
+| D4 M2: one-directional evaluator comparison | DONE | core | G5 |
 | D5 M3: explicit operator precedence | DONE | core | G2 |
 | D6 L1: remove dead code (cli return 2) | DONE | core | G2 |
 | D7 L2: remove unused UniqueStringListModel | DONE | models | G3 |
@@ -26,10 +26,11 @@ Milestone 5: Defect remediation — resolve verified issues from deep code revie
 | D10 L5: strengthen markdown validation tests | DONE | tests | G4 |
 
 ## Active Delegation
-{none — all tasks complete or deferred}
+{none — all tasks complete}
 
 ## Pending Reviews
-Red team reviewer: PASS_WITH_ADVISORIES (3 non-blocking advisories)
+Red team reviewer (M5 batch): PASS_WITH_ADVISORIES (3 non-blocking)
+Red team reviewer (D3/D4/F1): PASS_WITH_ADVISORIES (3 non-blocking)
 
 ## Invariants Touched
 NORM-001 (determinism — D1, D5 strengthen enforcement)
