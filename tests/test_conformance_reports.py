@@ -87,6 +87,8 @@ class TestConformanceReportJson:
 
         assert total == passed + failed + errors + skipped
         assert total == len(report["cases"])
+        assert report["failed"] == failed + skipped
+        assert report["total"] == report["passed"] + report["failed"] + report["errors"]
 
 
 # ---------------------------------------------------------------------------

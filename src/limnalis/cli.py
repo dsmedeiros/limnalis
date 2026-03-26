@@ -525,38 +525,43 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     from .runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
     from .runtime.runner import run_bundle
 
+    json_output = getattr(args, "json_output", False)
+
+    def _emit_error(message: str, *, detail: str | None = None) -> int:
+        if json_output:
+            payload: dict[str, str] = {"status": "error", "error": message}
+            if detail:
+                payload["detail"] = detail
+            print(json.dumps(payload, indent=2))
+        else:
+            _error(message, detail=detail)
+        return 1
+
     try:
         if args.normalized:
             bundle = load_ast_bundle(args.path)
         else:
             result = normalize_surface_file(args.path, validate_schema=True)
             if result.canonical_ast is None:
-                _error("normalization produced no canonical AST")
-                return 1
+                return _emit_error("normalization produced no canonical AST")
             bundle = result.canonical_ast
     except FileNotFoundError:
-        _error(f"file not found: {args.path}")
-        return 1
+        return _emit_error(f"file not found: {args.path}")
     except UnexpectedInput as exc:
-        _error(f"parse error in {args.path}", detail=str(exc))
-        return 1
+        return _emit_error(f"parse error in {args.path}", detail=str(exc))
     except NormalizationError as exc:
-        _error(f"normalization error in {args.path}", detail=str(exc))
-        return 1
+        return _emit_error(f"normalization error in {args.path}", detail=str(exc))
     except SchemaValidationError as exc:
-        _error(
+        return _emit_error(
             f"schema validation failed for {args.path}",
             detail="\n".join(
                 f"  {v.path}: {v.message}" for v in exc.violations
             ),
         )
-        return 1
     except json.JSONDecodeError as exc:
-        _error(f"invalid JSON in {args.path}", detail=str(exc))
-        return 1
+        return _emit_error(f"invalid JSON in {args.path}", detail=str(exc))
     except Exception as exc:
-        _error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
-        return 1
+        return _emit_error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
 
     # Run evaluation with a single default session
     sessions = [SessionConfig(id="default", steps=[StepConfig(id="step0")])]
@@ -565,8 +570,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     try:
         eval_result = run_bundle(bundle, sessions, env)
     except Exception as exc:
-        _error(f"evaluation failed: {type(exc).__name__}: {exc}")
-        return 1
+        return _emit_error(f"evaluation failed: {type(exc).__name__}: {exc}")
 
     print(eval_result.model_dump_json(indent=2, exclude_none=True))
     return 0
@@ -831,12 +835,13 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
         case_results.append(case_entry)
 
     if args.format == "json":
+        legacy_failed = failed + skipped
         report = {
             "version": version_info,
             # Backward-compatible top-level counters.
             "total": total,
             "passed": passed,
-            "failed": failed,
+            "failed": legacy_failed,
             "errors": errors,
             "summary": {
                 "total": total,

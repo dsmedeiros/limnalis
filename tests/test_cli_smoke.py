@@ -152,6 +152,17 @@ def test_evaluate_with_valid_fixture(capsys) -> None:
     assert "bundle_id" in payload or "session_results" in payload
 
 
+def test_evaluate_json_mode_missing_file_returns_json_error(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "missing_bundle.lmn"
+    code = main(["evaluate", "--json", str(missing)])
+
+    captured = capsys.readouterr()
+    assert code == 1
+    payload = json.loads(captured.out)
+    assert payload["status"] == "error"
+    assert "file not found" in payload["error"]
+
+
 def test_conformance_list(capsys) -> None:
     """Test 'limnalis conformance list' exits cleanly."""
     code = main(["conformance", "list"])
