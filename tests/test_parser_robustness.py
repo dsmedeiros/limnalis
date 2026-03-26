@@ -55,6 +55,8 @@ class TestParserMalformedInputs:
         try:
             result = parser.parse_text(source)
             assert isinstance(result, Tree), f"Expected Tree, got {type(result)}"
+            assert result.data == "start", f"Expected root node 'start', got '{result.data}'"
+            assert len(result.children) > 0, "Parsed tree should have children"
         except UnexpectedInput:
             pass  # Clean parse error is acceptable
 
@@ -73,6 +75,8 @@ class TestParserMalformedInputs:
         try:
             result = parser.parse_text(source)
             assert isinstance(result, Tree), f"Expected Tree, got {type(result)}"
+            assert result.data == "start", f"Expected root node 'start', got '{result.data}'"
+            assert len(result.children) > 0, "Parsed tree should have children"
         except UnexpectedInput:
             pass  # Clean parse error is acceptable
 
@@ -82,9 +86,8 @@ class TestParserMalformedInputs:
         try:
             result = parser.parse_text(unicode_text)
             assert isinstance(result, Tree), f"Expected Tree, got {type(result)}"
-            # If it parses, verify the tree contains meaningful content
-            tree_str = str(result)
-            assert len(tree_str) > 0, "Parsed tree should not be empty"
+            assert result.data == "start", f"Expected root node 'start', got '{result.data}'"
+            assert len(result.children) > 0, "Parsed tree should have children"
         except UnexpectedInput:
             pass  # Clean parse error is acceptable
 

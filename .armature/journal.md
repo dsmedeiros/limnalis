@@ -49,3 +49,22 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Reviews:** Standard reviewer PASS, Red team PASS_WITH_ADVISORIES (all advisories resolved)
 **Red team fixes:** S1 (SPEC_VERSION single-sourced), S2 (allowlist error-priority), S3 (test quality)
 **Approved by:** Orchestrator (reviewer + red team verdicts received)
+
+## 2026-03-26 — Milestone 5: Defect remediation
+**Event:** Milestone completion
+**Milestone:** 5 — Defect remediation from deep code review
+**Results:** 313 tests passing (up from 308), 16/16 conformance PASS, 8 of 10 defects resolved
+**Changes:**
+- D1: Deterministic reason ordering in apply_resolution_policy (NORM-001)
+- D2: Corrected misleading builtins.py docstring ("7 stubs" → "1 stub")
+- D5: Explicit operator precedence in normalizer (dict → list of tuples)
+- D6: Removed unreachable dead code in CLI
+- D7: Removed unused UniqueStringListModel from models/base.py
+- D8: Fixed silent exception skipping in determinism tests
+- D9: Strengthened parser robustness test assertions
+- D10: Strengthened markdown validation in conformance report tests
+**Deferred:**
+- D3: Extra-diagnostic blindness fix — correct logic but breaks FIXTURE-001 (exposes pre-existing runtime/fixture mismatch in case A1). Requires coordinated runtime+fixture investigation.
+- D4: One-directional evaluator comparison — same FIXTURE-001 risk. Deferred with D3.
+**Reviews:** Red team PASS_WITH_ADVISORIES (3 non-blocking: unused import, no precedence test, permissive test guard)
+**Approved by:** Orchestrator (red team verdict received)

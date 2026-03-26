@@ -97,12 +97,13 @@ class Normalizer:
         "order": "order",
         "binding": "binding",
     }
-    _LOGICAL_OPERATORS = {
-        "AND": "and",
-        "IFF": "iff",
-        "IMPLIES": "implies",
-        "OR": "or",
-    }
+    # Ordered by precedence: first match wins (highest precedence first)
+    _LOGICAL_OPERATORS = [
+        ("AND", "and"),
+        ("IFF", "iff"),
+        ("IMPLIES", "implies"),
+        ("OR", "or"),
+    ]
     _CAUSAL_RE = re.compile(r"^=>\[(?P<mode>obs|do)(?::(?P<intervention>.+))?\]$")
     _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
@@ -1031,7 +1032,7 @@ class Normalizer:
                     op="not",
                     args=[self._parse_expr_text(inner[4:].strip())],
                 )
-            for token, op in self._LOGICAL_OPERATORS.items():
+            for token, op in self._LOGICAL_OPERATORS:
                 parts = self._split_top_level(inner, f" {token} ")
                 if len(parts) > 1:
                     return LogicalExprNode(

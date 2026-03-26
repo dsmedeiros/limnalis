@@ -1,39 +1,46 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 4: Release Candidate hardening, interface freeze, packaging, and implementation governance for Limnalis v0.2.2
+Milestone 5: Defect remediation — resolve verified issues from deep code review
 
 ## Build Candidate
-{pending commit}
+{pending}
 
-## Task Status
+## Task Status — Milestone 4 (complete)
 | Task | Status | Scope | Wave |
 |------|--------|-------|------|
-| T1 Public API freeze | DONE | core | W1 |
-| T2 Version/manifest metadata | DONE | core | W1 |
-| T3 Packaging cleanup | DONE | core | W1 |
-| T4 CLI stabilization | DONE | core | W2 |
-| T5 Conformance runner hardening | DONE | core | W2 |
-| T6 Public API + packaging tests | DONE | tests | W3 |
-| T7 Determinism + property tests | DONE | tests | W3 |
-| T8 Parser robustness + CLI tests | DONE | tests | W3 |
-| T9 Conformance report tests | DONE | tests | W3 |
-| T10 Docs/ADR cleanup | DONE | docs | W4 |
-| T11 Deviation/compatibility policy | DONE | docs | W4 |
-| T12 RC status report | DONE | docs | W4 |
+| T1–T12 | ALL DONE | various | W1–W4 |
+
+## Task Status — Milestone 5 (active)
+| Task | Status | Scope | Group |
+|------|--------|-------|-------|
+| D1 M4: determinism fix (sorted reasons) | DONE | runtime | G1 |
+| D2 M5: fix misleading docstring (7 stubs) | DONE | runtime | G1 |
+| D3 M1: extra-diagnostic blindness | DEFERRED | core | G2 |
+| D4 M2: one-directional evaluator comparison | DEFERRED | core | G2 |
+| D5 M3: explicit operator precedence | DONE | core | G2 |
+| D6 L1: remove dead code (cli return 2) | DONE | core | G2 |
+| D7 L2: remove unused UniqueStringListModel | DONE | models | G3 |
+| D8 L3: fix silent exception skipping in tests | DONE | tests | G4 |
+| D9 L4: strengthen parser robustness assertions | DONE | tests | G4 |
+| D10 L5: strengthen markdown validation tests | DONE | tests | G4 |
 
 ## Active Delegation
-{none — all tasks complete}
+{none — all tasks complete or deferred}
 
 ## Pending Reviews
-Standard reviewer: PASS
-Red team reviewer: PASS_WITH_ADVISORIES (all advisories resolved)
+Red team reviewer: PASS_WITH_ADVISORIES (3 non-blocking advisories)
 
 ## Invariants Touched
-None violated. All changes additive.
+NORM-001 (determinism — D1, D5 strengthen enforcement)
 
 ## Test Results
-308 tests passing (baseline was 236), 16/16 conformance cases PASS (strict mode)
+313 tests passing, 16/16 conformance cases PASS (strict mode)
+
+## Reviewer Advisories (non-blocking)
+1. (LOW) Unused `field_validator` import in base.py exposed by D7
+2. (MEDIUM) No test enforces operator precedence order in normalizer
+3. (LOW) `assert tested > 0` guards in test_determinism.py are permissive
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->
