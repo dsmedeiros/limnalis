@@ -65,6 +65,20 @@ def test_validate_source_cli_reports_normalization_errors(tmp_path: Path, capsys
     assert "normalization" in captured.err.lower() or "normalize" in captured.err.lower()
 
 
+def test_validate_source_json_mode_reports_machine_readable_errors(tmp_path: Path, capsys) -> None:
+    source = "bundle empty_bundle { }"
+    path = tmp_path / "empty_json.lmn"
+    path.write_text(source, encoding="utf-8")
+
+    code = main(["validate-source", "--json", str(path)])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    payload = json.loads(captured.out)
+    assert payload["status"] == "error"
+    assert "normalization error" in payload["error"].lower()
+
+
 def test_print_schema_cli_smoke(capsys) -> None:
     code = main(["print-schema", "ast"])
 
@@ -114,6 +128,18 @@ def test_normalize_invalid_file(tmp_path: Path, capsys) -> None:
     assert code == 1, f"Expected exit code 1 for missing file, got {code}"
     captured = capsys.readouterr()
     assert "error:" in captured.err
+
+
+def test_normalize_invalid_file_json_mode(tmp_path: Path, capsys) -> None:
+    """Test 'limnalis normalize --json' missing file returns JSON error payload."""
+    nonexistent = tmp_path / "nonexistent_json.lmn"
+    code = main(["normalize", "--json", str(nonexistent)])
+    assert code == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "error"
+    assert "file not found" in payload["error"]
 
 
 def test_evaluate_with_valid_fixture(capsys) -> None:

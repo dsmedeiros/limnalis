@@ -468,32 +468,36 @@ def _cmd_print_schema(args: argparse.Namespace) -> int:
 
 
 def _run_surface_pipeline(path: Path, *, emit_payload: bool, json_output: bool = False) -> int:
+    def _emit_error(message: str, *, detail: str | None = None) -> int:
+        if json_output:
+            payload: dict[str, str] = {"status": "error", "error": message}
+            if detail:
+                payload["detail"] = detail
+            print(json.dumps(payload, indent=2))
+        else:
+            _error(message, detail=detail)
+        return 1
+
     try:
         result = normalize_surface_file(path, validate_schema=True)
     except FileNotFoundError:
-        _error(f"file not found: {path}")
-        return 1
+        return _emit_error(f"file not found: {path}")
     except UnexpectedInput as exc:
-        _error(f"parse error in {path}", detail=str(exc))
-        return 1
+        return _emit_error(f"parse error in {path}", detail=str(exc))
     except NormalizationError as exc:
-        _error(f"normalization error in {path}", detail=str(exc))
-        return 1
+        return _emit_error(f"normalization error in {path}", detail=str(exc))
     except SchemaValidationError as exc:
-        _error(
+        return _emit_error(
             f"schema validation failed for {path}",
             detail="\n".join(
                 f"  {v.path}: {v.message}" for v in exc.violations
             ),
         )
-        return 1
     except Exception as exc:
-        _error(f"unexpected error processing {path}: {type(exc).__name__}: {exc}")
-        return 1
+        return _emit_error(f"unexpected error processing {path}: {type(exc).__name__}: {exc}")
 
     if result.canonical_ast is None:
-        _error("normalization produced no canonical AST")
-        return 1
+        return _emit_error("normalization produced no canonical AST")
 
     if emit_payload:
         print(json.dumps(result.canonical_ast.to_schema_data(), indent=2))
