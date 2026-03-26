@@ -21,6 +21,7 @@ from limnalis.conformance.compare import (
 from limnalis.conformance.fixtures import load_corpus_from_default
 from limnalis.conformance.runner import run_case
 from limnalis.runtime.models import EvalNode
+from limnalis.runtime.runner import BundleResult, SessionResult, StepResult
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +40,12 @@ def corpus():
 
 
 class TestD3ExtraDiagnosticDetection:
-    """Verify that extra error/fatal diagnostics in actual are flagged as mismatches."""
+    """Verify that extra error/fatal diagnostics in actual are flagged as mismatches.
+
+    These tests exercise _compare_diagnostics return values directly.
+    The D3 fix (promoting unmatched error/fatal diagnostics to FieldMismatch)
+    is tested end-to-end in test_compare_case_flags_extra_error_diagnostic_end_to_end below.
+    """
 
     def test_extra_error_diagnostic_flagged(self):
         """When actual has an extra error-level diagnostic not in expected,
@@ -250,6 +256,69 @@ class TestD4ReverseEvaluatorCheck:
         extra_paths = [m.path for m in mismatches if "not expected" in str(m.expected)]
         assert "steps[0].claims.c1.per_evaluator.ev_extra1" in extra_paths
         assert "steps[0].claims.c1.per_evaluator.ev_extra2" in extra_paths
+
+
+    def test_compare_case_flags_extra_evaluator_end_to_end(self):
+        """End-to-end: compare_case must produce passed=False when actual has
+        an extra evaluator not present in expected per_evaluator."""
+        case = SimpleNamespace(
+            id="D4_TEST",
+            expected={
+                "sessions": [
+                    {
+                        "steps": [
+                            {
+                                "claims": {
+                                    "c1": {
+                                        "per_evaluator": {
+                                            "ev0": {"truth": "T"},
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        )
+        run_result = SimpleNamespace(
+            case_id="D4_TEST",
+            error=None,
+            bundle_result=BundleResult(
+                bundle_id="D4_TEST",
+                session_results=[
+                    SessionResult(
+                        session_id="s0",
+                        step_results=[
+                            StepResult(
+                                step_id="step0",
+                                per_claim_per_evaluator={
+                                    "c1": {
+                                        "ev0": EvalNode(truth="T"),
+                                        "ev_extra": EvalNode(truth="F"),
+                                    },
+                                },
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        comparison = compare_case(case, run_result)
+
+        assert not comparison.passed, "Extra evaluator should cause failure"
+        extra_ev_mismatches = [
+            m for m in comparison.mismatches
+            if "ev_extra" in m.path
+        ]
+        assert len(extra_ev_mismatches) >= 1, (
+            f"Expected mismatch for extra evaluator ev_extra, got: {comparison.mismatches}"
+        )
+        assert any(
+            "not expected" in str(m.expected)
+            for m in extra_ev_mismatches
+        )
 
 
 # ---------------------------------------------------------------------------

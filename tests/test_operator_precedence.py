@@ -82,7 +82,15 @@ def _get_meta_claim_expr(source: str):
 
 
 class TestLogicalOperatorPrecedence:
-    """Test that operator precedence follows AND > IFF > IMPLIES > OR."""
+    """Test that operator precedence follows AND > IFF > IMPLIES > OR.
+
+    The first group of tests (test_*_binds_tighter_*) verify correct operator
+    parsing with explicit grouping (parentheses force structure). The
+    test_precedence_first_match_wins_* tests verify implicit precedence where
+    the higher-precedence operator appears first in the text. The
+    TestReverseOrderPrecedence class below further proves precedence by
+    placing the lower-precedence operator first.
+    """
 
     def test_and_binds_tighter_than_or(self):
         """((a AND b) OR c) should parse as OR(AND(a,b), c).
@@ -299,6 +307,77 @@ class TestLogicalOperatorPrecedence:
         impl_expr = expr.args[1]
         assert impl_expr.op == "implies"
         assert [a.name for a in impl_expr.args] == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# R6c — Reverse-order precedence tests
+# ---------------------------------------------------------------------------
+
+
+class TestReverseOrderPrecedence:
+    """Prove precedence when the LOWER-precedence operator appears first in text.
+
+    These complement the first-match-wins tests above, which always place the
+    higher-precedence operator first. By reversing the order, we prove the
+    parser doesn't just split on the first operator found left-to-right but
+    respects the precedence list order.
+    """
+
+    def test_or_before_and_still_splits_on_and(self):
+        """(a OR b AND c) should produce AND(a OR b, c) because AND has
+        higher precedence and is tried first.
+
+        Inner text 'a OR b AND c':
+          - Try AND: found at top level -> split into ['a OR b', 'c']
+        Result: AND(pred('a OR b'), c)
+        """
+        expr = _get_meta_claim_expr(
+            _make_bundle_with_meta_claim("(a OR b AND c)")
+        )
+        assert expr.op == "and"
+        assert len(expr.args) == 2
+        # First arg is the unsplit 'a OR b' treated as a predicate
+        assert expr.args[0].node == "PredicateExpr"
+        assert expr.args[0].name == "a OR b"
+        # Second arg is c
+        assert expr.args[1].name == "c"
+
+    def test_implies_before_iff_still_splits_on_iff(self):
+        """(a IMPLIES b IFF c) should produce IFF(a IMPLIES b, c) because IFF
+        has higher precedence than IMPLIES.
+
+        Inner text 'a IMPLIES b IFF c':
+          - Try AND: not found
+          - Try IFF: found at top level -> split into ['a IMPLIES b', 'c']
+        Result: IFF(pred('a IMPLIES b'), c)
+        """
+        expr = _get_meta_claim_expr(
+            _make_bundle_with_meta_claim("(a IMPLIES b IFF c)")
+        )
+        assert expr.op == "iff"
+        assert len(expr.args) == 2
+        assert expr.args[0].node == "PredicateExpr"
+        assert expr.args[0].name == "a IMPLIES b"
+        assert expr.args[1].name == "c"
+
+    def test_or_before_implies_still_splits_on_implies(self):
+        """(a OR b IMPLIES c) should produce IMPLIES(a OR b, c) because IMPLIES
+        has higher precedence than OR.
+
+        Inner text 'a OR b IMPLIES c':
+          - Try AND: not found
+          - Try IFF: not found
+          - Try IMPLIES: found at top level -> split into ['a OR b', 'c']
+        Result: IMPLIES(pred('a OR b'), c)
+        """
+        expr = _get_meta_claim_expr(
+            _make_bundle_with_meta_claim("(a OR b IMPLIES c)")
+        )
+        assert expr.op == "implies"
+        assert len(expr.args) == 2
+        assert expr.args[0].node == "PredicateExpr"
+        assert expr.args[0].name == "a OR b"
+        assert expr.args[1].name == "c"
 
 
 # ---------------------------------------------------------------------------

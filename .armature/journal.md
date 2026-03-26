@@ -95,3 +95,16 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 - (MEDIUM) D8 threshold too permissive + not applied to test_full_pipeline_determinism
 - (MEDIUM) D9 assertions unreachable for deeply nested/long parser inputs
 **Approved by:** Orchestrator (reviewer verdicts received)
+
+## 2026-03-26 — Milestone 5b Cycle 2: Red team review→fix→review loop
+**Event:** Iterative review loop (user-requested)
+**Cycle 1 reviewers:** RT-C1a (code) PASS, RT-C1b (tests) PASS_WITH_ADVISORIES
+- C1a: All code changes verified correct, no issues
+- C1b: 4 advisories — D4 end-to-end test, reverse-order precedence tests, 2 docstring clarifications
+**Fix round:** All 4 advisories found already addressed by G8 implementer (files were untracked during C1 review)
+**Cycle 2 reviewers:** RT-C2a (tests) PASS, RT-C2b (integration) PASS
+- C2a: All 4 claims verified, no tautological assertions, all tests substantive
+- C2b: 347 tests pass, 41 conformance cases pass, clean changeset scope, no circular imports
+**Result:** Clean PASS from all Cycle 2 reviewers — loop terminates
+**Final test count:** 347 tests passing, 16/16 conformance PASS
+**Approved by:** Orchestrator (all reviewers PASS)
