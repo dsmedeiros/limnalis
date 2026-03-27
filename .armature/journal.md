@@ -122,3 +122,16 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Defect class closed:** One-directional per_evaluator comparison blindness now fully remediated across all 3 comparison functions (`_compare_claim`, `_compare_block`, `_compare_transport`)
 **All red team advisories resolved:** 0 remaining from M4/M5/M5b/M5c review cycles
 **Approved by:** Orchestrator (reviewer verdict received, all tests pass)
+
+## 2026-03-27 — BaselineNode model-schema divergence documentation
+**Event:** HIGH advisory closure (documentation)
+**Advisory:** Model-schema constraint divergence on BaselineNode (3c-redteam-models, HIGH)
+**Resolution:** Documented as intentional — the model omits the schema's `moving → tracked` constraint because FIXTURE-001 requires A4 to normalize so the runtime can emit `baseline_mode_invalid`. The constraint is enforced at two other layers: public API schema validation and runtime `resolve_baseline`.
+**Changes:**
+- Added 6-line comment above `BaselineNode` in `models/ast.py` explaining the divergence and referencing commit 549e3ce
+- Added comment on A4 exclusion from parametrized normalizer test
+- Added `test_a4_public_api_rejects_moving_fixed_baseline` proving the public API correctly rejects moving+fixed via schema validation
+**Review:** Red team PASS — all claims verified, test exercises correct public API path, no invariant violations
+**Test count:** 350 tests passing, 16/16 conformance PASS
+**Status:** All HIGH-severity advisories across all review cycles are now resolved or documented
+**Approved by:** Orchestrator (red team PASS)
