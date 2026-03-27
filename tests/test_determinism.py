@@ -41,6 +41,8 @@ class TestPipelineDeterminism:
         """For each fixture case, run the pipeline twice and assert identical outputs."""
         from limnalis.conformance.runner import run_case
 
+        skipped = []
+        tested = 0
         for case in corpus.cases:
             result1 = run_case(case, corpus)
             result2 = run_case(case, corpus)
@@ -54,6 +56,7 @@ class TestPipelineDeterminism:
                 assert result1.error == result2.error, (
                     f"Case {case.id}: error messages differ"
                 )
+                skipped.append((case.id, "error"))
                 continue
 
             # Both should have bundle results
@@ -62,14 +65,19 @@ class TestPipelineDeterminism:
             )
 
             if result1.bundle_result is None:
+                skipped.append((case.id, "no_bundle_result"))
                 continue
 
+            tested += 1
             # Compare serialized JSON for exact equality
             json1 = result1.bundle_result.model_dump_json(exclude_none=True)
             json2 = result2.bundle_result.model_dump_json(exclude_none=True)
             assert json1 == json2, (
                 f"Case {case.id}: pipeline outputs differ between runs"
             )
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +104,9 @@ class TestNormalizerDeterminism:
             assert result1.diagnostics == result2.diagnostics, (
                 f"Case {case.id}: normalizer diagnostics ordering differs between runs"
             )
-        assert tested > 0, f"All cases were skipped, none tested: {skipped}"
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +145,9 @@ class TestProvenanceStability:
                                 f"Case {case.id}, claim {claim_id}: "
                                 "provenance ordering differs between runs"
                             )
-        assert tested > 0, f"All cases were skipped, none tested: {skipped}"
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------

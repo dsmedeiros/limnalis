@@ -1,44 +1,31 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 5b: Red team advisory remediation — LOW fixes + dedicated tests
+Milestone 5c: COMPLETE — Final MEDIUM advisory remediation
 
 ## Build Candidate
-{pending}
+{pending — ready for tagging}
 
-## Task Status — Milestone 5 (complete)
-D1–D10, F1 all DONE. 5-domain red team review complete.
+## Task Status — Milestones 5/5b (complete)
+All D1–D10, F1, R1–R6 DONE. Review loop PASS.
 
-## Task Status — Milestone 5b (complete)
+## Task Status — Milestone 5c (complete)
 | Task | Status | Scope | Group |
 |------|--------|-------|-------|
-| R1 Remove unused field_validator import | DONE | models | G6 |
-| R2 Remove unused imports in runner.py F1 | DONE | core | G7 |
-| R3 Fix inconsistent path format in D4 | DONE | core | G7 |
-| R4 Fix inaccurate "none expected" message | DONE | core | G7 |
-| R5 Dedicated unit tests for D3/D4/F1 | DONE | tests | G8 |
-| R6 Operator precedence enforcement tests | DONE | tests | G8 |
+| A1 _compare_block reverse evaluator check | DONE | core | G9 |
+| A2 D8 threshold + test_full_pipeline_determinism | DONE | tests | G10 |
+| A3 D9 unreachable assertions fix | DONE | tests | G10 |
+| A4 _compare_transport reverse evaluator check (reviewer finding) | DONE | core | G9-fix |
 
 ## Active Delegation
-{none — all tasks complete}
+None — all delegations complete.
 
-## Pending Reviews
-Red team reviewer (M5b): PASS (2 LOW advisories addressed in follow-up)
-Red team reviewer (advisory fixes): PASS_WITH_ADVISORIES (all issues resolved or pre-existing)
-
-## Invariants Touched
-NORM-001 (R6 adds enforcement test for operator precedence)
-FIXTURE-001 (R5 adds dedicated unit tests for comparison logic)
+## Reviews
+- m5c-final-advisories: PASS_WITH_ADVISORIES (1 finding: _compare_transport blindness)
+- _compare_transport fix: implemented and verified (349 tests pass)
 
 ## Test Results
-343 tests passing (up from 313), 16/16 conformance PASS
-
-## Advisory Sources
-- RT1 (runtime): PASS — 0 advisories to address
-- RT2 (conformance): R2, R3 from advisories A2, A3
-- RT3 (normalizer+models): R1, R6 from advisories A1, A2
-- RT4 (tests): no tasks (MEDIUM threshold/dead assertions deferred)
-- RT5 (integration): R4 from advisory A3
+349 tests passing (up from 347), 16/16 conformance PASS
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->

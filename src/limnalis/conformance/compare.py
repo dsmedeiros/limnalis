@@ -314,6 +314,13 @@ def _compare_block(
                     mismatches,
                 )
 
+        # Reverse check: flag extra evaluators in actual but not expected
+        extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
+        for ev_id in sorted(extra_evs):
+            mismatches.append(
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
+            )
+
     # aggregate comparison
     agg_exp = block_exp.get("aggregate")
     if agg_exp is not None:
@@ -398,6 +405,11 @@ def _compare_transport(
                 ev_exp,
                 actual_ev,
                 mismatches,
+            )
+        extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
+        for ev_id in sorted(extra_evs):
+            mismatches.append(
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
             )
 
 

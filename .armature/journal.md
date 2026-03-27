@@ -108,3 +108,17 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Result:** Clean PASS from all Cycle 2 reviewers — loop terminates
 **Final test count:** 347 tests passing, 16/16 conformance PASS
 **Approved by:** Orchestrator (all reviewers PASS)
+
+## 2026-03-27 — Milestone 5c: Final MEDIUM advisory remediation
+**Event:** Milestone completion
+**Milestone:** 5c — Close remaining 3 MEDIUM advisories from M5/M5b red team reviews
+**Tasks resolved:**
+- A1: Added reverse evaluator check to `_compare_block` in conformance/compare.py (MEDIUM, one-directional blindness)
+- A2: Raised D8 threshold from `> 0` to `>= len(corpus.cases) // 2` across all 3 determinism test functions including `test_full_pipeline_determinism` (MEDIUM, permissive threshold)
+- A3: Converted unreachable success-path assertions in `test_extremely_deeply_nested_input` and `test_very_long_input` to explicit `pytest.raises(UnexpectedInput)`; added 2 companion valid-input tests (MEDIUM, unreachable assertions)
+- A4: Added reverse evaluator check to `_compare_transport` (reviewer finding during A1 review — same defect class)
+**Results:** 349 tests passing (up from 347), 16/16 conformance PASS
+**Reviews:** Reviewer PASS_WITH_ADVISORIES (1 finding: `_compare_transport` blindness → immediately fixed as A4)
+**Defect class closed:** One-directional per_evaluator comparison blindness now fully remediated across all 3 comparison functions (`_compare_claim`, `_compare_block`, `_compare_transport`)
+**All red team advisories resolved:** 0 remaining from M4/M5/M5b/M5c review cycles
+**Approved by:** Orchestrator (reviewer verdict received, all tests pass)
