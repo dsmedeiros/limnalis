@@ -73,9 +73,12 @@ class FixtureEvalHandlerForEvaluator:
         self,
         evaluator_id: str,
         truth_map: dict[str, dict[str, TruthCore]],
+        *,
+        per_step_truth_maps: list[dict[str, dict[str, TruthCore]]] | None = None,
     ) -> None:
         self._evaluator_id = evaluator_id
         self._truth_map = truth_map
+        self._per_step_truth_maps = per_step_truth_maps or []
 
     def __call__(
         self,
@@ -85,7 +88,13 @@ class FixtureEvalHandlerForEvaluator:
         machine_state: MachineState,
     ) -> TruthCore:
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
-        ev_truths = self._truth_map.get(claim_id, {})
+        truth_map = self._truth_map
+        raw_step_idx = machine_state.adequacy_store.get("__fixture_step_index__")
+        if self._per_step_truth_maps and isinstance(raw_step_idx, int):
+            if 0 <= raw_step_idx < len(self._per_step_truth_maps):
+                truth_map = self._per_step_truth_maps[raw_step_idx]
+
+        ev_truths = truth_map.get(claim_id, {})
         if self._evaluator_id in ev_truths:
             return ev_truths[self._evaluator_id]
         return TruthCore(truth="N", reason="fixture_not_specified")
@@ -226,14 +235,14 @@ class FixtureAdjudicator:
 # ---------------------------------------------------------------------------
 
 
-def _build_truth_map(case: FixtureCase) -> dict[str, dict[str, TruthCore]]:
-    """Build a merged truth map from fixture case expectations.
-
-    Returns: {claim_id: {evaluator_id: TruthCore}}
-    """
-    truth_map: dict[str, dict[str, TruthCore]] = {}
+def _build_per_step_truth_maps(
+    case: FixtureCase,
+) -> list[dict[str, dict[str, TruthCore]]]:
+    """Build per-step truth maps from fixture case expectations."""
+    step_truth_maps: list[dict[str, dict[str, TruthCore]]] = []
     for session_exp in case.expected_sessions():
         for step_exp in session_exp.get("steps", []):
+            truth_map: dict[str, dict[str, TruthCore]] = {}
             claims = step_exp.get("claims", {})
             for claim_id, claim_exp in claims.items():
                 per_ev = claim_exp.get("per_evaluator", {})
@@ -249,6 +258,21 @@ def _build_truth_map(case: FixtureCase) -> dict[str, dict[str, TruthCore]]:
                         )
                     elif isinstance(ev_exp, str):
                         truth_map[claim_id][ev_id] = TruthCore(truth=ev_exp)
+            step_truth_maps.append(truth_map)
+    return step_truth_maps
+
+
+def _build_truth_map(case: FixtureCase) -> dict[str, dict[str, TruthCore]]:
+    """Build a merged truth map from fixture case expectations.
+
+    Returns: {claim_id: {evaluator_id: TruthCore}}
+    """
+    truth_map: dict[str, dict[str, TruthCore]] = {}
+    for step_map in _build_per_step_truth_maps(case):
+        for claim_id, ev_map in step_map.items():
+            if claim_id not in truth_map:
+                truth_map[claim_id] = {}
+            truth_map[claim_id].update(ev_map)
     return truth_map
 
 
@@ -314,6 +338,17 @@ def _collect_evaluator_expr_types(
 
 def _has_adjudicated_policy(case: FixtureCase) -> bool:
     """Check if the case has adjudicated resolution expectations."""
+    if case.source:
+        try:
+            norm = normalize_surface_text(case.source, validate_schema=False)
+            if (
+                norm.canonical_ast is not None
+                and norm.canonical_ast.resolutionPolicy.kind == "adjudicated"
+            ):
+                return True
+        except Exception:
+            pass
+
     for session_exp in case.expected_sessions():
         for step_exp in session_exp.get("steps", []):
             for claim_exp in step_exp.get("claims", {}).values():
@@ -357,6 +392,7 @@ def register_fixture_plugins(
     extras: dict[str, Any] = {}
 
     # -- 1. Build truth and support maps --
+    per_step_truth_maps = _build_per_step_truth_maps(case)
     truth_map = _build_truth_map(case)
     support_map = _build_support_map(case)
 
@@ -364,7 +400,11 @@ def register_fixture_plugins(
     ev_pairs = _collect_evaluator_expr_types(case)
     for evaluator_id, expr_type in ev_pairs:
         plugin_id = f"{evaluator_id}::{expr_type}"
-        handler = FixtureEvalHandlerForEvaluator(evaluator_id, truth_map)
+        handler = FixtureEvalHandlerForEvaluator(
+            evaluator_id,
+            truth_map,
+            per_step_truth_maps=per_step_truth_maps,
+        )
         if not registry.has(EVALUATOR_BINDING, plugin_id):
             registry.register(
                 EVALUATOR_BINDING,

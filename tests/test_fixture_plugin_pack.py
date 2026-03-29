@@ -216,6 +216,31 @@ class TestFixtureEvalHandlerForEvaluator:
 
         assert result.truth == "N"
 
+    def test_uses_per_step_truth_map_when_step_index_is_present(self) -> None:
+        per_step_truth_maps = [
+            {"c1": {"ev1": TruthCore(truth="T", reason="step0")}},
+            {"c1": {"ev1": TruthCore(truth="F", reason="step1")}},
+        ]
+        merged_truth_map = {"c1": {"ev1": TruthCore(truth="F", reason="merged")}}
+        handler = FixtureEvalHandlerForEvaluator(
+            "ev1",
+            merged_truth_map,
+            per_step_truth_maps=per_step_truth_maps,
+        )
+        claim = _FakeClaim("c1")
+
+        machine0 = MachineState()
+        machine0.adequacy_store["__fixture_step_index__"] = 0
+        result0 = handler(expr=None, claim=claim, step_ctx=None, machine_state=machine0)
+        assert result0.truth == "T"
+        assert result0.reason == "step0"
+
+        machine1 = MachineState()
+        machine1.adequacy_store["__fixture_step_index__"] = 1
+        result1 = handler(expr=None, claim=claim, step_ctx=None, machine_state=machine1)
+        assert result1.truth == "F"
+        assert result1.reason == "step1"
+
 
 class TestFixtureSupportHandler:
     """Test that FixtureSupportHandler returns expected SupportResult."""
@@ -394,6 +419,25 @@ class TestHasAdjudicatedPolicy:
             },
         )
         assert _has_adjudicated_policy(case) is False
+
+    def test_detects_adjudicated_policy_from_source(self, monkeypatch) -> None:
+        class _Policy:
+            kind = "adjudicated"
+
+        class _Ast:
+            resolutionPolicy = _Policy()
+
+        class _Norm:
+            canonical_ast = _Ast()
+
+        def _fake_normalize(source: str, *, validate_schema: bool = True):
+            return _Norm()
+
+        monkeypatch.setattr("limnalis.plugins.fixtures.normalize_surface_text", _fake_normalize)
+        case = _make_case(claims={"c1": {"per_evaluator": {"ev1": {"truth": "T"}}}})
+        case.source = "bundle with adjudicated policy"
+
+        assert _has_adjudicated_policy(case) is True
 
 
 class TestCollectEvaluatorExprTypes:

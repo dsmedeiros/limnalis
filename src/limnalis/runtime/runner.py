@@ -224,6 +224,7 @@ def run_step(
     trace: list[PrimitiveTraceEvent] = []
     diags: Diagnostics = []
     machine = MachineState()
+    machine.adequacy_store["__fixture_step_index__"] = current_step_index
     step_ctx: StepContext | None = None
 
     # Collect all claims across blocks
