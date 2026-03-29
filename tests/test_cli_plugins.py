@@ -81,6 +81,25 @@ def test_plugins_show_json(capsys) -> None:
     assert "handler" in data
 
 
+def test_plugins_list_nonexistent_kind_exits_0(capsys) -> None:
+    """'limnalis plugins list --kind nonexistent' exits 0 (empty list is valid)."""
+    code = main(["plugins", "list", "--kind", "nonexistent"])
+    captured = capsys.readouterr()
+
+    assert code == 0
+
+
+def test_plugins_list_nonexistent_kind_json_returns_empty_array(capsys) -> None:
+    """'limnalis plugins list --kind nonexistent --json' returns []."""
+    code = main(["plugins", "list", "--kind", "nonexistent", "--json"])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    rows = json.loads(captured.out)
+    assert isinstance(rows, list)
+    assert len(rows) == 0
+
+
 def test_plugins_show_not_found(capsys) -> None:
     """'limnalis plugins show' with unknown plugin exits non-zero with error."""
     code = main(["plugins", "show", "evaluator_binding", "nonexistent"])

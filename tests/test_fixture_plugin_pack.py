@@ -17,6 +17,7 @@ from limnalis.plugins.fixtures import (
     FixtureAdjudicator,
     FixtureEvalHandlerForEvaluator,
     FixtureSupportHandler,
+    _has_adjudicated_policy,
     register_fixture_plugins,
 )
 from limnalis.runtime.models import (
@@ -178,7 +179,7 @@ class TestRegisterFixturePluginsCreatesEntries:
         assert "__fixture_step_index__" in extras
 
 
-class TestFixtureEvalHandler:
+class TestFixtureEvalHandlerForEvaluator:
     """Test that FixtureEvalHandlerForEvaluator returns expected TruthCore."""
 
     def test_returns_expected_truth(self) -> None:
@@ -297,6 +298,91 @@ class TestFixtureAdjudicator:
         assert result.truth == "N"
         assert result.reason == "no_evaluators"
 
+    def test_mixed_t_and_n_aggregates(self) -> None:
+        """T and N are not a conflict; join(T, N) = T via paraconsistent lattice."""
+        adj = FixtureAdjudicator()
+        result = adj({
+            "ev1": EvalNode(truth="T", support="supported", provenance=["ev1"]),
+            "ev2": EvalNode(truth="N", support="absent", provenance=["ev2"]),
+        })
+        assert result.truth == "T"
+        assert result.reason is None  # no conflict
+        assert sorted(result.provenance) == ["ev1", "ev2"]
+
+    def test_mixed_f_and_n_aggregates(self) -> None:
+        """F and N are not a conflict; join(F, N) = F via paraconsistent lattice."""
+        adj = FixtureAdjudicator()
+        result = adj({
+            "ev1": EvalNode(truth="F", support="supported", provenance=["ev1"]),
+            "ev2": EvalNode(truth="N", support="absent", provenance=["ev2"]),
+        })
+        assert result.truth == "F"
+        assert result.reason is None  # no conflict
+        assert sorted(result.provenance) == ["ev1", "ev2"]
+
+
+class TestFixtureSupportHandlerDefaultSynth:
+    """Test FixtureSupportHandler default_synth fallback path."""
+
+    def test_default_synth_fallback_non_tuple(self) -> None:
+        """When claim is not in the support map, default_synth is called.
+
+        Non-tuple return is used directly.
+        """
+        sentinel = SupportResult(support="partial", provenance=["fallback"])
+
+        def synth(claim, truth_core, evidence_view, evaluator_id, step_ctx, machine_state):
+            return sentinel
+
+        handler = FixtureSupportHandler({}, default_synth=synth)
+        claim = _FakeClaim("unknown")
+        result = handler(
+            claim=claim,
+            truth_core=TruthCore(truth="T"),
+            evidence_view=None,
+            evaluator_id="ev1",
+            step_ctx=None,
+            machine_state=MachineState(),
+        )
+        assert result is sentinel
+
+    def test_default_synth_fallback_tuple(self) -> None:
+        """When default_synth returns a tuple, the first element is extracted."""
+        inner = SupportResult(support="supported", provenance=["tuple_fallback"])
+
+        def synth(claim, truth_core, evidence_view, evaluator_id, step_ctx, machine_state):
+            return (inner, "extra_metadata")
+
+        handler = FixtureSupportHandler({}, default_synth=synth)
+        claim = _FakeClaim("unknown")
+        result = handler(
+            claim=claim,
+            truth_core=TruthCore(truth="T"),
+            evidence_view=None,
+            evaluator_id="ev1",
+            step_ctx=None,
+            machine_state=MachineState(),
+        )
+        assert result is inner
+
+
+class TestHasAdjudicatedPolicy:
+    """Test _has_adjudicated_policy with edge cases."""
+
+    def test_non_dict_aggregate_returns_false(self) -> None:
+        """A non-dict aggregate value should not cause an error."""
+        case = _make_case(
+            claims={
+                "c1": {
+                    "per_evaluator": {
+                        "ev1": {"truth": "T"},
+                    },
+                    "aggregate": "not_a_dict",
+                },
+            },
+        )
+        assert _has_adjudicated_policy(case) is False
+
 
 class TestImportable:
     """Test that the module is importable from the expected path."""
@@ -310,7 +396,6 @@ class TestImportable:
         from limnalis.plugins.fixtures import (
             FixtureAdequacyHandler,
             FixtureAdjudicator,
-            FixtureEvalHandler,
             FixtureEvalHandlerForEvaluator,
             FixtureSupportHandler,
         )
@@ -320,7 +405,6 @@ class TestImportable:
             for cls in [
                 FixtureAdequacyHandler,
                 FixtureAdjudicator,
-                FixtureEvalHandler,
                 FixtureEvalHandlerForEvaluator,
                 FixtureSupportHandler,
             ]

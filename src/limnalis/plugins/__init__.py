@@ -181,11 +181,30 @@ class RegistryEvaluatorBindings:
 def build_services_from_registry(registry: PluginRegistry) -> dict[str, Any]:
     """Build a services dict from registered plugins.
 
-    Collects evaluator bindings, support policy handlers, adequacy handlers,
-    and other service entries from the registry into the format expected
-    by run_bundle/run_session/run_step.
+    Collects plugin handlers from the registry into the format expected
+    by ``run_bundle`` / ``run_session`` / ``run_step``.
 
-    Returns a services dict ready to pass to the evaluation runner.
+    **Wired plugin kinds** (automatically included in the returned dict):
+
+    - ``EVALUATOR_BINDING`` -- wrapped in a :class:`RegistryEvaluatorBindings`
+      and set as ``services["evaluator_bindings"]``.
+    - ``EVIDENCE_POLICY`` -- collected into
+      ``services["support_policy_handlers"]``.
+    - ``ADEQUACY_METHOD`` -- collected into ``services["adequacy_handlers"]``.
+    - ``ADJUDICATOR`` -- if exactly one adjudicator is registered, set as
+      ``services["adjudicator"]``.  If multiple are registered the consumer
+      must select one explicitly.
+
+    **Registry-only plugin kinds** (available via ``registry.get()`` but *not*
+    automatically wired here -- consumers must retrieve them directly):
+
+    - ``CRITERION_BINDING``
+    - ``TRANSPORT_HANDLER``
+    - ``BASELINE_HANDLER``
+    - ``BINDING_RESOLVER``
+
+    Returns:
+        A services dict ready to pass to the evaluation runner.
     """
     services: dict[str, Any] = {}
 
@@ -206,6 +225,11 @@ def build_services_from_registry(registry: PluginRegistry) -> dict[str, Any]:
         services["adequacy_handlers"] = {
             m.plugin_id: m.handler for m in adequacy_plugins
         }
+
+    # Adjudicator -- wire automatically when exactly one is registered.
+    adjudicator_plugins = registry.list_plugins(ADJUDICATOR)
+    if len(adjudicator_plugins) == 1:
+        services["adjudicator"] = adjudicator_plugins[0].handler
 
     return services
 

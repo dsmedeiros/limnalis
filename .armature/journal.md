@@ -153,3 +153,18 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Reviews:** Standard reviewer PASS (3 LOW non-blocking advisories: internal import in fixtures.py, naming overlap, docs accuracy)
 **No invariant violations. No core semantic changes. Public API freeze preserved (additive only).**
 **Approved by:** Orchestrator (reviewer PASS)
+
+## 2026-03-29 — Milestone 5: Red team advisory remediation
+**Event:** Advisory remediation
+**Scope:** Red team cycle 1 produced 4 MEDIUM + 1 LOW advisories. All resolved.
+**Tasks resolved:**
+- S1/D1: Removed buggy `FixtureEvalHandler` from public API (renamed to `_FixtureEvalHandler`)
+- S2: Inlined truth join lattice and support aggregation in FixtureAdjudicator, removing private `_aggregate_truth`/`_aggregate_support` imports
+- D2: Added ADJUDICATOR wiring to `build_services_from_registry`, documented all 8 plugin kinds (4 auto-wired, 4 registry-only)
+- T1: Renamed misleading `TestFixtureEvalHandler` to `TestFixtureEvalHandlerForEvaluator`
+- T2: Added mixed-truth non-conflict adjudicator tests (T+N, F+N paths)
+- T5: Added `default_synth` fallback tests (tuple and non-tuple paths)
+- S3: Documented CLI exit code behavior with tests (list --kind nonexistent exits 0 is intentional)
+**Results:** 446 tests passing (up from 439), 16/16 conformance PASS
+**Reviews:** Red team cycle 1 PASS_WITH_ADVISORIES → fixes → Red team cycle 2 PASS (3 LOW non-blocking)
+**Approved by:** Orchestrator (red team cycle 2 PASS)

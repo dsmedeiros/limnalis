@@ -31,8 +31,14 @@ from ..runtime.models import (
 # ---------------------------------------------------------------------------
 
 
-class FixtureEvalHandler:
-    """Fixture-backed expression evaluation handler.
+class _FixtureEvalHandler:
+    """Fixture-backed expression evaluation handler (DEPRECATED).
+
+    .. deprecated::
+        This class is buggy for multi-evaluator claims: it returns the first
+        truth value found regardless of which evaluator the handler represents.
+        Use :class:`FixtureEvalHandlerForEvaluator` instead, which is scoped
+        to a specific evaluator_id.
 
     Returns truth values from pre-computed expectations.
     """
@@ -49,13 +55,8 @@ class FixtureEvalHandler:
         machine_state: MachineState,
     ) -> TruthCore:
         claim_id = claim.id if hasattr(claim, "id") else str(claim)
-        # The plugin_id encodes the evaluator_id, but we need to look it up
-        # from the truth map which is keyed {claim_id: {evaluator_id: TruthCore}}.
-        # The handler is registered per evaluator, so iterate to find the match.
         ev_truths = self._truth_map.get(claim_id, {})
-        # If there's exactly one evaluator in the map for this claim, use it.
         if ev_truths:
-            # Return the first matching truth value.
             for _ev_id, tc in ev_truths.items():
                 return tc
         return TruthCore(truth="N", reason="fixture_not_specified")
@@ -181,14 +182,39 @@ class FixtureAdjudicator:
                 provenance=sorted(prov),
             )
 
-        # Mixed truths (not T vs F): use paraconsistent join
-        from ..runtime.builtins import _aggregate_truth, _aggregate_support
+        # Mixed truths (not T vs F): use paraconsistent join.
+        # Inline the lattice join to avoid importing private helpers from
+        # runtime.builtins.  The join table: T absorbs N, F absorbs N,
+        # B absorbs everything, and T+F -> B.
+        _JOIN = {
+            ("T", "T"): "T", ("F", "F"): "F", ("B", "B"): "B", ("N", "N"): "N",
+            ("T", "F"): "B", ("F", "T"): "B",
+            ("T", "B"): "B", ("B", "T"): "B", ("F", "B"): "B", ("B", "F"): "B",
+            ("T", "N"): "T", ("N", "T"): "T",
+            ("F", "N"): "F", ("N", "F"): "F",
+            ("B", "N"): "B", ("N", "B"): "B",
+        }
+        agg_truth = truths[0]
+        for v in truths[1:]:
+            agg_truth = _JOIN[(agg_truth, v)]
 
-        agg_truth = _aggregate_truth(truths)
         reason = None
         if agg_truth == "B":
             reason = "evaluator_conflict"
-        agg_support = _aggregate_support(evals, aggregate_truth=agg_truth)
+
+        # Aggregate support: conservative ordering.
+        # Force "conflicted" only on real T/F evaluator disagreement.
+        supports = [e.support for e in evals if e.support is not None]
+        agg_support: str | None = None
+        if supports:
+            if agg_truth == "B" and "T" in truth_set and "F" in truth_set:
+                agg_support = "conflicted"
+            else:
+                for s in ["conflicted", "partial", "supported", "inapplicable", "absent"]:
+                    if s in supports:
+                        agg_support = s
+                        break
+
         return EvalNode(
             truth=agg_truth,
             reason=reason,
@@ -414,7 +440,6 @@ def register_fixture_plugins(
 __all__ = [
     "FixtureAdequacyHandler",
     "FixtureAdjudicator",
-    "FixtureEvalHandler",
     "FixtureEvalHandlerForEvaluator",
     "FixtureSupportHandler",
     "register_fixture_plugins",
