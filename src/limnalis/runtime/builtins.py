@@ -1,7 +1,7 @@
 """Built-in implementations of Limnalis primitive operations.
 
-Implements the 6 fully internal primitives and provides stubs for the 7 that
-require domain/external logic.
+Implements 12 of the 13 primitives fully; only resolve_ref remains a stub
+requiring domain/external logic.
 
 NOTE on section numbering: Section numbers in this file (e.g. "2. build_step_context",
 "7. classify_claim") follow the Protocol numbering defined in primitives.py (1-13),
@@ -432,7 +432,7 @@ def apply_resolution_policy(
         else:
             # Preserve unique inherited reason
             reasons = [e.reason for e in evals if e.reason is not None]
-            unique_reasons = list(dict.fromkeys(reasons))
+            unique_reasons = sorted(set(reasons))
             if len(unique_reasons) == 1:
                 reason = unique_reasons[0]
 

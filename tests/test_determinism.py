@@ -41,6 +41,8 @@ class TestPipelineDeterminism:
         """For each fixture case, run the pipeline twice and assert identical outputs."""
         from limnalis.conformance.runner import run_case
 
+        skipped = []
+        tested = 0
         for case in corpus.cases:
             result1 = run_case(case, corpus)
             result2 = run_case(case, corpus)
@@ -54,6 +56,7 @@ class TestPipelineDeterminism:
                 assert result1.error == result2.error, (
                     f"Case {case.id}: error messages differ"
                 )
+                skipped.append((case.id, "error"))
                 continue
 
             # Both should have bundle results
@@ -62,14 +65,19 @@ class TestPipelineDeterminism:
             )
 
             if result1.bundle_result is None:
+                skipped.append((case.id, "no_bundle_result"))
                 continue
 
+            tested += 1
             # Compare serialized JSON for exact equality
             json1 = result1.bundle_result.model_dump_json(exclude_none=True)
             json2 = result2.bundle_result.model_dump_json(exclude_none=True)
             assert json1 == json2, (
                 f"Case {case.id}: pipeline outputs differ between runs"
             )
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -83,17 +91,22 @@ class TestNormalizerDeterminism:
     def test_normalizer_diagnostics_ordering_stable(self, corpus) -> None:
         from limnalis.loader import normalize_surface_text
 
+        skipped = []
+        tested = 0
         for case in corpus.cases:
             try:
                 result1 = normalize_surface_text(case.source, validate_schema=False)
                 result2 = normalize_surface_text(case.source, validate_schema=False)
-            except Exception:
-                # Some cases may intentionally fail normalization; skip those
+            except Exception as exc:
+                skipped.append((case.id, type(exc).__name__))
                 continue
-
+            tested += 1
             assert result1.diagnostics == result2.diagnostics, (
                 f"Case {case.id}: normalizer diagnostics ordering differs between runs"
             )
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -107,13 +120,17 @@ class TestProvenanceStability:
     def test_provenance_ordering_stable(self, corpus) -> None:
         from limnalis.conformance.runner import run_case
 
+        skipped = []
+        tested = 0
         for case in corpus.cases:
             result1 = run_case(case, corpus)
             result2 = run_case(case, corpus)
 
             if result1.bundle_result is None or result2.bundle_result is None:
+                skipped.append((case.id, "no_bundle_result"))
                 continue
 
+            tested += 1
             for sess1, sess2 in zip(
                 result1.bundle_result.session_results,
                 result2.bundle_result.session_results,
@@ -128,6 +145,9 @@ class TestProvenanceStability:
                                 f"Case {case.id}, claim {claim_id}: "
                                 "provenance ordering differs between runs"
                             )
+        assert tested >= len(corpus.cases) // 2, (
+            f"Too few cases tested ({tested}/{len(corpus.cases)}), skipped: {skipped}"
+        )
 
 
 # ---------------------------------------------------------------------------

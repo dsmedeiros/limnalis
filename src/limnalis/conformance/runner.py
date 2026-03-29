@@ -8,6 +8,7 @@ from typing import Any
 from ..loader import normalize_surface_text
 from ..models.ast import BundleNode, TimeCtxNode
 from ..schema import collect_validation_errors
+from ..runtime.builtins import _facets_to_frame, _frame_facets
 from ..runtime.models import (
     EvalNode,
     EvaluationEnvironment,
@@ -754,6 +755,22 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
         )
 
     bundle = norm_result.canonical_ast
+
+    # --- Frame completion from fixture environment ---
+    # When the fixture provides bundle_frame_completion, merge those facets
+    # into the bundle's frame so the runtime sees a fully-resolved frame.
+    frame_resolver = case.environment.get("frame_resolver")
+    if frame_resolver is not None:
+        completion_data = frame_resolver.get("bundle_frame_completion")
+        if completion_data is not None:
+            # Get existing facets from the bundle frame
+            existing_facets = _frame_facets(bundle.frame)
+            # Overlay completion data (existing non-None values take precedence)
+            for k, v in completion_data.items():
+                if k in existing_facets and existing_facets[k] is None:
+                    existing_facets[k] = v
+            completed_frame = _facets_to_frame(existing_facets)
+            bundle = bundle.model_copy(update={"frame": completed_frame})
 
     # Build per-step truth maps from expected per_evaluator results
     per_step_truth_maps = _build_per_step_truth_maps(case)

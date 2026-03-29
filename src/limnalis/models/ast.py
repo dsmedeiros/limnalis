@@ -368,6 +368,12 @@ class CriterionRefNode(LimnalisModel):
 CriterionSpecNode = Annotated[CriterionExprNode | CriterionRefNode, Field(discriminator="kind")]
 
 
+# NOTE: The JSON schema enforces "if kind=moving then evaluationMode must be 'tracked'"
+# but this model deliberately omits that constraint. FIXTURE-001 requires case A4
+# (moving+fixed) to normalize successfully so the runtime can emit a
+# baseline_mode_invalid diagnostic. The constraint is enforced at two other layers:
+# schema validation in the public API (loader) and runtime resolve_baseline.
+# See commit 549e3ce.
 class BaselineNode(LimnalisModel):
     node: Literal["Baseline"] = "Baseline"
     id: str

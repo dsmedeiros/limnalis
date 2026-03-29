@@ -1,39 +1,31 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 4: Release Candidate hardening, interface freeze, packaging, and implementation governance for Limnalis v0.2.2
+Milestone 5c: COMPLETE — Final MEDIUM advisory remediation
 
 ## Build Candidate
-{pending commit}
+{pending — ready for tagging}
 
-## Task Status
-| Task | Status | Scope | Wave |
-|------|--------|-------|------|
-| T1 Public API freeze | DONE | core | W1 |
-| T2 Version/manifest metadata | DONE | core | W1 |
-| T3 Packaging cleanup | DONE | core | W1 |
-| T4 CLI stabilization | DONE | core | W2 |
-| T5 Conformance runner hardening | DONE | core | W2 |
-| T6 Public API + packaging tests | DONE | tests | W3 |
-| T7 Determinism + property tests | DONE | tests | W3 |
-| T8 Parser robustness + CLI tests | DONE | tests | W3 |
-| T9 Conformance report tests | DONE | tests | W3 |
-| T10 Docs/ADR cleanup | DONE | docs | W4 |
-| T11 Deviation/compatibility policy | DONE | docs | W4 |
-| T12 RC status report | DONE | docs | W4 |
+## Task Status — Milestones 5/5b (complete)
+All D1–D10, F1, R1–R6 DONE. Review loop PASS.
+
+## Task Status — Milestone 5c (complete)
+| Task | Status | Scope | Group |
+|------|--------|-------|-------|
+| A1 _compare_block reverse evaluator check | DONE | core | G9 |
+| A2 D8 threshold + test_full_pipeline_determinism | DONE | tests | G10 |
+| A3 D9 unreachable assertions fix | DONE | tests | G10 |
+| A4 _compare_transport reverse evaluator check (reviewer finding) | DONE | core | G9-fix |
 
 ## Active Delegation
-{none — all tasks complete}
+None — all delegations complete.
 
-## Pending Reviews
-Standard reviewer: PASS
-Red team reviewer: PASS_WITH_ADVISORIES (all advisories resolved)
-
-## Invariants Touched
-None violated. All changes additive.
+## Reviews
+- m5c-final-advisories: PASS_WITH_ADVISORIES (1 finding: _compare_transport blindness)
+- _compare_transport fix: implemented and verified (349 tests pass)
 
 ## Test Results
-308 tests passing (baseline was 236), 16/16 conformance cases PASS (strict mode)
+349 tests passing (up from 347), 16/16 conformance PASS
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->

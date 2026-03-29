@@ -118,6 +118,13 @@ def _compare_claim(
                         )
                     )
 
+        # Reverse check: flag extra evaluators in actual but not expected
+        extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
+        for ev_id in sorted(extra_evs):
+            mismatches.append(
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
+            )
+
     # aggregate comparison
     agg_exp = claim_exp.get("aggregate")
     if agg_exp is not None:
@@ -307,6 +314,13 @@ def _compare_block(
                     mismatches,
                 )
 
+        # Reverse check: flag extra evaluators in actual but not expected
+        extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
+        for ev_id in sorted(extra_evs):
+            mismatches.append(
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
+            )
+
     # aggregate comparison
     agg_exp = block_exp.get("aggregate")
     if agg_exp is not None:
@@ -391,6 +405,11 @@ def _compare_transport(
                 ev_exp,
                 actual_ev,
                 mismatches,
+            )
+        extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
+        for ev_id in sorted(extra_evs):
+            mismatches.append(
+                FieldMismatch(f"{path}.per_evaluator.{ev_id}", "not expected", actual_per_ev[ev_id])
             )
 
 
@@ -499,11 +518,19 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
         unmatched_diags = _compare_diagnostics(
             "diagnostics", expected_diags, all_actual_diags, mismatches
         )
-        if not expected_diags and unmatched_diags:
-            for i, extra in enumerate(unmatched_diags):
+        if unmatched_diags:
+            actual_diag_indices = {
+                id(diag): idx for idx, diag in enumerate(all_actual_diags)
+            }
+            for extra in unmatched_diags:
                 if extra.get("severity") in {"error", "fatal"}:
+                    actual_idx = actual_diag_indices.get(id(extra), -1)
                     mismatches.append(
-                        FieldMismatch(f"diagnostics[{i}]", "none expected", extra)
+                        FieldMismatch(
+                            f"diagnostics[{actual_idx}]",
+                            "not expected",
+                            extra,
+                        )
                     )
 
     # Compare baseline_states if specified

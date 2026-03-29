@@ -106,10 +106,15 @@ class TestConformanceReportMarkdown:
 
         lines = captured.out.strip().split("\n")
         assert len(lines) > 0
-        # Should start with a markdown header
+        # Should start with a proper markdown header (# followed by space)
+        assert lines[0].startswith("# "), (
+            f"First line is not a proper markdown header: {lines[0]!r}"
+        )
         assert lines[0].startswith("# Conformance Report")
 
     def test_markdown_report_has_summary(self, capsys) -> None:
+        import re
+
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
         assert code == 0
@@ -119,6 +124,14 @@ class TestConformanceReportMarkdown:
         assert "Total" in captured.out
         assert "Passed" in captured.out
 
+        # Summary should contain actual numeric values, not just keywords
+        assert re.search(r"Total[:\s|]+\d+", captured.out), (
+            "Summary should contain a numeric Total value"
+        )
+        assert re.search(r"Passed[:\s|]+\d+", captured.out), (
+            "Summary should contain a numeric Passed value"
+        )
+
     def test_markdown_report_has_results_table(self, capsys) -> None:
         code = main(["conformance", "report", "--format", "markdown"])
         captured = capsys.readouterr()
@@ -127,6 +140,37 @@ class TestConformanceReportMarkdown:
         # Should contain a markdown table
         assert "| Case |" in captured.out
         assert "|---" in captured.out
+
+        # Verify consistent column count within each table
+        lines = captured.out.strip().split("\n")
+        table_rows = [
+            line for line in lines
+            if line.strip().startswith("|") and line.strip().endswith("|")
+        ]
+        assert len(table_rows) >= 2, "Table should have at least a header and one data row"
+        # Group consecutive table rows into separate tables
+        tables: list[list[str]] = []
+        current: list[str] = []
+        prev_was_table = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                current.append(stripped)
+                prev_was_table = True
+            else:
+                if prev_was_table and current:
+                    tables.append(current)
+                    current = []
+                prev_was_table = False
+        if current:
+            tables.append(current)
+        # Each table should have consistent column counts
+        for table in tables:
+            col_counts = [row.count("|") for row in table]
+            assert len(set(col_counts)) == 1, (
+                f"Table rows should have consistent column counts, "
+                f"but got: {col_counts}"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -341,7 +341,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_conformance(args)
 
     parser.error("unknown command")
-    return 2
 
 
 # ---------------------------------------------------------------------------

@@ -95,6 +95,8 @@ def test_normalizer_handles_frame_blocks_and_logical_claims() -> None:
 
 @pytest.mark.parametrize(
     "case_id",
+    # A4 excluded: its moving+fixed baseline fails schema validation;
+    # it has a dedicated test below (test_normalizer_accepts_invalid_moving_baseline_fixture).
     sorted(case_id for case_id in FIXTURE_CASES if case_id != "A4"),
 )
 def test_fixture_corpus_cases_normalize_to_schema_valid_ast(case_id: str) -> None:
@@ -184,3 +186,13 @@ def test_normalizer_emits_compatibility_diagnostics_for_surface_only_forms() -> 
     assert [diagnostic["code"] for diagnostic in a12.diagnostics] == [
         "extra_resolution_policy_omitted"
     ]
+
+
+def test_a4_public_api_rejects_moving_fixed_baseline() -> None:
+    """Public API enforces schema: moving+fixed baseline raises SchemaValidationError."""
+    from limnalis.api.normalizer import normalize_surface_text
+    from limnalis.schema import SchemaValidationError
+
+    source = FIXTURE_CASES["A4"]["source"]
+    with pytest.raises(SchemaValidationError):
+        normalize_surface_text(source, validate_schema=True)
