@@ -192,6 +192,20 @@ def test_registry_evaluator_bindings_normalizes_ast_expr_type(registry: PluginRe
     assert bindings.get_handler("eval1", "PredicateExpr") is handler
 
 
+def test_registry_evaluator_bindings_normalizes_dynamic_expr(registry: PluginRegistry) -> None:
+    handler = lambda expr, claim, ctx, state: None
+    registry.register(EVALUATOR_BINDING, "eval1::dynamic", handler)
+    bindings = RegistryEvaluatorBindings(registry)
+    assert bindings.get_handler("eval1", "DynamicExpr") is handler
+
+
+def test_registry_evaluator_bindings_normalizes_criterion_expr(registry: PluginRegistry) -> None:
+    handler = lambda expr, claim, ctx, state: None
+    registry.register(EVALUATOR_BINDING, "eval1::criterion", handler)
+    bindings = RegistryEvaluatorBindings(registry)
+    assert bindings.get_handler("eval1", "CriterionExpr") is handler
+
+
 # -- public API importability ----------------------------------------------
 
 

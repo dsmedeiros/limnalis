@@ -173,8 +173,10 @@ class RegistryEvaluatorBindings:
         normalized = (expr_type or "").strip()
         mapping = {
             "PredicateExpr": "predicate",
+            "DynamicExpr": "dynamic",
             "CausalExpr": "causal",
             "EmergenceExpr": "emergence",
+            "CriterionExpr": "criterion",
             "JudgedExpr": "judged",
         }
         return mapping.get(normalized, normalized.lower())
