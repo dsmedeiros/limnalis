@@ -7,6 +7,7 @@ deterministic lookup and clean error diagnostics for missing plugins.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from typing import Any
 
 
@@ -76,7 +77,8 @@ class PluginRegistry:
     """Registry for Limnalis extension plugins.
 
     Supports registering and looking up handlers by kind and ID.
-    Thread-safe for read operations after registration.
+    Not thread-safe for concurrent registration; intended for
+    single-threaded plugin setup before evaluation begins.
     """
 
     def __init__(self) -> None:
@@ -193,7 +195,7 @@ def build_services_from_registry(registry: PluginRegistry) -> dict[str, Any]:
     - ``ADEQUACY_METHOD`` -- collected into ``services["adequacy_handlers"]``.
     - ``ADJUDICATOR`` -- if exactly one adjudicator is registered, set as
       ``services["adjudicator"]``.  If multiple are registered the consumer
-      must select one explicitly.
+      must select one explicitly (a warning is emitted).
 
     **Registry-only plugin kinds** (available via ``registry.get()`` but *not*
     automatically wired here -- consumers must retrieve them directly):
@@ -230,6 +232,14 @@ def build_services_from_registry(registry: PluginRegistry) -> dict[str, Any]:
     adjudicator_plugins = registry.list_plugins(ADJUDICATOR)
     if len(adjudicator_plugins) == 1:
         services["adjudicator"] = adjudicator_plugins[0].handler
+    elif len(adjudicator_plugins) > 1:
+        warnings.warn(
+            (
+                "Multiple adjudicator plugins are registered; skipping auto-wiring "
+                "for services['adjudicator']. Select an adjudicator explicitly."
+            ),
+            stacklevel=2,
+        )
 
     return services
 

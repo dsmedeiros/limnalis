@@ -6,6 +6,7 @@ import pytest
 
 from limnalis.plugins import (
     ADEQUACY_METHOD,
+    ADJUDICATOR,
     EVALUATOR_BINDING,
     EVIDENCE_POLICY,
     PluginConflictError,
@@ -157,6 +158,16 @@ def test_build_services_evidence_policy(registry: PluginRegistry) -> None:
     services = build_services_from_registry(registry)
     assert "support_policy_handlers" in services
     assert services["support_policy_handlers"]["policy_x"] is handler
+
+
+def test_build_services_warns_when_multiple_adjudicators(registry: PluginRegistry) -> None:
+    registry.register(ADJUDICATOR, "adj_1", lambda x: x)
+    registry.register(ADJUDICATOR, "adj_2", lambda x: x)
+
+    with pytest.warns(UserWarning, match="Multiple adjudicator plugins are registered"):
+        services = build_services_from_registry(registry)
+
+    assert "adjudicator" not in services
 
 
 # -- RegistryEvaluatorBindings ---------------------------------------------

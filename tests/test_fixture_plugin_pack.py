@@ -320,6 +320,17 @@ class TestFixtureAdjudicator:
         assert result.reason is None  # no conflict
         assert sorted(result.provenance) == ["ev1", "ev2"]
 
+    def test_mixed_truths_without_support_default_to_absent(self) -> None:
+        """Mixed non-conflicting truths with no support values should return absent support."""
+        adj = FixtureAdjudicator()
+        result = adj({
+            "ev1": EvalNode(truth="B", provenance=["ev1"]),
+            "ev2": EvalNode(truth="N", provenance=["ev2"]),
+        })
+        assert result.truth == "B"
+        assert result.reason == "evaluator_conflict"
+        assert result.support == "absent"
+
 
 class TestFixtureSupportHandlerDefaultSynth:
     """Test FixtureSupportHandler default_synth fallback path."""

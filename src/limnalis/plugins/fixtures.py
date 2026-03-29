@@ -205,15 +205,12 @@ class FixtureAdjudicator:
         # Aggregate support: conservative ordering.
         # Force "conflicted" only on real T/F evaluator disagreement.
         supports = [e.support for e in evals if e.support is not None]
-        agg_support: str | None = None
+        agg_support: str | None = "absent"
         if supports:
-            if agg_truth == "B" and "T" in truth_set and "F" in truth_set:
-                agg_support = "conflicted"
-            else:
-                for s in ["conflicted", "partial", "supported", "inapplicable", "absent"]:
-                    if s in supports:
-                        agg_support = s
-                        break
+            for s in ["conflicted", "partial", "supported", "inapplicable", "absent"]:
+                if s in supports:
+                    agg_support = s
+                    break
 
         return EvalNode(
             truth=agg_truth,
