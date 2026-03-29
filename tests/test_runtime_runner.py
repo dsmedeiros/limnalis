@@ -478,6 +478,14 @@ class TestRunSession:
         assert result.adequacy_store["per_assessment"]["aa_s1"]["truth"] == "T"
         assert result.adequacy_store["per_assessment"]["aa_s2"]["truth"] == "F"
 
+    def test_run_session_does_not_expose_internal_fixture_adequacy_keys(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1")])
+
+        result = run_session(bundle, session, _env())
+
+        assert "__fixture_step_index__" not in result.adequacy_store
+
 class TestRunBundle:
     """Verify run_bundle executes all sessions."""
 

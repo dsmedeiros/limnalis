@@ -800,6 +800,8 @@ def run_session(
                 baseline_states[bid] = bs
 
         for key, value in machine.adequacy_store.items():
+            if str(key).startswith("__fixture_"):
+                continue
             if key in {"per_assessment", "per_anchor_task", "joint"} and isinstance(value, dict):
                 target = adequacy_store.setdefault(key, {})
                 if isinstance(target, dict):
