@@ -337,7 +337,7 @@ def _collect_evaluator_expr_types(
 
 
 def _has_adjudicated_policy(case: FixtureCase) -> bool:
-    """Check if the case has adjudicated resolution expectations."""
+    """Check whether the fixture source uses adjudicated resolution policy."""
     if case.source:
         try:
             norm = normalize_surface_text(case.source, validate_schema=False)
@@ -348,13 +348,6 @@ def _has_adjudicated_policy(case: FixtureCase) -> bool:
                 return True
         except Exception:
             pass
-
-    for session_exp in case.expected_sessions():
-        for step_exp in session_exp.get("steps", []):
-            for claim_exp in step_exp.get("claims", {}).values():
-                agg = claim_exp.get("aggregate", {})
-                if isinstance(agg, dict) and agg.get("reason") == "evaluator_conflict":
-                    return True
     return False
 
 

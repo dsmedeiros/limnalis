@@ -227,3 +227,9 @@ def test_public_api_importable() -> None:
         RegistryEvaluatorBindings,
         build_services_from_registry,
     )
+
+
+def test_public_models_include_criterion_expr_node() -> None:
+    from limnalis.api.models import CriterionExprNode
+
+    assert CriterionExprNode.__name__ == "CriterionExprNode"

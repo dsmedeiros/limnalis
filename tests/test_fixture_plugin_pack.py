@@ -153,7 +153,21 @@ class TestRegisterFixturePluginsCreatesEntries:
 
         assert registry.has(ADEQUACY_METHOD, "test://adequacy/v1")
 
-    def test_adjudicator_registered_for_conflict(self) -> None:
+    def test_adjudicator_registered_for_adjudicated_policy(self, monkeypatch) -> None:
+        class _Policy:
+            kind = "adjudicated"
+
+        class _Ast:
+            resolutionPolicy = _Policy()
+
+        class _Norm:
+            canonical_ast = _Ast()
+
+        def _fake_normalize(source: str, *, validate_schema: bool = True):
+            return _Norm()
+
+        monkeypatch.setattr("limnalis.plugins.fixtures.normalize_surface_text", _fake_normalize)
+
         registry = PluginRegistry()
         case = _make_case(
             evaluator_ids=["ev1", "ev2"],
@@ -167,6 +181,7 @@ class TestRegisterFixturePluginsCreatesEntries:
                 },
             },
         )
+        case.source = "bundle with adjudicated policy"
         register_fixture_plugins(registry, case)
 
         assert registry.has(ADJUDICATOR, f"fixture_adjudicator::{case.id}")
@@ -418,6 +433,21 @@ class TestHasAdjudicatedPolicy:
                 },
             },
         )
+        assert _has_adjudicated_policy(case) is False
+
+    def test_conflict_reason_alone_does_not_imply_adjudicated_policy(self) -> None:
+        case = _make_case(
+            claims={
+                "c1": {
+                    "per_evaluator": {
+                        "ev1": {"truth": "T"},
+                        "ev2": {"truth": "F"},
+                    },
+                    "aggregate": {"truth": "B", "reason": "evaluator_conflict"},
+                },
+            },
+        )
+        case.source = ""
         assert _has_adjudicated_policy(case) is False
 
     def test_detects_adjudicated_policy_from_source(self, monkeypatch) -> None:
