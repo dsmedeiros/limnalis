@@ -135,3 +135,21 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Test count:** 350 tests passing, 16/16 conformance PASS
 **Status:** All HIGH-severity advisories across all review cycles are now resolved or documented
 **Approved by:** Orchestrator (red team PASS)
+
+## 2026-03-29 — Milestone 5 (Extension SDK): Complete
+**Event:** Milestone completion
+**Milestone:** 5 — Extension SDK, downstream integration validation, and example packs
+**Results:** 439 tests passing (up from 350), 16/16 conformance PASS, all 4 consumer examples execute successfully, B1+B2 pass through conformance runner
+**Deliverables:**
+- Public extension SDK: `limnalis.api.{plugins, context, results, models, services}` (5 new modules, all re-export wrappers)
+- Plugin registry: `limnalis.plugins.PluginRegistry` with register/get/list/unregister/clear, 8 kind constants, `build_services_from_registry()` helper
+- Fixture plugin pack: `limnalis.plugins.fixtures` with `register_fixture_plugins()` helper
+- Grid example plugin pack: `limnalis.plugins.grid_example` with `register_grid_plugins()` (3 evaluator bindings, 1 evidence policy, 3 adequacy methods)
+- JWT example plugin pack: `limnalis.plugins.jwt_example` with `register_jwt_plugins()` (2 evaluator bindings, 1 evidence policy, 4 adequacy methods)
+- Downstream consumer examples: 4 scripts under `examples/` (parse/normalize, fixture conformance, grid B1, JWT B2)
+- CLI extension: `limnalis plugins list` and `limnalis plugins show` commands
+- Extension author docs: 7 doc files (SDK overview, evaluator/criterion/adequacy/transport binding guides, downstream usage, interop)
+- Integration tests: 6 new test files (registry, fixture pack, grid pack, JWT pack, CLI plugins, integration)
+**Reviews:** Standard reviewer PASS (3 LOW non-blocking advisories: internal import in fixtures.py, naming overlap, docs accuracy)
+**No invariant violations. No core semantic changes. Public API freeze preserved (additive only).**
+**Approved by:** Orchestrator (reviewer PASS)

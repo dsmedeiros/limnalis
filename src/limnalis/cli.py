@@ -256,6 +256,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSON/YAML file listing known deviation case IDs with reasons",
     )
 
+    # Plugins subcommands
+    plugins_parser = sub.add_parser(
+        "plugins",
+        help="Manage and inspect plugins",
+        description="List and inspect registered plugins.",
+    )
+    plugins_sub = plugins_parser.add_subparsers(dest="plugins_command", required=True)
+
+    plugins_list_cmd = plugins_sub.add_parser(
+        "list",
+        help="List registered plugins",
+        description="List all registered plugins from available plugin packs.",
+    )
+    plugins_list_cmd.add_argument("--kind", help="Filter by plugin kind")
+    plugins_list_cmd.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output as JSON",
+    )
+
+    plugins_show_cmd = plugins_sub.add_parser(
+        "show",
+        help="Show details for a specific plugin",
+        description="Show detailed information about a specific registered plugin.",
+    )
+    plugins_show_cmd.add_argument("kind", help="Plugin kind")
+    plugins_show_cmd.add_argument("plugin_id", help="Plugin ID")
+    plugins_show_cmd.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output as JSON",
+    )
+
     return parser
 
 
@@ -339,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "conformance":
         return _run_conformance(args)
+
+    if args.command == "plugins":
+        return _run_plugins(args)
 
     parser.error("unknown command")
 
@@ -932,3 +970,106 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     if strict:
         return 0 if (failed == 0 and errors == 0 and skipped == 0) else 1
     return 0 if (failed == 0 and errors == 0) else 1
+
+
+# ---------------------------------------------------------------------------
+# Command: plugins
+# ---------------------------------------------------------------------------
+
+
+def _build_demo_registry():
+    """Build a registry with available example plugin packs."""
+    from limnalis.plugins import PluginRegistry
+
+    registry = PluginRegistry()
+
+    # Try importing each known plugin pack
+    try:
+        from limnalis.plugins.grid_example import register_grid_plugins
+
+        register_grid_plugins(registry)
+    except ImportError:
+        pass
+
+    try:
+        from limnalis.plugins.jwt_example import register_jwt_plugins
+
+        register_jwt_plugins(registry)
+    except ImportError:
+        pass
+
+    return registry
+
+
+def _run_plugins(args: argparse.Namespace) -> int:
+    """Dispatch plugins subcommands."""
+    if args.plugins_command == "list":
+        return _cmd_plugins_list(args)
+    if args.plugins_command == "show":
+        return _cmd_plugins_show(args)
+    return 2
+
+
+def _cmd_plugins_list(args: argparse.Namespace) -> int:
+    """List registered plugins."""
+    registry = _build_demo_registry()
+    kind_filter = getattr(args, "kind", None)
+    json_output = getattr(args, "json_output", False)
+
+    plugins = registry.list_plugins(kind=kind_filter)
+
+    if json_output:
+        rows = [
+            {
+                "kind": m.kind,
+                "plugin_id": m.plugin_id,
+                "version": m.version,
+                "description": m.description,
+            }
+            for m in plugins
+        ]
+        print(json.dumps(rows, indent=2))
+    else:
+        # Table output
+        header = f"{'KIND':<20s}{'PLUGIN ID':<35s}{'VERSION':<10s}DESCRIPTION"
+        print(header)
+        for m in plugins:
+            print(f"{m.kind:<20s}{m.plugin_id:<35s}{m.version:<10s}{m.description}")
+
+    return 0
+
+
+def _cmd_plugins_show(args: argparse.Namespace) -> int:
+    """Show details for a specific plugin."""
+    registry = _build_demo_registry()
+    kind = args.kind
+    plugin_id = args.plugin_id
+    json_output = getattr(args, "json_output", False)
+
+    if not registry.has(kind, plugin_id):
+        _error(f"plugin not found: kind={kind!r}, id={plugin_id!r}")
+        return 1
+
+    meta = registry.get_metadata(kind, plugin_id)
+
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "kind": meta.kind,
+                    "plugin_id": meta.plugin_id,
+                    "version": meta.version,
+                    "description": meta.description,
+                    "handler": repr(meta.handler),
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(f"Kind:        {meta.kind}")
+        print(f"Plugin ID:   {meta.plugin_id}")
+        print(f"Version:     {meta.version}")
+        print(f"Description: {meta.description}")
+        print(f"Handler:     {meta.handler!r}")
+
+    return 0
