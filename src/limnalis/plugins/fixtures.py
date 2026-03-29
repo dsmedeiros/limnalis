@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..loader import normalize_surface_text
 from . import (
     ADEQUACY_METHOD,
     ADJUDICATOR,
@@ -279,10 +280,22 @@ def _collect_evaluator_expr_types(
     does not specify one.
     """
     pairs: set[tuple[str, str]] = set()
+    claim_expr_types: dict[str, str] = {}
+
+    if case.source:
+        try:
+            norm = normalize_surface_text(case.source, validate_schema=False)
+            if norm.canonical_ast is not None:
+                for block in norm.canonical_ast.claimBlocks:
+                    for claim in block.claims:
+                        node_name = getattr(claim.expr, "node", "") or type(claim.expr).__name__
+                        claim_expr_types[claim.id] = node_name.removesuffix("Expr").lower()
+        except Exception:
+            claim_expr_types = {}
 
     # From environment bindings
     for binding in case.environment.get("bindings", []):
-        if isinstance(binding, dict):
+        if isinstance(binding, dict) and binding.get("type") == "evaluator":
             ev_id = binding.get("id", "")
             expr_type = binding.get("expr_type", "predicate")
             if ev_id:
@@ -291,9 +304,10 @@ def _collect_evaluator_expr_types(
     # From expected per_evaluator keys (ensures all referenced evaluators are covered)
     for session_exp in case.expected_sessions():
         for step_exp in session_exp.get("steps", []):
-            for claim_exp in step_exp.get("claims", {}).values():
+            for claim_id, claim_exp in step_exp.get("claims", {}).items():
+                expr_type = claim_expr_types.get(claim_id, "predicate")
                 for ev_id in claim_exp.get("per_evaluator", {}):
-                    pairs.add((ev_id, "predicate"))
+                    pairs.add((ev_id, expr_type))
 
     return pairs
 

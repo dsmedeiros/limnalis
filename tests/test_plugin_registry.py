@@ -185,6 +185,13 @@ def test_registry_evaluator_bindings_miss(registry: PluginRegistry) -> None:
     assert bindings.get_handler("no_eval", "no_type") is None
 
 
+def test_registry_evaluator_bindings_normalizes_ast_expr_type(registry: PluginRegistry) -> None:
+    handler = lambda expr, claim, ctx, state: None
+    registry.register(EVALUATOR_BINDING, "eval1::predicate", handler)
+    bindings = RegistryEvaluatorBindings(registry)
+    assert bindings.get_handler("eval1", "PredicateExpr") is handler
+
+
 # -- public API importability ----------------------------------------------
 
 

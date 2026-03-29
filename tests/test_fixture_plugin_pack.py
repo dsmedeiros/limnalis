@@ -18,6 +18,7 @@ from limnalis.plugins.fixtures import (
     FixtureEvalHandlerForEvaluator,
     FixtureSupportHandler,
     _has_adjudicated_policy,
+    _collect_evaluator_expr_types,
     register_fixture_plugins,
 )
 from limnalis.runtime.models import (
@@ -393,6 +394,45 @@ class TestHasAdjudicatedPolicy:
             },
         )
         assert _has_adjudicated_policy(case) is False
+
+
+class TestCollectEvaluatorExprTypes:
+    """Test _collect_evaluator_expr_types fallback behavior."""
+
+    def test_uses_expr_kinds_from_source_when_bindings_missing(self, monkeypatch) -> None:
+        class _Expr:
+            def __init__(self, node: str) -> None:
+                self.node = node
+
+        class _Claim:
+            def __init__(self, cid: str, node: str) -> None:
+                self.id = cid
+                self.expr = _Expr(node)
+
+        class _Block:
+            def __init__(self, claims) -> None:
+                self.claims = claims
+
+        class _Ast:
+            def __init__(self, blocks) -> None:
+                self.claimBlocks = blocks
+
+        class _Norm:
+            def __init__(self, ast) -> None:
+                self.canonical_ast = ast
+
+        def _fake_normalize(source: str, *, validate_schema: bool = True):
+            return _Norm(_Ast([_Block([_Claim("c1", "JudgedExpr")])]))
+
+        monkeypatch.setattr("limnalis.plugins.fixtures.normalize_surface_text", _fake_normalize)
+
+        case = _make_case(
+            claims={"c1": {"per_evaluator": {"ev1": {"truth": "T"}}}},
+            environment={"bindings": []},
+        )
+        case.source = "claim c1 ..."
+        pairs = _collect_evaluator_expr_types(case)
+        assert ("ev1", "judged") in pairs
 
 
 class TestImportable:

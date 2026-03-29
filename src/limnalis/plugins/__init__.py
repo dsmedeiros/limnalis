@@ -167,9 +167,21 @@ class RegistryEvaluatorBindings:
     def __init__(self, registry: PluginRegistry) -> None:
         self._registry = registry
 
+    @staticmethod
+    def _normalize_expr_type(expr_type: str) -> str:
+        """Normalize AST/node expression names to evaluator binding plugin IDs."""
+        normalized = (expr_type or "").strip()
+        mapping = {
+            "PredicateExpr": "predicate",
+            "CausalExpr": "causal",
+            "EmergenceExpr": "emergence",
+            "JudgedExpr": "judged",
+        }
+        return mapping.get(normalized, normalized.lower())
+
     def get_handler(self, evaluator_id: str, expr_type: str) -> Any | None:
         """Return a handler for the given evaluator and expression type, or None."""
-        plugin_id = f"{evaluator_id}::{expr_type}"
+        plugin_id = f"{evaluator_id}::{self._normalize_expr_type(expr_type)}"
         if self._registry.has(EVALUATOR_BINDING, plugin_id):
             return self._registry.get(EVALUATOR_BINDING, plugin_id)
         return None

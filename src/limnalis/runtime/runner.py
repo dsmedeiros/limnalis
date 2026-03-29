@@ -209,6 +209,7 @@ def run_step(
         primitives = PrimitiveSet()
     if services is None:
         services = {}
+    active_adjudicator = adjudicator or services.get("adjudicator")
 
     # Inject bundle into services for primitives that need it (e.g. evaluate_adequacy_set)
     services["__bundle__"] = bundle
@@ -590,7 +591,7 @@ def run_step(
     per_claim_aggregates: dict[str, EvalNode] = {}
     for claim_id, evals_by_ev in per_claim_per_evaluator.items():
         try:
-            agg = primitives.apply_resolution_policy(evals_by_ev, policy, adjudicator)
+            agg = primitives.apply_resolution_policy(evals_by_ev, policy, active_adjudicator)
             per_claim_aggregates[claim_id] = agg
         except Exception as exc:
             diags.append({
@@ -624,7 +625,7 @@ def run_step(
                 per_claim_per_evaluator,
                 classifications,
                 policy,
-                adjudicator,
+                active_adjudicator,
             )
             per_block_per_evaluator[block.id] = block_ev_evals
             per_block_aggregates[block.id] = block_agg
