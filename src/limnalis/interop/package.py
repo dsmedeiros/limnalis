@@ -363,7 +363,9 @@ def extract_package(
             resolved_output = output_dir.resolve()
             for member in zf.namelist():
                 member_path = (resolved_output / member).resolve()
-                if not str(member_path).startswith(str(resolved_output)):
+                try:
+                    member_path.relative_to(resolved_output)
+                except ValueError:
                     raise ValueError(f"Path traversal detected in zip member: {member}")
             zf.extractall(output_dir)
     else:

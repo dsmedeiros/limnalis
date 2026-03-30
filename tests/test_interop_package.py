@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -232,6 +233,15 @@ class TestExtractPackage:
         assert result == extract_dir
         assert (extract_dir / "manifest.json").is_file()
         assert (extract_dir / "source" / source_file.name).is_file()
+
+    def test_extract_zip_rejects_prefix_collision_traversal(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "malicious.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("../output_files/evil.txt", "owned")
+
+        extract_dir = tmp_path / "out"
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            extract_package(zip_path, extract_dir)
 
 
 # ---------------------------------------------------------------------------
