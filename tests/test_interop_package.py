@@ -40,7 +40,7 @@ def source_file(tmp_path: Path) -> Path:
 def ast_file(tmp_path: Path) -> Path:
     """Create a sample AST JSON file for packaging."""
     p = tmp_path / "sample_ast.json"
-    exported = export_ast(MINIMAL_BUNDLE, format="json")
+    exported = export_ast(MINIMAL_BUNDLE, output_format="json")
     p.write_text(exported, encoding="utf-8")
     return p
 
@@ -49,7 +49,7 @@ def ast_file(tmp_path: Path) -> Path:
 def result_file(tmp_path: Path) -> Path:
     """Create a sample result JSON file for packaging."""
     p = tmp_path / "sample_result.json"
-    exported = export_result({"status": "pass"}, format="json")
+    exported = export_result({"status": "pass"}, output_format="json")
     p.write_text(exported, encoding="utf-8")
     return p
 
@@ -65,7 +65,7 @@ class TestCreatePackage:
     ) -> None:
         pkg_dir = tmp_path / "pkg_dir"
         meta = create_package(
-            pkg_dir, source_files=[source_file], ast_files=[ast_file], format="directory"
+            pkg_dir, source_files=[source_file], ast_files=[ast_file], output_format="directory"
         )
         assert isinstance(meta, ExchangePackageMetadata)
         assert (pkg_dir / "manifest.json").is_file()
@@ -77,7 +77,7 @@ class TestCreatePackage:
     ) -> None:
         zip_path = tmp_path / "pkg.zip"
         meta = create_package(
-            zip_path, source_files=[source_file], ast_files=[ast_file], format="zip"
+            zip_path, source_files=[source_file], ast_files=[ast_file], output_format="zip"
         )
         assert isinstance(meta, ExchangePackageMetadata)
         assert zip_path.is_file()
@@ -91,7 +91,7 @@ class TestCreatePackage:
             source_files=[source_file],
             ast_files=[ast_file],
             result_files=[result_file],
-            format="directory",
+            output_format="directory",
         )
         assert "ast" in meta.manifest.artifact_types
         assert "source" in meta.manifest.artifact_types
@@ -103,7 +103,7 @@ class TestCreatePackage:
     ) -> None:
         pkg_dir = tmp_path / "version_pkg"
         meta = create_package(
-            pkg_dir, source_files=[source_file], format="directory"
+            pkg_dir, source_files=[source_file], output_format="directory"
         )
         assert meta.manifest.spec_version == SPEC_VERSION
         assert meta.manifest.schema_version == SCHEMA_VERSION
@@ -114,7 +114,7 @@ class TestCreatePackage:
     ) -> None:
         pkg_dir = tmp_path / "checksum_pkg"
         meta = create_package(
-            pkg_dir, source_files=[source_file], ast_files=[ast_file], format="directory"
+            pkg_dir, source_files=[source_file], ast_files=[ast_file], output_format="directory"
         )
         for rel_path, expected_hash in meta.manifest.checksums.items():
             assert len(expected_hash) == 64, f"SHA256 hex should be 64 chars: {rel_path}"
@@ -134,7 +134,7 @@ class TestInspectPackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         pkg_dir = tmp_path / "inspect_dir"
-        create_package(pkg_dir, source_files=[source_file], format="directory")
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
         meta = inspect_package(pkg_dir)
         assert isinstance(meta, ExchangePackageMetadata)
         assert "source" in meta.manifest.artifact_types
@@ -143,7 +143,7 @@ class TestInspectPackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         zip_path = tmp_path / "inspect.zip"
-        create_package(zip_path, source_files=[source_file], format="zip")
+        create_package(zip_path, source_files=[source_file], output_format="zip")
         meta = inspect_package(zip_path)
         assert isinstance(meta, ExchangePackageMetadata)
         assert "source" in meta.manifest.artifact_types
@@ -160,7 +160,7 @@ class TestValidatePackage:
     ) -> None:
         pkg_dir = tmp_path / "valid_pkg"
         create_package(
-            pkg_dir, source_files=[source_file], ast_files=[ast_file], format="directory"
+            pkg_dir, source_files=[source_file], ast_files=[ast_file], output_format="directory"
         )
         issues = validate_package(pkg_dir)
         assert issues == []
@@ -169,7 +169,7 @@ class TestValidatePackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         zip_path = tmp_path / "valid.zip"
-        create_package(zip_path, source_files=[source_file], format="zip")
+        create_package(zip_path, source_files=[source_file], output_format="zip")
         issues = validate_package(zip_path)
         assert issues == []
 
@@ -183,7 +183,7 @@ class TestValidatePackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         pkg_dir = tmp_path / "bad_checksum_pkg"
-        create_package(pkg_dir, source_files=[source_file], format="directory")
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
         # Tamper with the packaged file to break the checksum
         packaged_file = pkg_dir / "source" / source_file.name
         packaged_file.write_text("tampered content", encoding="utf-8")
@@ -194,7 +194,7 @@ class TestValidatePackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         pkg_dir = tmp_path / "missing_file_pkg"
-        create_package(pkg_dir, source_files=[source_file], format="directory")
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
         # Delete the packaged file so it no longer exists
         packaged_file = pkg_dir / "source" / source_file.name
         packaged_file.unlink()
@@ -213,7 +213,7 @@ class TestExtractPackage:
     ) -> None:
         zip_path = tmp_path / "extract_test.zip"
         create_package(
-            zip_path, source_files=[source_file], ast_files=[ast_file], format="zip"
+            zip_path, source_files=[source_file], ast_files=[ast_file], output_format="zip"
         )
         extract_dir = tmp_path / "extracted"
         result = extract_package(zip_path, extract_dir)
@@ -226,7 +226,7 @@ class TestExtractPackage:
         self, tmp_path: Path, source_file: Path
     ) -> None:
         pkg_dir = tmp_path / "dir_extract_src"
-        create_package(pkg_dir, source_files=[source_file], format="directory")
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
         extract_dir = tmp_path / "dir_extracted"
         result = extract_package(pkg_dir, extract_dir)
         assert result == extract_dir
@@ -249,7 +249,7 @@ class TestPackageRoundTrip:
             source_files=[source_file],
             ast_files=[ast_file],
             result_files=[result_file],
-            format="directory",
+            output_format="directory",
         )
 
         inspect_meta = inspect_package(pkg_dir)
@@ -277,7 +277,7 @@ class TestPackageRoundTrip:
             zip_path,
             source_files=[source_file],
             ast_files=[ast_file],
-            format="zip",
+            output_format="zip",
         )
 
         inspect_meta = inspect_package(zip_path)

@@ -57,7 +57,7 @@ def create_package(
     conformance_files: list[str | Path] | None = None,
     plugin_requirements: list[str] | None = None,
     corpus_version: str | None = None,
-    format: Literal["directory", "zip"] = "directory",
+    output_format: Literal["directory", "zip"] = "directory",
 ) -> ExchangePackageMetadata:
     """Create an exchange package from provided artifact files.
 
@@ -80,7 +80,7 @@ def create_package(
     }
 
     # Determine whether to build in a temp dir (for zip) or directly
-    if format == "zip":
+    if output_format == "zip":
         tmp_dir_obj = tempfile.TemporaryDirectory()
         build_root = Path(tmp_dir_obj.name) / "package"
         build_root.mkdir()
@@ -102,10 +102,10 @@ def create_package(
             artifact_types.append(_DIR_TO_ARTIFACT_TYPE[sub_dir_name])
 
             for src in files:
-                src = Path(src)
-                dest = sub_dir / src.name
-                shutil.copy2(src, dest)
-                rel = f"{sub_dir_name}/{src.name}"
+                src_path = Path(src)
+                dest = sub_dir / src_path.name
+                shutil.copy2(src_path, dest)
+                rel = f"{sub_dir_name}/{src_path.name}"
                 checksums[rel] = _sha256_file(dest)
 
         manifest = ExchangeManifest(
@@ -126,7 +126,7 @@ def create_package(
             encoding="utf-8",
         )
 
-        if format == "zip":
+        if output_format == "zip":
             # Ensure parent directory of output exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
             # Create zip from build_root contents
@@ -184,7 +184,7 @@ def validate_package(
     issues: list[str] = []
     is_zip = _is_zip_package(package_path)
 
-    # --- Read manifest ---
+    # --- Read manifest (single zip open for the entire validation) ---
     if is_zip:
         try:
             zf = zipfile.ZipFile(package_path, "r")
@@ -198,6 +198,75 @@ def validate_package(
             except KeyError:
                 issues.append("manifest.json not found in package")
                 return issues
+
+            # --- Parse manifest ---
+            try:
+                manifest_data = json.loads(manifest_text)
+            except json.JSONDecodeError as e:
+                issues.append(f"manifest.json is not valid JSON: {e}")
+                return issues
+
+            try:
+                manifest = ExchangeManifest.model_validate(manifest_data)
+            except Exception as e:
+                issues.append(f"manifest.json does not conform to ExchangeManifest: {e}")
+                return issues
+
+            # --- Check version fields ---
+            if not manifest.spec_version:
+                issues.append("spec_version is empty")
+            if not manifest.schema_version:
+                issues.append("schema_version is empty")
+            if not manifest.package_version:
+                issues.append("package_version is empty")
+
+            # --- Resolve file listing helper ---
+            zip_names = set(zf.namelist())
+
+            def _file_exists(rel: str) -> bool:
+                return rel in zip_names
+
+            def _read_bytes(rel: str) -> bytes:
+                return zf.read(rel)
+
+            def _list_dir(subdir: str) -> list[str]:
+                prefix = subdir + "/"
+                return [
+                    n[len(prefix):]
+                    for n in zip_names
+                    if n.startswith(prefix) and n != prefix and "/" not in n[len(prefix):]
+                ]
+
+            # --- Check checksums ---
+            for rel_path, expected_hash in manifest.checksums.items():
+                if not _file_exists(rel_path):
+                    issues.append(f"File listed in checksums not found: {rel_path}")
+                    continue
+                data = _read_bytes(rel_path)
+                actual_hash = hashlib.sha256(data).hexdigest()
+                if actual_hash != expected_hash:
+                    issues.append(
+                        f"Checksum mismatch for {rel_path}: "
+                        f"expected {expected_hash}, got {actual_hash}"
+                    )
+
+            # --- Check artifact_types vs directories ---
+            type_to_dir = {v: k for k, v in _DIR_TO_ARTIFACT_TYPE.items()}
+            expected_dirs = {type_to_dir[t] for t in manifest.artifact_types if t in type_to_dir}
+
+            for subdir in ("source", "ast", "results", "conformance"):
+                has_content = len(_list_dir(subdir)) > 0
+                expected = subdir in expected_dirs
+                if has_content and not expected:
+                    issues.append(
+                        f"Directory '{subdir}' has content but its artifact type "
+                        f"is not listed in manifest.artifact_types"
+                    )
+                if expected and not has_content:
+                    issues.append(
+                        f"Artifact type for '{subdir}' is listed in manifest.artifact_types "
+                        f"but directory has no content"
+                    )
         finally:
             zf.close()
     else:
@@ -207,47 +276,28 @@ def validate_package(
             return issues
         manifest_text = manifest_file.read_text(encoding="utf-8")
 
-    # --- Parse manifest ---
-    try:
-        manifest_data = json.loads(manifest_text)
-    except json.JSONDecodeError as e:
-        issues.append(f"manifest.json is not valid JSON: {e}")
-        return issues
+        # --- Parse manifest ---
+        try:
+            manifest_data = json.loads(manifest_text)
+        except json.JSONDecodeError as e:
+            issues.append(f"manifest.json is not valid JSON: {e}")
+            return issues
 
-    try:
-        manifest = ExchangeManifest.model_validate(manifest_data)
-    except Exception as e:
-        issues.append(f"manifest.json does not conform to ExchangeManifest: {e}")
-        return issues
+        try:
+            manifest = ExchangeManifest.model_validate(manifest_data)
+        except Exception as e:
+            issues.append(f"manifest.json does not conform to ExchangeManifest: {e}")
+            return issues
 
-    # --- Check version fields ---
-    if not manifest.spec_version:
-        issues.append("spec_version is empty")
-    if not manifest.schema_version:
-        issues.append("schema_version is empty")
-    if not manifest.package_version:
-        issues.append("package_version is empty")
+        # --- Check version fields ---
+        if not manifest.spec_version:
+            issues.append("spec_version is empty")
+        if not manifest.schema_version:
+            issues.append("schema_version is empty")
+        if not manifest.package_version:
+            issues.append("package_version is empty")
 
-    # --- Resolve file listing helper ---
-    if is_zip:
-        zf = zipfile.ZipFile(package_path, "r")
-        zip_names = set(zf.namelist())
-
-        def _file_exists(rel: str) -> bool:
-            return rel in zip_names
-
-        def _read_bytes(rel: str) -> bytes:
-            return zf.read(rel)
-
-        def _list_dir(subdir: str) -> list[str]:
-            prefix = subdir + "/"
-            return [
-                n[len(prefix):]
-                for n in zip_names
-                if n.startswith(prefix) and n != prefix and "/" not in n[len(prefix):]
-            ]
-    else:
-
+        # --- Resolve file listing helper ---
         def _file_exists(rel: str) -> bool:
             return (package_path / rel).is_file()
 
@@ -260,7 +310,6 @@ def validate_package(
                 return []
             return [f.name for f in d.iterdir() if f.is_file()]
 
-    try:
         # --- Check checksums ---
         for rel_path, expected_hash in manifest.checksums.items():
             if not _file_exists(rel_path):
@@ -291,9 +340,6 @@ def validate_package(
                     f"Artifact type for '{subdir}' is listed in manifest.artifact_types "
                     f"but directory has no content"
                 )
-    finally:
-        if is_zip:
-            zf.close()
 
     return issues
 
@@ -314,6 +360,11 @@ def extract_package(
     if _is_zip_package(package_path):
         output_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(package_path, "r") as zf:
+            resolved_output = output_dir.resolve()
+            for member in zf.namelist():
+                member_path = (resolved_output / member).resolve()
+                if not str(member_path).startswith(str(resolved_output)):
+                    raise ValueError(f"Path traversal detected in zip member: {member}")
             zf.extractall(output_dir)
     else:
         if output_dir.exists():

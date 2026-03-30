@@ -19,7 +19,7 @@ from limnalis.loader import normalize_surface_file
 def export_ast(
     source_path: str | Path,
     *,
-    format: Literal["json", "yaml"] = "json",
+    output_format: Literal["json", "yaml"] = "json",
     validate: bool = True,
     source_info: SourceInfo | None = None,
 ) -> str:
@@ -39,13 +39,13 @@ def export_ast(
         source_info=source_info,
         normalized_ast=ast_data,
     )
-    return _serialize(envelope_to_dict(envelope), format=format)
+    return _serialize(envelope_to_dict(envelope), output_format=output_format)
 
 
 def export_ast_from_dict(
     ast_data: dict[str, Any],
     *,
-    format: Literal["json", "yaml"] = "json",
+    output_format: Literal["json", "yaml"] = "json",
     source_info: SourceInfo | None = None,
 ) -> str:
     """Wrap pre-normalized AST dict in ASTEnvelope and serialize."""
@@ -56,13 +56,13 @@ def export_ast_from_dict(
         source_info=source_info,
         normalized_ast=ast_data,
     )
-    return _serialize(envelope_to_dict(envelope), format=format)
+    return _serialize(envelope_to_dict(envelope), output_format=output_format)
 
 
 def export_result(
     result_data: dict[str, Any],
     *,
-    format: Literal["json", "yaml"] = "json",
+    output_format: Literal["json", "yaml"] = "json",
     source_info: SourceInfo | None = None,
 ) -> str:
     """Wrap evaluation result dict in ResultEnvelope and serialize."""
@@ -73,13 +73,13 @@ def export_result(
         source_info=source_info,
         evaluation_result=result_data,
     )
-    return _serialize(envelope_to_dict(envelope), format=format)
+    return _serialize(envelope_to_dict(envelope), output_format=output_format)
 
 
 def export_conformance(
     report_data: dict[str, Any],
     *,
-    format: Literal["json", "yaml"] = "json",
+    output_format: Literal["json", "yaml"] = "json",
     corpus_version: str | None = None,
 ) -> str:
     """Wrap conformance report dict in ConformanceEnvelope and serialize."""
@@ -90,7 +90,7 @@ def export_conformance(
         corpus_version=corpus_version,
         report=report_data,
     )
-    return _serialize(envelope_to_dict(envelope), format=format)
+    return _serialize(envelope_to_dict(envelope), output_format=output_format)
 
 
 def envelope_to_dict(
@@ -100,8 +100,8 @@ def envelope_to_dict(
     return envelope.model_dump(mode="json")
 
 
-def _serialize(data: dict[str, Any], *, format: Literal["json", "yaml"]) -> str:
+def _serialize(data: dict[str, Any], *, output_format: Literal["json", "yaml"]) -> str:
     """Serialize a dict to JSON or YAML with deterministic key ordering."""
-    if format == "json":
+    if output_format == "json":
         return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False)
     return yaml.dump(data, default_flow_style=False, sort_keys=True, allow_unicode=True)

@@ -10,7 +10,6 @@ layer under ``src/limnalis/models/``.
 
 from __future__ import annotations
 
-import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -165,7 +164,6 @@ class _JsonSchemaToLinkML:
                     classes[def_name] = cls
 
         # Build the top-level LinkML document
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         doc: dict[str, Any] = {
             "id": self.schema_id,
             "name": self.schema_name,
@@ -174,8 +172,7 @@ class _JsonSchemaToLinkML:
                 f"LinkML projection of the canonical Limnalis Pydantic models "
                 f"from {self.pydantic_module}.\n"
                 f"This is a DERIVED artifact — the canonical source of truth is the "
-                f"Pydantic model layer in {self.pydantic_module.replace('.', '/')}.\n"
-                f"Generated: {timestamp}"
+                f"Pydantic model layer in {self.pydantic_module.replace('.', '/')}."
             ),
             "prefixes": {
                 "linkml": "https://w3id.org/linkml/",
@@ -273,10 +270,7 @@ class _JsonSchemaToLinkML:
         # --- $ref ---
         if "$ref" in schema:
             ref_name = self._ref_name(schema["$ref"])
-            if ref_name in self._enum_names:
-                attr["range"] = ref_name
-            else:
-                attr["range"] = ref_name
+            attr["range"] = ref_name
             return attr
 
         # --- const (Literal single-value fields like node discriminators) ---
@@ -451,6 +445,9 @@ def _render_yaml(doc: dict[str, Any]) -> str:
         "# ==========================================================================\n\n"
     )
 
+    # sort_keys=False: LinkML schema keys are ordered semantically
+    # (id -> name -> title -> description -> prefixes -> classes -> enums -> types)
+    # rather than alphabetically, for human readability.
     yaml_body = yaml.dump(
         doc,
         default_flow_style=False,

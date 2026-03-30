@@ -227,8 +227,8 @@ def _cmd_export_ast(args: argparse.Namespace) -> int:
     from .interop import export_ast
 
     try:
-        output = export_ast(args.path, format=args.format)
-    except Exception as exc:
+        output = export_ast(args.path, output_format=args.format)
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     print(output)
@@ -240,8 +240,8 @@ def _cmd_export_result(args: argparse.Namespace) -> int:
 
     try:
         data = _load_data_file(args.path)
-        output = export_result(data, format=args.format)
-    except Exception as exc:
+        output = export_result(data, output_format=args.format)
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     print(output)
@@ -254,9 +254,9 @@ def _cmd_export_conformance(args: argparse.Namespace) -> int:
     try:
         data = _load_data_file(args.path)
         output = export_conformance(
-            data, format=args.format, corpus_version=args.corpus_version
+            data, output_format=args.format, corpus_version=args.corpus_version
         )
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     print(output)
@@ -278,7 +278,7 @@ def _cmd_package_create(args: argparse.Namespace) -> int:
             ast_files=args.ast or None,
             result_files=args.result or None,
             conformance_files=args.conformance or None,
-            format=args.format,
+            output_format=args.format,
         )
         print(
             json.dumps(
@@ -290,7 +290,7 @@ def _cmd_package_create(args: argparse.Namespace) -> int:
                 indent=2,
             )
         )
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     return 0
@@ -302,7 +302,7 @@ def _cmd_package_inspect(args: argparse.Namespace) -> int:
     try:
         metadata = inspect_package(args.path)
         print(json.dumps(metadata.manifest.model_dump(mode="json"), indent=2))
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     return 0
@@ -313,7 +313,7 @@ def _cmd_package_validate(args: argparse.Namespace) -> int:
 
     try:
         issues = validate_package(args.path)
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
 
@@ -330,7 +330,7 @@ def _cmd_package_extract(args: argparse.Namespace) -> int:
     try:
         result_path = extract_package(args.path, args.output_dir)
         print(json.dumps({"status": "ok", "output_dir": str(result_path)}, indent=2))
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
     return 0
@@ -346,7 +346,7 @@ def _cmd_project_linkml(args: argparse.Namespace) -> int:
 
     try:
         result = project_linkml_schema(args.target, output_path=args.output)
-    except Exception as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, indent=2), file=sys.stderr)
         return 1
 
@@ -378,8 +378,12 @@ def _load_data_file(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
     if suffix in (".yaml", ".yml"):
-        return yaml.safe_load(text)
-    return json.loads(text)
+        result = yaml.safe_load(text)
+    else:
+        result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON/YAML object, got {type(result).__name__}")
+    return result
 
 
 def _run_surface_pipeline(path: Path, *, emit_payload: bool) -> int:
