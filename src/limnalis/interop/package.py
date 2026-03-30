@@ -87,6 +87,20 @@ def create_package(
     else:
         tmp_dir_obj = None
         build_root = output_path
+        resolved_output = build_root.resolve()
+        for files in file_groups.values():
+            if not files:
+                continue
+            for src in files:
+                src_resolved = Path(src).resolve()
+                try:
+                    src_resolved.relative_to(resolved_output)
+                except ValueError:
+                    continue
+                raise ValueError(
+                    "Input files must not be inside output_path when "
+                    "output_format='directory'"
+                )
         if build_root.exists():
             if build_root.is_dir():
                 shutil.rmtree(build_root)
@@ -323,11 +337,7 @@ def validate_package(
             issues.append("package_version is empty")
 
         # --- Resolve file listing helper ---
-        def _file_exists(rel: str) -> bool:
-            return (package_path / rel).is_file()
-
-        def _read_bytes(rel: str) -> bytes:
-            return (package_path / rel).read_bytes()
+        resolved_package = package_path.resolve()
 
         def _list_dir(subdir: str) -> list[str]:
             d = package_path / subdir
@@ -343,10 +353,17 @@ def validate_package(
 
         # --- Check checksums ---
         for rel_path, expected_hash in manifest.checksums.items():
-            if not _file_exists(rel_path):
+            candidate = (resolved_package / rel_path).resolve()
+            try:
+                candidate.relative_to(resolved_package)
+            except ValueError:
+                issues.append(f"Checksum path escapes package root: {rel_path}")
+                continue
+
+            if not candidate.is_file():
                 issues.append(f"File listed in checksums not found: {rel_path}")
                 continue
-            data = _read_bytes(rel_path)
+            data = candidate.read_bytes()
             actual_hash = hashlib.sha256(data).hexdigest()
             if actual_hash != expected_hash:
                 issues.append(
@@ -404,6 +421,8 @@ def extract_package(
                     raise ValueError(f"Path traversal detected in zip member: {member}")
             zf.extractall(output_dir)
     else:
+        if package_path.resolve() == output_dir.resolve():
+            raise ValueError("output_dir must be different from package_path")
         if output_dir.exists():
             shutil.rmtree(output_dir)
         shutil.copytree(package_path, output_dir)

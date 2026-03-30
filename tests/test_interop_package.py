@@ -135,6 +135,19 @@ class TestCreatePackage:
         issues = validate_package(pkg_dir)
         assert issues == []
 
+    def test_rejects_input_paths_inside_directory_output(self, tmp_path: Path) -> None:
+        pkg_dir = tmp_path / "pkg_dir"
+        pkg_dir.mkdir()
+        source_inside = pkg_dir / "inplace.lmn"
+        source_inside.write_text("# source", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="must not be inside output_path"):
+            create_package(
+                pkg_dir,
+                source_files=[source_inside],
+                output_format="directory",
+            )
+
     def test_rejects_duplicate_basenames_within_artifact_group(self, tmp_path: Path) -> None:
         first_dir = tmp_path / "a"
         second_dir = tmp_path / "b"
@@ -259,6 +272,23 @@ class TestValidatePackage:
         issues = validate_package(zip_path)
         assert any("not listed in checksums" in i for i in issues)
 
+    def test_rejects_checksum_paths_outside_package_root(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "path_escape_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        outside = tmp_path / "outside.txt"
+        outside.write_text("outside", encoding="utf-8")
+
+        manifest_path = pkg_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["checksums"] = {"../outside.txt": hashlib.sha256(outside.read_bytes()).hexdigest()}
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        issues = validate_package(pkg_dir)
+        assert any("escapes package root" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # extract_package
@@ -290,6 +320,15 @@ class TestExtractPackage:
         assert result == extract_dir
         assert (extract_dir / "manifest.json").is_file()
         assert (extract_dir / "source" / source_file.name).is_file()
+
+    def test_extract_directory_to_same_path_rejected(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "same_dir_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        with pytest.raises(ValueError, match="output_dir must be different"):
+            extract_package(pkg_dir, pkg_dir)
 
     def test_extract_zip_rejects_prefix_collision_traversal(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "malicious.zip"
