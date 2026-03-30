@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from limnalis.interop.compat import check_envelope_compatibility
 from limnalis.interop.envelopes import (
     ASTEnvelope,
     ConformanceEnvelope,
@@ -41,6 +42,7 @@ __all__ = [
     "ExchangePackageMetadata",
     "ProjectionResult",
     "ResultEnvelope",
+    "check_envelope_compatibility",
     "project_linkml_schema",
     "SCHEMA_VERSION",
     "SPEC_VERSION",
