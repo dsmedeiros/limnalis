@@ -289,6 +289,28 @@ class TestValidatePackage:
         issues = validate_package(pkg_dir)
         assert any("escapes package root" in i for i in issues)
 
+    def test_rejects_escaped_checksum_paths_in_zip(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "zip_path_escape.zip"
+        malicious_bytes = b"evil payload"
+        malicious_hash = hashlib.sha256(malicious_bytes).hexdigest()
+        manifest = {
+            "spec_version": SPEC_VERSION,
+            "schema_version": SCHEMA_VERSION,
+            "package_version": get_package_version(),
+            "corpus_version": None,
+            "artifact_types": [],
+            "plugin_requirements": [],
+            "checksums": {"../evil.txt": malicious_hash},
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("manifest.json", json.dumps(manifest))
+            zf.writestr("../evil.txt", malicious_bytes)
+
+        issues = validate_package(zip_path)
+        assert any("escapes package root" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # extract_package

@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from limnalis.interop.types import (
@@ -32,6 +33,18 @@ _DIR_TO_ARTIFACT_TYPE: dict[str, str] = {
     "results": "evaluation_result",
     "conformance": "conformance_report",
 }
+
+
+def _is_safe_package_relpath(rel_path: str) -> bool:
+    """Return True when rel_path is a normalized in-package relative path."""
+    if not rel_path or "\\" in rel_path:
+        return False
+    p = PurePosixPath(rel_path)
+    if p.is_absolute():
+        return False
+    if any(part in ("", ".", "..") for part in p.parts):
+        return False
+    return True
 
 
 def _sha256_file(path: Path) -> str:
@@ -274,6 +287,9 @@ def validate_package(
 
             # --- Check checksums ---
             for rel_path, expected_hash in manifest.checksums.items():
+                if not _is_safe_package_relpath(rel_path):
+                    issues.append(f"Checksum path escapes package root: {rel_path}")
+                    continue
                 if not _file_exists(rel_path):
                     issues.append(f"File listed in checksums not found: {rel_path}")
                     continue
