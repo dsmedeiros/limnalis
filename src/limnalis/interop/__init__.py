@@ -13,6 +13,7 @@ from limnalis.interop.export import (
     export_conformance,
     export_result,
 )
+from limnalis.interop.linkml import project_linkml_schema
 from limnalis.interop.import_ import (
     import_ast_envelope,
     import_conformance_envelope,
@@ -40,6 +41,7 @@ __all__ = [
     "ExchangePackageMetadata",
     "ProjectionResult",
     "ResultEnvelope",
+    "project_linkml_schema",
     "SCHEMA_VERSION",
     "SPEC_VERSION",
     "SourceInfo",

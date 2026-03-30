@@ -1,0 +1,137 @@
+# ==========================================================================
+# THIS FILE IS A DERIVED PROJECTION — NOT THE CANONICAL SOURCE OF TRUTH.
+#
+# Generated from: LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.conformance.
+# Canonical models live in the Pydantic model layer under src/limnalis/models/.
+#
+# Lossy / unsupported mappings:
+#   - Discriminated unions are projected as the first variant class or string.
+#   - Open dict types (dict[str, Any]) are projected as string.
+#   - Nested arrays / tuples are projected as multivalued string.
+#   - Pydantic validators and cross-field constraints are not represented.
+# ==========================================================================
+
+id: https://limnalis.dev/schema/results
+name: limnalis_results
+title: Limnalis Evaluation Result Schema (Projected)
+description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.conformance.
+
+  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/conformance.
+
+  Generated: 2026-03-30T14:04:23Z'
+prefixes:
+  linkml: https://w3id.org/linkml/
+  limnalis: https://limnalis.dev/schema/
+default_range: string
+classes:
+  AdequacyExpectation:
+    description: AdequacyExpectation model
+    attributes:
+      truth:
+        required: true
+        range: string
+        description: 'One of: T, F, B, N'
+      reason:
+        range: string
+  BlockExpectation:
+    description: BlockExpectation model
+    attributes:
+      per_evaluator:
+        required: true
+        range: string
+        description: Open dict type (lossy projection)
+      aggregate:
+        required: true
+        range: string
+        description: 'One of: T, F, B, N'
+      claimIds:
+        multivalued: true
+        range: string
+  ClaimExpectation:
+    description: ClaimExpectation model
+    attributes:
+      per_evaluator:
+        range: string
+      aggregate:
+        range: EvalSnapshot
+      license:
+        range: ClaimLicenseExpectation
+  ClaimLicenseExpectation:
+    description: ClaimLicenseExpectation model
+    attributes:
+      overall:
+        range: EvalSnapshot
+      individual:
+        range: string
+        description: Open dict type (lossy projection)
+      joint:
+        range: EvalSnapshot
+  DiagnosticExpectation:
+    description: DiagnosticExpectation model
+    attributes:
+      severity:
+        required: true
+        range: string
+        description: 'One of: info, warning, error'
+      code:
+        required: true
+        range: string
+      subject:
+        range: string
+      message:
+        range: string
+  EvalSnapshot:
+    description: EvalSnapshot model
+    attributes:
+      truth:
+        required: true
+        range: string
+        description: 'One of: T, F, B, N'
+      reason:
+        range: string
+      support:
+        range: string
+        description: 'One of: supported, partial, conflicted, absent, inapplicable'
+      confidence:
+        range: float
+      provenance:
+        multivalued: true
+        range: string
+  SessionExpectation:
+    description: SessionExpectation model
+    attributes:
+      id:
+        required: true
+        range: string
+      steps:
+        required: true
+        multivalued: true
+        range: StepExpectation
+  StepExpectation:
+    description: StepExpectation model
+    attributes:
+      id:
+        required: true
+        range: string
+      claims:
+        range: string
+        description: Open dict type (lossy projection)
+      blocks:
+        range: string
+        description: Open dict type (lossy projection)
+      transports:
+        range: string
+        description: Open dict type (lossy projection)
+  TransportExpectation:
+    description: TransportExpectation model
+    attributes:
+      status:
+        required: true
+        range: string
+        description: 'One of: metadata_only, preserved, degraded, transported, blocked, unresolved, pattern_only'
+      sourceAggregate:
+        range: EvalSnapshot
+      dstAggregate:
+        range: EvalSnapshot
+      per_evaluator:
+        range: string

@@ -1,0 +1,758 @@
+# ==========================================================================
+# THIS FILE IS A DERIVED PROJECTION — NOT THE CANONICAL SOURCE OF TRUTH.
+#
+# Generated from: LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.ast.
+# Canonical models live in the Pydantic model layer under src/limnalis/models/.
+#
+# Lossy / unsupported mappings:
+#   - Discriminated unions are projected as the first variant class or string.
+#   - Open dict types (dict[str, Any]) are projected as string.
+#   - Nested arrays / tuples are projected as multivalued string.
+#   - Pydantic validators and cross-field constraints are not represented.
+# ==========================================================================
+
+id: https://limnalis.dev/schema/ast
+name: limnalis_ast
+title: Limnalis Ast Schema (Projected)
+description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.ast.
+
+  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/ast.
+
+  Generated: 2026-03-30T14:04:22Z'
+prefixes:
+  linkml: https://w3id.org/linkml/
+  limnalis: https://limnalis.dev/schema/
+default_range: string
+classes:
+  AdequacyAssessmentNode:
+    description: AdequacyAssessmentNode model
+    attributes:
+      node:
+        range: string
+        equals_string: AdequacyAssessment
+      id:
+        required: true
+        range: string
+      task:
+        required: true
+        range: string
+      producer:
+        required: true
+        range: string
+      score:
+        range: string
+        description: Mixed union type (lossy projection)
+      threshold:
+        required: true
+        range: float
+      method:
+        required: true
+        range: string
+      basis:
+        multivalued: true
+        range: string
+      confidence:
+        range: float
+      failureModes:
+        multivalued: true
+        range: string
+  AnchorNode:
+    description: AnchorNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Anchor
+      id:
+        required: true
+        range: string
+      term:
+        required: true
+        range: AnchorTermSymbolNode
+        description: 'Discriminated union (lossy projection). Canonical variants: AnchorTermSymbolNode, AnchorTermClaimNode,
+          AnchorTermExprNode'
+      subtype:
+        required: true
+        range: string
+        description: 'One of: idealization, placeholder, proxy, aggregate'
+      status:
+        required: true
+        range: string
+        description: 'One of: active, inactive, counterfactual'
+      adequacyPolicy:
+        range: string
+      adequacy:
+        multivalued: true
+        range: AdequacyAssessmentNode
+      requiresJointWith:
+        multivalued: true
+        range: string
+  AnchorTermClaimNode:
+    description: AnchorTermClaimNode model
+    attributes:
+      kind:
+        range: string
+        equals_string: claim
+      value:
+        required: true
+        range: string
+  AnchorTermExprNode:
+    description: AnchorTermExprNode model
+    attributes:
+      kind:
+        range: string
+        equals_string: expr
+      expr:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+  AnchorTermSymbolNode:
+    description: AnchorTermSymbolNode model
+    attributes:
+      kind:
+        range: string
+        equals_string: symbol
+      value:
+        required: true
+        range: string
+  AssumptionNode:
+    description: AssumptionNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Assumption
+      id:
+        required: true
+        range: string
+      expr:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      status:
+        required: true
+        range: string
+        description: 'One of: active, suspended, counterfactual'
+      refs:
+        multivalued: true
+        range: string
+  BaselineNode:
+    description: BaselineNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Baseline
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: point, set, manifold, moving'
+      criterion:
+        required: true
+        range: CriterionExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: CriterionExprNode, CriterionRefNode'
+      frame:
+        required: true
+        range: FrameNode
+        description: 'Discriminated union (lossy projection). Canonical variants: FrameNode, FramePatternNode'
+      evaluationMode:
+        required: true
+        range: string
+        description: 'One of: fixed, on_reference, tracked'
+  BaselineRefTermNode:
+    description: BaselineRefTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: BaselineRefTerm
+      id:
+        required: true
+        range: string
+  BindingNode:
+    description: BindingNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Binding
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: equation, dataset, code, model, document, policy, ontology'
+      target:
+        required: true
+        range: string
+      version:
+        range: string
+      hash:
+        range: string
+  BooleanTermNode:
+    description: BooleanTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: BooleanTerm
+      value:
+        required: true
+        range: boolean
+  BridgeNode:
+    description: BridgeNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Bridge
+      id:
+        required: true
+        range: string
+      from:
+        required: true
+        range: FramePatternNode
+      to:
+        required: true
+        range: FramePatternNode
+      via:
+        required: true
+        range: string
+      preserve:
+        required: true
+        multivalued: true
+        range: string
+      lose:
+        required: true
+        multivalued: true
+        range: string
+      gain:
+        multivalued: true
+        range: string
+      risk:
+        multivalued: true
+        range: string
+      transport:
+        required: true
+        range: TransportNode
+  CausalExprNode:
+    description: CausalExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: CausalExpr
+      mode:
+        required: true
+        range: string
+        description: 'One of: obs, do'
+      lhs:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      rhs:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      intervention:
+        range: string
+        description: Mixed union type (lossy projection)
+  ClaimBlockNode:
+    description: ClaimBlockNode model
+    attributes:
+      node:
+        range: string
+        equals_string: ClaimBlock
+      id:
+        required: true
+        range: string
+      stratum:
+        required: true
+        range: string
+        description: 'One of: local, systemic, meta'
+      claims:
+        required: true
+        multivalued: true
+        range: ClaimNode
+  ClaimNode:
+    description: ClaimNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Claim
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: atomic, causal, dynamic, emergence, declaration, judgment, note, logical'
+      expr:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      usesAnchors:
+        multivalued: true
+        range: string
+      semanticRequirements:
+        multivalued: true
+        range: string
+      refs:
+        multivalued: true
+        range: string
+      annotations:
+        range: string
+        description: Open dict type (lossy projection)
+  CriterionExprNode:
+    description: CriterionExprNode model
+    attributes:
+      kind:
+        range: string
+        equals_string: expr
+      expr:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+  CriterionRefNode:
+    description: CriterionRefNode model
+    attributes:
+      kind:
+        range: string
+        equals_string: ref
+      ref:
+        required: true
+        range: string
+  DeclarationExprNode:
+    description: DeclarationExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: DeclarationExpr
+      term:
+        required: true
+        range: SymbolTermNode
+        description: 'Discriminated union (lossy projection). Canonical variants: SymbolTermNode, NumberTermNode, StringTermNode,
+          BooleanTermNode, UriTermNode, ListTermNode, BaselineRefTermNode, UnboundRefTermNode, NullTermNode'
+      declaredAs:
+        required: true
+        range: string
+      within:
+        range: string
+  DynamicExprNode:
+    description: DynamicExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: DynamicExpr
+      op:
+        required: true
+        range: string
+        description: 'One of: approaches, diverges, oscillates, cycles, transforms, crosses'
+      subject:
+        required: true
+        range: SymbolTermNode
+        description: 'Discriminated union (lossy projection). Canonical variants: SymbolTermNode, NumberTermNode, StringTermNode,
+          BooleanTermNode, UriTermNode, ListTermNode, BaselineRefTermNode, UnboundRefTermNode, NullTermNode'
+      target:
+        range: string
+      qualifiers:
+        range: string
+  EmergenceExprNode:
+    description: EmergenceExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: EmergenceExpr
+      property:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      onset:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      persistsWhile:
+        range: string
+      dissolvesWhen:
+        range: string
+      hysteresis:
+        range: string
+      witness:
+        multivalued: true
+        range: string
+  EvaluatorNode:
+    description: EvaluatorNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Evaluator
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: model, human, agent, institution, ensemble, process'
+      binding:
+        required: true
+        range: string
+      role:
+        range: string
+        description: 'One of: primary, adversarial, audit, auxiliary'
+      evidencePolicy:
+        range: string
+      inferencePolicy:
+        range: string
+      provenancePolicy:
+        range: string
+  EvidenceNode:
+    description: EvidenceNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Evidence
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: measurement, dataset, testimony, simulation, audit, derived'
+      binding:
+        required: true
+        range: string
+      observer:
+        range: string
+      time:
+        range: TimeCtxNode
+      completeness:
+        range: float
+      internalConflict:
+        range: float
+  EvidenceRelationNode:
+    description: EvidenceRelationNode model
+    attributes:
+      node:
+        range: string
+        equals_string: EvidenceRelation
+      id:
+        required: true
+        range: string
+      lhs:
+        required: true
+        range: string
+      rhs:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: corroborates, conflicts, depends_on, duplicate_of'
+      score:
+        range: float
+      refs:
+        multivalued: true
+        range: string
+  FacetValueMap:
+    description: FacetValueMap model
+    attributes:
+      system:
+        range: string
+      namespace:
+        range: string
+      scale:
+        range: string
+      task:
+        range: string
+      regime:
+        range: string
+      observer:
+        range: string
+      version:
+        range: string
+  FrameFacetOrderNode:
+    description: FrameFacetOrderNode model
+    attributes:
+      system:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      namespace:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      scale:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      task:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      regime:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      observer:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+      version:
+        required: true
+        range: string
+        description: Mixed union type (lossy projection)
+  FrameFacetPolicyNode:
+    description: FrameFacetPolicyNode model
+    attributes:
+      node:
+        range: string
+        equals_string: FrameFacetPolicy
+      id:
+        required: true
+        range: string
+      order:
+        required: true
+        range: FrameFacetOrderNode
+      independent:
+        multivalued: true
+        range: string
+      dependsOn:
+        multivalued: true
+        range: string
+  FrameNode:
+    description: FrameNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Frame
+      system:
+        required: true
+        range: string
+      namespace:
+        required: true
+        range: string
+      scale:
+        required: true
+        range: string
+      task:
+        required: true
+        range: string
+      regime:
+        required: true
+        range: string
+      observer:
+        range: string
+      version:
+        range: string
+      facetPolicy:
+        range: string
+  FramePatternNode:
+    description: FramePatternNode model
+    attributes:
+      node:
+        range: string
+        equals_string: FramePattern
+      facets:
+        required: true
+        range: FacetValueMap
+      facetPolicy:
+        range: string
+  JointAdequacyNode:
+    description: JointAdequacyNode model
+    attributes:
+      node:
+        range: string
+        equals_string: JointAdequacy
+      id:
+        required: true
+        range: string
+      anchors:
+        required: true
+        multivalued: true
+        range: string
+      adequacyPolicy:
+        range: string
+      assessments:
+        required: true
+        multivalued: true
+        range: AdequacyAssessmentNode
+  JudgedExprNode:
+    description: JudgedExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: JudgedExpr
+      expr:
+        required: true
+        range: PredicateExprNode
+        description: 'Discriminated union (lossy projection). Canonical variants: PredicateExprNode, LogicalExprNode, CausalExprNode,
+          DynamicExprNode, EmergenceExprNode, DeclarationExprNode, JudgedExprNode, NoteExprNode'
+      criterionRef:
+        required: true
+        range: string
+  ListTermNode:
+    description: ListTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: ListTerm
+      items:
+        required: true
+        multivalued: true
+        range: string
+        description: Array of discriminated union (lossy projection)
+  LogicalExprNode:
+    description: LogicalExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: LogicalExpr
+      op:
+        required: true
+        range: string
+        description: 'One of: not, and, or, implies, iff'
+      args:
+        required: true
+        multivalued: true
+        range: string
+        description: Array of discriminated union (lossy projection)
+  NoteExprNode:
+    description: NoteExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: NoteExpr
+      text:
+        required: true
+        range: string
+  NullTermNode:
+    description: NullTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: NullTerm
+  NumberTermNode:
+    description: NumberTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: NumberTerm
+      value:
+        required: true
+        range: float
+  PredicateExprNode:
+    description: PredicateExprNode model
+    attributes:
+      node:
+        range: string
+        equals_string: PredicateExpr
+      name:
+        required: true
+        range: string
+      args:
+        multivalued: true
+        range: string
+        description: Array of discriminated union (lossy projection)
+  ResolutionPolicyNode:
+    description: ResolutionPolicyNode model
+    attributes:
+      node:
+        range: string
+        equals_string: ResolutionPolicy
+      id:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: single, paraconsistent_union, priority_order, adjudicated'
+      members:
+        multivalued: true
+        range: string
+      order:
+        multivalued: true
+        range: string
+      binding:
+        range: string
+  StringTermNode:
+    description: StringTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: StringTerm
+      value:
+        required: true
+        range: string
+  SymbolTermNode:
+    description: SymbolTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: SymbolTerm
+      value:
+        required: true
+        range: string
+  TimeCtxNode:
+    description: TimeCtxNode model
+    attributes:
+      node:
+        range: string
+        equals_string: TimeCtx
+      kind:
+        required: true
+        range: string
+        description: 'One of: point, interval, window'
+      t:
+        range: string
+      start:
+        range: string
+      end:
+        range: string
+      lag:
+        range: string
+      step:
+        range: string
+  TransportNode:
+    description: TransportNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Transport
+      mode:
+        required: true
+        range: string
+        description: 'One of: metadata_only, preserve, degrade, remap_recompute'
+      claimMap:
+        range: string
+      truthPolicy:
+        range: string
+      preconditions:
+        multivalued: true
+        range: string
+      dstEvaluators:
+        multivalued: true
+        range: string
+      dstResolutionPolicy:
+        range: string
+  UnboundRefTermNode:
+    description: UnboundRefTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: UnboundRefTerm
+      kind:
+        required: true
+        range: string
+  UriTermNode:
+    description: UriTermNode model
+    attributes:
+      node:
+        range: string
+        equals_string: UriTerm
+      value:
+        required: true
+        range: string
