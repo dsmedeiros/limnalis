@@ -262,6 +262,34 @@ class TestCustomInjectedPrimitives:
         assert eval_expr_trace.result_summary == "ok"
 
 
+class TestServiceAdjudicatorWiring:
+    """Verify services['adjudicator'] is used when no explicit adjudicator is passed."""
+
+    def test_run_step_uses_services_adjudicator_for_adjudicated_policy(self):
+        bundle = _bundle(
+            policy=ResolutionPolicyNode(
+                id="pol",
+                kind="adjudicated",
+                members=["ev1"],
+                binding="test://adjudicator/service",
+            )
+        )
+
+        def service_adjudicator(per_evaluator):
+            return EvalNode(truth="T", reason="from_service", provenance=["service_adj"])
+
+        result = run_step(
+            bundle,
+            _session(),
+            _step(),
+            _env(),
+            services={"adjudicator": service_adjudicator},
+        )
+
+        assert result.per_claim_aggregates["c1"].truth == "T"
+        assert result.per_claim_aggregates["c1"].reason == "from_service"
+
+
 # ---------------------------------------------------------------------------
 # Fold block fallback
 # ---------------------------------------------------------------------------
@@ -449,6 +477,14 @@ class TestRunSession:
         assert result.baseline_states["bl_s2"] == {"status": "deferred"}
         assert result.adequacy_store["per_assessment"]["aa_s1"]["truth"] == "T"
         assert result.adequacy_store["per_assessment"]["aa_s2"]["truth"] == "F"
+
+    def test_run_session_does_not_expose_internal_fixture_adequacy_keys(self):
+        bundle = _bundle()
+        session = SessionConfig(id="sess1", steps=[StepConfig(id="s1")])
+
+        result = run_session(bundle, session, _env())
+
+        assert "__fixture_step_index__" not in result.adequacy_store
 
 class TestRunBundle:
     """Verify run_bundle executes all sessions."""

@@ -10,15 +10,24 @@ Submodules:
     normalizer   -- AST normalization pipeline
     evaluator    -- Step runner / evaluation engine
     conformance  -- Fixture-based conformance harness
+    plugins      -- Extension protocols and types for plugin authors
+    context      -- Context and state types for plugin implementations
+    results      -- Result types for plugin implementations
+    models       -- AST model types for plugin authors
 """
 
 from __future__ import annotations
 
-from . import conformance, evaluator, normalizer, parser
+from . import conformance, context, evaluator, models, normalizer, parser, plugins, results, services
 
 __all__ = [
     "conformance",
+    "context",
     "evaluator",
+    "models",
     "normalizer",
     "parser",
+    "plugins",
+    "results",
+    "services",
 ]

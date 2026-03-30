@@ -209,6 +209,7 @@ def run_step(
         primitives = PrimitiveSet()
     if services is None:
         services = {}
+    active_adjudicator = adjudicator or services.get("adjudicator")
 
     # Inject bundle into services for primitives that need it (e.g. evaluate_adequacy_set)
     services["__bundle__"] = bundle
@@ -223,6 +224,7 @@ def run_step(
     trace: list[PrimitiveTraceEvent] = []
     diags: Diagnostics = []
     machine = MachineState()
+    machine.adequacy_store["__fixture_step_index__"] = current_step_index
     step_ctx: StepContext | None = None
 
     # Collect all claims across blocks
@@ -590,7 +592,7 @@ def run_step(
     per_claim_aggregates: dict[str, EvalNode] = {}
     for claim_id, evals_by_ev in per_claim_per_evaluator.items():
         try:
-            agg = primitives.apply_resolution_policy(evals_by_ev, policy, adjudicator)
+            agg = primitives.apply_resolution_policy(evals_by_ev, policy, active_adjudicator)
             per_claim_aggregates[claim_id] = agg
         except Exception as exc:
             diags.append({
@@ -624,7 +626,7 @@ def run_step(
                 per_claim_per_evaluator,
                 classifications,
                 policy,
-                adjudicator,
+                active_adjudicator,
             )
             per_block_per_evaluator[block.id] = block_ev_evals
             per_block_aggregates[block.id] = block_agg
@@ -798,6 +800,8 @@ def run_session(
                 baseline_states[bid] = bs
 
         for key, value in machine.adequacy_store.items():
+            if str(key).startswith("__fixture_"):
+                continue
             if key in {"per_assessment", "per_anchor_task", "joint"} and isinstance(value, dict):
                 target = adequacy_store.setdefault(key, {})
                 if isinstance(target, dict):

@@ -1,41 +1,45 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 5c: COMPLETE — Final MEDIUM advisory remediation
+Milestone 5 (Extension SDK): COMPLETE
 
 ## Build Candidate
 {pending — ready for tagging}
 
-## Task Status — Milestones 5/5b (complete)
-All D1–D10, F1, R1–R6 DONE. Review loop PASS.
+## Task Status — Milestone 5 Extension SDK (complete)
 
-## Task Status — Milestone 5c (complete)
-| Task | Status | Scope | Group |
-|------|--------|-------|-------|
-| A1 _compare_block reverse evaluator check | DONE | core | G9 |
-| A2 D8 threshold + test_full_pipeline_determinism | DONE | tests | G10 |
-| A3 D9 unreachable assertions fix | DONE | tests | G10 |
-| A4 _compare_transport reverse evaluator check (reviewer finding) | DONE | core | G9-fix |
+| Group | Tasks | Status |
+|-------|-------|--------|
+| G1 | Extension SDK protocols + public API modules (A, H) | DONE |
+| G2 | Plugin registry and loading system (B) | DONE |
+| G3 | Fixture plugin pack (C) | DONE |
+| G4 | Grid example plugin pack (D) | DONE |
+| G5 | JWT/auth example plugin pack (E) | DONE |
+| G6 | Downstream consumer examples (F) | DONE |
+| G7 | Extension author docs/cookbook (G) | DONE |
+| G8 | Integration tests (I) | DONE |
+| G9 | CLI plugin commands + interop (B-CLI, J) | DONE |
 
 ## Active Delegation
 None — all delegations complete.
 
 ## Reviews
-- m5c-final-advisories: PASS_WITH_ADVISORIES (1 finding: _compare_transport blindness)
-- _compare_transport fix: implemented and verified (349 tests pass)
+- m5-extension-sdk: PASS (3 LOW non-blocking advisories)
 
 ## Test Results
-349 tests passing (up from 347), 16/16 conformance PASS
+439 tests passing (up from 350), 16/16 conformance PASS
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->
 
 ## Decisions Log
-- SPEC_VERSION single-sourced in version.py (red team S1 fix)
-- Allowlist error-priority reordered in conformance run (red team S2 fix)
-- TestExactSetMatching removed (tested Python builtins, not limnalis code)
+- Extension SDK uses pure re-export modules (no new logic in api/ layer)
+- Plugin registry keyed by (kind, plugin_id) tuples for deterministic lookup
+- Plugin packs are example-level implementations, not production-ready
+- fixtures.py uses internal imports (acceptable as package-internal module)
+- CLI plugins commands use demo registry with auto-discovery of installed packs
 
 ## Discovered Context
-- Runtime __init__.py is intentionally minimal; evaluator API re-exports come from runtime.runner
-- Adjudicator callable is a separate injection point on run_step, not part of PrimitiveSet
-- Exact-set matching for joint adequacy is inline in _compute_license_result, no standalone function
+- Consumer examples can use conformance runner for B1/B2 (fixture-backed bindings), demonstrating the plugin registration pattern alongside conformance
+- RegistryEvaluatorBindings uses "evaluator_id::expr_type" composite keys
+- build_services_from_registry bridges registry to runner's services dict format
