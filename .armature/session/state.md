@@ -21,7 +21,7 @@ Milestone 6A: Interoperability, exchange formats, and LinkML/export pipeline for
 | T10 | Optional JSON-LD/RDF note | completed | d9e778f |
 
 ## Active Delegation
-Red team review cycle — adversarial review of full M6A changeset
+{none — red team cycle complete, all findings resolved}
 
 ## Pending Reviews
 {none — all tasks reviewed PASS}
