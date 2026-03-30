@@ -812,7 +812,7 @@ def _run_conformance(args: argparse.Namespace) -> int:
     if args.conf_command == "run":
         return _run_conformance_run(args, corpus)
 
-    return 2
+    raise AssertionError(f"unreachable: unknown conformance subcommand {args.conf_command!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -1294,7 +1294,7 @@ def _run_plugins(args: argparse.Namespace) -> int:
         return _cmd_plugins_list(args)
     if args.plugins_command == "show":
         return _cmd_plugins_show(args)
-    return 2
+    raise AssertionError(f"unreachable: unknown plugins subcommand {args.plugins_command!r}")
 
 
 def _cmd_plugins_list(args: argparse.Namespace) -> int:
