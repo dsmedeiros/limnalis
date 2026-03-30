@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from pydantic import BaseModel, Field
 
 from limnalis.interop.types import ProjectionResult
 
@@ -27,14 +28,39 @@ _SOURCE_MODELS: dict[str, tuple[str, str]] = {
         "BundleNode",
     ),
     "evaluation_result": (
-        "limnalis.models.conformance",
-        "ExpectedResult",
-    ),
-    "conformance_report": (
-        "limnalis.models.conformance",
-        "ExpectedResult",
+        "limnalis.runtime.runner",
+        "BundleResult",
     ),
 }
+
+
+class ConformanceSummaryModel(BaseModel):
+    total: int
+    passed: int
+    failed: int
+    skipped: int
+    errors: int
+
+
+class ConformanceCaseResultModel(BaseModel):
+    case_id: str
+    name: str
+    status: str
+    mismatches: list[str] = Field(default_factory=list)
+    diagnostics_count: int = 0
+    schema_violations: list[str] | None = None
+    error: str | None = None
+    deviation_reason: str | None = None
+
+
+class ConformanceReportModel(BaseModel):
+    version: dict[str, Any]
+    total: int
+    passed: int
+    failed: int
+    errors: int
+    summary: ConformanceSummaryModel
+    cases: list[ConformanceCaseResultModel] = Field(default_factory=list)
 
 _LINKML_SCHEMA_IDS: dict[str, str] = {
     "ast": "https://limnalis.dev/schema/ast",
@@ -71,9 +97,14 @@ def project_linkml_schema(
     """
     import importlib
 
-    mod_path, cls_name = _SOURCE_MODELS[source_model]
-    mod = importlib.import_module(mod_path)
-    root_cls = getattr(mod, cls_name)
+    if source_model == "conformance_report":
+        mod_path = "limnalis.cli (conformance report JSON output)"
+        root_cls = ConformanceReportModel
+        cls_name = ConformanceReportModel.__name__
+    else:
+        mod_path, cls_name = _SOURCE_MODELS[source_model]
+        mod = importlib.import_module(mod_path)
+        root_cls = getattr(mod, cls_name)
 
     json_schema = root_cls.model_json_schema()
 

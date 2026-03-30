@@ -367,6 +367,15 @@ class TestExtractPackage:
         with pytest.raises(ValueError, match="output_dir must be different"):
             extract_package(pkg_dir, pkg_dir)
 
+    def test_extract_directory_to_ancestor_path_rejected(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "nested" / "pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        with pytest.raises(ValueError, match="output_dir must not contain package_path"):
+            extract_package(pkg_dir, tmp_path)
+
     def test_extract_zip_rejects_prefix_collision_traversal(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "malicious.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:

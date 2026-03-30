@@ -31,6 +31,29 @@ def test_project_conformance_report() -> None:
     assert result.source_model == "conformance_report"
 
 
+def test_evaluation_result_projection_matches_runtime_bundle_result(tmp_path: Path) -> None:
+    out = tmp_path / "eval_result.yaml"
+    project_linkml_schema("evaluation_result", output_path=out)
+
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert "BundleResult" in parsed["classes"]
+    attrs = parsed["classes"]["BundleResult"]["attributes"]
+    assert "bundle_id" in attrs
+    assert "session_results" in attrs
+    assert "diagnostics" in attrs
+
+
+def test_conformance_report_projection_matches_report_shape(tmp_path: Path) -> None:
+    out = tmp_path / "conformance_report.yaml"
+    project_linkml_schema("conformance_report", output_path=out)
+
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert "ConformanceReportModel" in parsed["classes"]
+    attrs = parsed["classes"]["ConformanceReportModel"]["attributes"]
+    assert "summary" in attrs
+    assert "cases" in attrs
+
+
 def test_output_file_written(tmp_path: Path) -> None:
     out = tmp_path / "schema.linkml.yaml"
     result = project_linkml_schema("ast", output_path=out)

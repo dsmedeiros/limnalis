@@ -1,7 +1,7 @@
 # ==========================================================================
 # THIS FILE IS A DERIVED PROJECTION — NOT THE CANONICAL SOURCE OF TRUTH.
 #
-# Generated from: LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.conformance.
+# Generated from: LinkML projection of the canonical Limnalis Pydantic models from limnalis.runtime.runner.
 # Canonical models live in the Pydantic model layer under src/limnalis/models/.
 #
 # Lossy / unsupported mappings:
@@ -14,72 +14,106 @@
 id: https://limnalis.dev/schema/results
 name: limnalis_results
 title: Limnalis Evaluation Result Schema (Projected)
-description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.conformance.
+description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.runtime.runner.
 
-  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/conformance.'
+  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/runtime/runner.'
 prefixes:
   linkml: https://w3id.org/linkml/
   limnalis: https://limnalis.dev/schema/
 default_range: string
 classes:
-  AdequacyExpectation:
-    description: AdequacyExpectation model
+  AnchorLicenseEntry:
+    description: Per-anchor adequacy result within a license evaluation.
     attributes:
+      anchor_id:
+        required: true
+        range: string
+      task:
+        required: true
+        range: string
       truth:
         required: true
         range: string
         description: 'One of: T, F, B, N'
       reason:
         range: string
-  BlockExpectation:
-    description: BlockExpectation model
+  BaselineState:
+    description: Runtime state of a baseline.
     attributes:
-      per_evaluator:
+      baseline_id:
         required: true
+        range: string
+      status:
+        range: string
+        description: 'One of: ready, deferred, unresolved'
+      value:
+        range: string
+  BlockResult:
+    description: Structured per-block evaluation result.
+    attributes:
+      block_id:
+        required: true
+        range: string
+      per_evaluator:
         range: string
         description: Open dict type (lossy projection)
       aggregate:
-        required: true
-        range: string
-        description: 'One of: T, F, B, N'
-      claimIds:
+        range: EvalNode
+      claims:
         multivalued: true
         range: string
-  ClaimExpectation:
-    description: ClaimExpectation model
+  ClaimClassification:
+    description: 'Result of classify_claim: whether a claim is evaluable.'
     attributes:
+      claim_id:
+        required: true
+        range: string
+      evaluable:
+        required: true
+        range: boolean
+      expr_kind:
+        required: true
+        range: string
+      reason:
+        range: string
+  ClaimEvidenceView:
+    description: Per-claim evidence view constructed by build_evidence_view.
+    attributes:
+      claim_id:
+        required: true
+        range: string
+      explicit_evidence:
+        multivalued: true
+        range: EvidenceNode
+      related_evidence:
+        multivalued: true
+        range: EvidenceNode
+      relations:
+        multivalued: true
+        range: EvidenceRelationNode
+      cross_conflict_score:
+        range: float
+      completeness_summary:
+        range: float
+  ClaimResult:
+    description: Structured per-claim evaluation result.
+    attributes:
+      claim_id:
+        required: true
+        range: string
+      classification:
+        range: ClaimClassification
       per_evaluator:
         range: string
-      aggregate:
-        range: EvalSnapshot
-      license:
-        range: ClaimLicenseExpectation
-  ClaimLicenseExpectation:
-    description: ClaimLicenseExpectation model
-    attributes:
-      overall:
-        range: EvalSnapshot
-      individual:
-        range: string
         description: Open dict type (lossy projection)
-      joint:
-        range: EvalSnapshot
-  DiagnosticExpectation:
-    description: DiagnosticExpectation model
-    attributes:
-      severity:
-        required: true
-        range: string
-        description: 'One of: info, warning, error'
-      code:
-        required: true
-        range: string
-      subject:
-        range: string
-      message:
-        range: string
-  EvalSnapshot:
-    description: EvalSnapshot model
+      aggregate:
+        range: EvalNode
+      license:
+        range: LicenseResult
+      is_evaluable:
+        range: boolean
+  EvalNode:
+    description: Assembled evaluation result for a single claim from a single evaluator.
     attributes:
       truth:
         required: true
@@ -95,58 +129,329 @@ classes:
       provenance:
         multivalued: true
         range: string
-  SessionExpectation:
-    description: SessionExpectation model
+  EvidenceNode:
+    description: EvidenceNode model
     attributes:
+      node:
+        range: string
+        equals_string: Evidence
       id:
         required: true
         range: string
-      steps:
+      kind:
+        required: true
+        range: string
+        description: 'One of: measurement, dataset, testimony, simulation, audit, derived'
+      binding:
+        required: true
+        range: string
+      observer:
+        range: string
+      time:
+        range: TimeCtxNode
+      completeness:
+        range: float
+      internalConflict:
+        range: float
+  EvidenceRelationNode:
+    description: EvidenceRelationNode model
+    attributes:
+      node:
+        range: string
+        equals_string: EvidenceRelation
+      id:
+        required: true
+        range: string
+      lhs:
+        required: true
+        range: string
+      rhs:
+        required: true
+        range: string
+      kind:
+        required: true
+        range: string
+        description: 'One of: corroborates, conflicts, depends_on, duplicate_of'
+      score:
+        range: float
+      refs:
+        multivalued: true
+        range: string
+  FacetValueMap:
+    description: FacetValueMap model
+    attributes:
+      system:
+        range: string
+      namespace:
+        range: string
+      scale:
+        range: string
+      task:
+        range: string
+      regime:
+        range: string
+      observer:
+        range: string
+      version:
+        range: string
+  FrameNode:
+    description: FrameNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Frame
+      system:
+        required: true
+        range: string
+      namespace:
+        required: true
+        range: string
+      scale:
+        required: true
+        range: string
+      task:
+        required: true
+        range: string
+      regime:
+        required: true
+        range: string
+      observer:
+        range: string
+      version:
+        range: string
+      facetPolicy:
+        range: string
+  FramePatternNode:
+    description: FramePatternNode model
+    attributes:
+      node:
+        range: string
+        equals_string: FramePattern
+      facets:
+        required: true
+        range: FacetValueMap
+      facetPolicy:
+        range: string
+  JointLicenseEntry:
+    description: Per-joint-group adequacy result within a license evaluation.
+    attributes:
+      joint_id:
+        required: true
+        range: string
+      anchors:
         required: true
         multivalued: true
-        range: StepExpectation
-  StepExpectation:
-    description: StepExpectation model
-    attributes:
-      id:
+        range: string
+      truth:
         required: true
         range: string
-      claims:
+        description: 'One of: T, F, B, N'
+      reason:
+        range: string
+  LicenseOverall:
+    description: Overall license truth and reason.
+    attributes:
+      truth:
+        required: true
+        range: string
+        description: 'One of: T, F, B, N'
+      reason:
+        range: string
+  LicenseResult:
+    description: Result of license composition for a claim.
+    attributes:
+      claim_id:
+        required: true
+        range: string
+      overall:
+        required: true
+        range: LicenseOverall
+      individual:
+        multivalued: true
+        range: AnchorLicenseEntry
+      joint:
+        multivalued: true
+        range: JointLicenseEntry
+      diagnostics:
+        multivalued: true
+        range: string
+  MachineState:
+    description: Top-level abstract machine state threaded through primitive operations.
+    attributes:
+      resolution_store:
+        range: ResolutionStore
+      baseline_store:
         range: string
         description: Open dict type (lossy projection)
-      blocks:
+      adequacy_store:
         range: string
         description: Open dict type (lossy projection)
-      transports:
+      license_store:
         range: string
         description: Open dict type (lossy projection)
-  TransportExpectation:
-    description: TransportExpectation model
+      evidence_views:
+        range: string
+        description: Open dict type (lossy projection)
+      transport_store:
+        range: string
+        description: Open dict type (lossy projection)
+      diagnostics:
+        multivalued: true
+        range: string
+  PrimitiveTraceEvent:
+    description: Records invocation of a primitive for tracing/debugging.
+    attributes:
+      phase:
+        required: true
+        range: integer
+      primitive:
+        required: true
+        range: string
+      inputs_summary:
+        range: string
+      result_summary:
+        range: string
+  ResolutionStore:
+    description: Accumulated resolution results keyed by claim id.
+    attributes:
+      results:
+        range: string
+        description: Open dict type (lossy projection)
+  SessionResult:
+    description: 'Result of executing all steps in a session.
+
+
+      Contains session-level state artifacts (baselines, adequacy store) aggregated
+
+      from the final step''s machine state.'
+    attributes:
+      session_id:
+        required: true
+        range: string
+      step_results:
+        multivalued: true
+        range: StepResult
+      baseline_states:
+        range: string
+        description: Open dict type (lossy projection)
+      adequacy_store:
+        range: string
+        description: Open dict type (lossy projection)
+      diagnostics:
+        multivalued: true
+        range: string
+  StepContext:
+    description: Effective evaluation context for a single step, produced by build_step_context.
+    attributes:
+      effective_frame:
+        required: true
+        range: FrameNode
+        description: 'Discriminated union (lossy projection). Canonical variants: FrameNode, FramePatternNode'
+      effective_time:
+        range: TimeCtxNode
+      effective_history:
+        range: string
+        description: Open dict type (lossy projection)
+      diagnostics:
+        multivalued: true
+        range: string
+  StepResult:
+    description: Complete result of executing a single evaluation step.
+    attributes:
+      step_id:
+        required: true
+        range: string
+      step_context:
+        range: StepContext
+      machine_state:
+        range: MachineState
+      per_claim_classifications:
+        range: string
+        description: Open dict type (lossy projection)
+      per_claim_per_evaluator:
+        range: string
+        description: Open dict type (lossy projection)
+      per_claim_aggregates:
+        range: string
+        description: Open dict type (lossy projection)
+      per_claim_licenses:
+        range: string
+        description: Open dict type (lossy projection)
+      per_block_per_evaluator:
+        range: string
+        description: Open dict type (lossy projection)
+      per_block_aggregates:
+        range: string
+        description: Open dict type (lossy projection)
+      claim_results:
+        multivalued: true
+        range: ClaimResult
+      block_results:
+        multivalued: true
+        range: BlockResult
+      transport_results:
+        range: string
+        description: Open dict type (lossy projection)
+      trace:
+        multivalued: true
+        range: PrimitiveTraceEvent
+      diagnostics:
+        multivalued: true
+        range: string
+  TimeCtxNode:
+    description: TimeCtxNode model
+    attributes:
+      node:
+        range: string
+        equals_string: TimeCtx
+      kind:
+        required: true
+        range: string
+        description: 'One of: point, interval, window'
+      t:
+        range: string
+      start:
+        range: string
+      end:
+        range: string
+      lag:
+        range: string
+      step:
+        range: string
+  TransportResult:
+    description: Result of executing a transport query for a bridge.
     attributes:
       status:
         required: true
         range: string
         description: 'One of: metadata_only, preserved, degraded, transported, blocked, unresolved, pattern_only'
-      sourceAggregate:
-        range: EvalSnapshot
+      srcAggregate:
+        range: EvalNode
       dstAggregate:
-        range: EvalSnapshot
+        range: EvalNode
+      metadata:
+        range: string
+        description: Open dict type (lossy projection)
+      mappedClaim:
+        range: string
       per_evaluator:
         range: string
-  ExpectedResult:
-    description: ExpectedResult model
-    attributes:
-      baseline_states:
-        range: string
         description: Open dict type (lossy projection)
-      sessions:
-        required: true
+      provenance:
         multivalued: true
-        range: SessionExpectation
-      adequacy_expectations:
         range: string
-        description: Open dict type (lossy projection)
       diagnostics:
-        required: true
         multivalued: true
-        range: DiagnosticExpectation
+        range: string
+  BundleResult:
+    description: Result of executing all sessions against a bundle.
+    attributes:
+      bundle_id:
+        required: true
+        range: string
+      session_results:
+        multivalued: true
+        range: SessionResult
+      diagnostics:
+        multivalued: true
+        range: string

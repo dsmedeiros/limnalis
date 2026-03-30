@@ -450,8 +450,19 @@ def extract_package(
                     raise ValueError(f"Path traversal detected in zip member: {member}")
             zf.extractall(output_dir)
     else:
-        if package_path.resolve() == output_dir.resolve():
+        resolved_package = package_path.resolve()
+        resolved_output = output_dir.resolve()
+        if resolved_package == resolved_output:
             raise ValueError("output_dir must be different from package_path")
+        package_inside_output = False
+        try:
+            resolved_package.relative_to(resolved_output)
+        except ValueError:
+            package_inside_output = False
+        else:
+            package_inside_output = True
+        if package_inside_output:
+            raise ValueError("output_dir must not contain package_path")
         if output_dir.exists():
             shutil.rmtree(output_dir)
         shutil.copytree(package_path, output_dir)
