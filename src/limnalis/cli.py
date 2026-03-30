@@ -1134,7 +1134,7 @@ def _cmd_export_result(args: argparse.Namespace) -> int:
     try:
         data = _load_data_file(args.path)
         output = export_result(data, output_format=args.format)
-    except (ValueError, OSError, RuntimeError) as exc:
+    except Exception as exc:
         _error(f"export-result failed: {exc}")
         return 1
     print(output)
@@ -1149,7 +1149,7 @@ def _cmd_export_conformance(args: argparse.Namespace) -> int:
         output = export_conformance(
             data, output_format=args.format, corpus_version=args.corpus_version
         )
-    except (ValueError, OSError, RuntimeError) as exc:
+    except Exception as exc:
         _error(f"export-conformance failed: {exc}")
         return 1
     print(output)

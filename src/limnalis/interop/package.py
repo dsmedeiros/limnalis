@@ -249,6 +249,10 @@ def validate_package(
                     if n.startswith(prefix) and n != prefix and "/" not in n[len(prefix):]
                 ]
 
+            packaged_files = {
+                n for n in zip_names if n != "manifest.json" and not n.endswith("/")
+            }
+
             # --- Check checksums ---
             for rel_path, expected_hash in manifest.checksums.items():
                 if not _file_exists(rel_path):
@@ -261,6 +265,10 @@ def validate_package(
                         f"Checksum mismatch for {rel_path}: "
                         f"expected {expected_hash}, got {actual_hash}"
                     )
+
+            extra_files = sorted(packaged_files - set(manifest.checksums))
+            for rel_path in extra_files:
+                issues.append(f"File present but not listed in checksums: {rel_path}")
 
             # --- Check artifact_types vs directories ---
             type_to_dir = {v: k for k, v in _DIR_TO_ARTIFACT_TYPE.items()}
@@ -322,6 +330,12 @@ def validate_package(
                 return []
             return [f.name for f in d.iterdir() if f.is_file()]
 
+        packaged_files = {
+            str(p.relative_to(package_path)).replace("\\", "/")
+            for p in package_path.rglob("*")
+            if p.is_file() and p.name != "manifest.json"
+        }
+
         # --- Check checksums ---
         for rel_path, expected_hash in manifest.checksums.items():
             if not _file_exists(rel_path):
@@ -334,6 +348,10 @@ def validate_package(
                     f"Checksum mismatch for {rel_path}: "
                     f"expected {expected_hash}, got {actual_hash}"
                 )
+
+        extra_files = sorted(packaged_files - set(manifest.checksums))
+        for rel_path in extra_files:
+            issues.append(f"File present but not listed in checksums: {rel_path}")
 
         # --- Check artifact_types vs directories ---
         type_to_dir = {v: k for k, v in _DIR_TO_ARTIFACT_TYPE.items()}

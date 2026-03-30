@@ -83,6 +83,17 @@ def test_export_result(tmp_path: Path, capsys) -> None:
     assert "evaluation_result" in payload
 
 
+def test_export_result_invalid_yaml_returns_error(tmp_path: Path, capsys) -> None:
+    result_file = tmp_path / "bad_result.yaml"
+    result_file.write_text("foo: [bar", encoding="utf-8")
+
+    code = main(["export-result", str(result_file)])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "export-result failed" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # export-conformance
 # ---------------------------------------------------------------------------
@@ -103,6 +114,17 @@ def test_export_conformance(tmp_path: Path, capsys) -> None:
     assert "spec_version" in payload
     assert payload["artifact_kind"] == "conformance_report"
     assert "report" in payload
+
+
+def test_export_conformance_invalid_yaml_returns_error(tmp_path: Path, capsys) -> None:
+    report_file = tmp_path / "bad_report.yaml"
+    report_file.write_text("report: [", encoding="utf-8")
+
+    code = main(["export-conformance", str(report_file)])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "export-conformance failed" in captured.err
 
 
 # ---------------------------------------------------------------------------

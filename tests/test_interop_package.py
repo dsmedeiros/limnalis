@@ -227,6 +227,27 @@ class TestValidatePackage:
         issues = validate_package(pkg_dir)
         assert any("not found" in i for i in issues)
 
+    def test_catches_unchecksummed_extra_files_in_directory(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "extra_file_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+        (pkg_dir / "source" / "evil.lmn").write_text("# injected", encoding="utf-8")
+
+        issues = validate_package(pkg_dir)
+        assert any("not listed in checksums" in i for i in issues)
+
+    def test_catches_unchecksummed_extra_files_in_zip(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        zip_path = tmp_path / "extra_file.zip"
+        create_package(zip_path, source_files=[source_file], output_format="zip")
+        with zipfile.ZipFile(zip_path, "a") as zf:
+            zf.writestr("source/evil.lmn", "# injected")
+
+        issues = validate_package(zip_path)
+        assert any("not listed in checksums" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # extract_package
