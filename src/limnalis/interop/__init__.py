@@ -6,6 +6,18 @@ from limnalis.interop.envelopes import (
     ResultEnvelope,
     SourceInfo,
 )
+from limnalis.interop.export import (
+    envelope_to_dict,
+    export_ast,
+    export_ast_from_dict,
+    export_conformance,
+    export_result,
+)
+from limnalis.interop.import_ import (
+    import_ast_envelope,
+    import_conformance_envelope,
+    import_result_envelope,
+)
 from limnalis.interop.types import (
     SCHEMA_VERSION,
     SPEC_VERSION,
@@ -25,5 +37,13 @@ __all__ = [
     "SCHEMA_VERSION",
     "SPEC_VERSION",
     "SourceInfo",
+    "envelope_to_dict",
+    "export_ast",
+    "export_ast_from_dict",
+    "export_conformance",
+    "export_result",
     "get_package_version",
+    "import_ast_envelope",
+    "import_conformance_envelope",
+    "import_result_envelope",
 ]
