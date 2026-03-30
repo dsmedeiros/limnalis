@@ -49,6 +49,17 @@ def test_export_ast_nonexistent_file(capsys) -> None:
     assert "error:" in captured.err
 
 
+def test_export_ast_invalid_source_returns_error(tmp_path: Path, capsys) -> None:
+    invalid = tmp_path / "invalid.lmn"
+    invalid.write_text("this is not valid limnalis syntax", encoding="utf-8")
+
+    code = main(["export-ast", str(invalid)])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "export-ast failed" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # export-result
 # ---------------------------------------------------------------------------

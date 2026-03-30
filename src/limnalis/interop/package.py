@@ -100,9 +100,15 @@ def create_package(
             sub_dir = build_root / sub_dir_name
             sub_dir.mkdir(exist_ok=True)
             artifact_types.append(_DIR_TO_ARTIFACT_TYPE[sub_dir_name])
+            seen_names: set[str] = set()
 
             for src in files:
                 src_path = Path(src)
+                if src_path.name in seen_names:
+                    raise ValueError(
+                        f"Duplicate basename in {sub_dir_name} artifacts: {src_path.name}"
+                    )
+                seen_names.add(src_path.name)
                 dest = sub_dir / src_path.name
                 shutil.copy2(src_path, dest)
                 rel = f"{sub_dir_name}/{src_path.name}"
@@ -154,8 +160,14 @@ def inspect_package(
     package_path = Path(package_path)
 
     if _is_zip_package(package_path):
-        with zipfile.ZipFile(package_path, "r") as zf:
-            manifest_text = zf.read("manifest.json").decode("utf-8")
+        try:
+            with zipfile.ZipFile(package_path, "r") as zf:
+                try:
+                    manifest_text = zf.read("manifest.json").decode("utf-8")
+                except KeyError as exc:
+                    raise ValueError("manifest.json not found in package") from exc
+        except zipfile.BadZipFile as exc:
+            raise ValueError("Package is not a valid zip file") from exc
         root_str = str(package_path)
     else:
         manifest_file = package_path / "manifest.json"

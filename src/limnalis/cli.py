@@ -1121,7 +1121,7 @@ def _cmd_export_ast(args: argparse.Namespace) -> int:
 
     try:
         output = export_ast(args.path, output_format=args.format)
-    except (ValueError, OSError, RuntimeError) as exc:
+    except Exception as exc:
         _error(f"export-ast failed: {exc}")
         return 1
     print(output)

@@ -124,6 +124,23 @@ class TestCreatePackage:
             ).hexdigest()
             assert actual == expected_hash
 
+    def test_rejects_duplicate_basenames_within_artifact_group(self, tmp_path: Path) -> None:
+        first_dir = tmp_path / "a"
+        second_dir = tmp_path / "b"
+        first_dir.mkdir()
+        second_dir.mkdir()
+        first = first_dir / "same.lmn"
+        second = second_dir / "same.lmn"
+        first.write_text("# first", encoding="utf-8")
+        second.write_text("# second", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Duplicate basename"):
+            create_package(
+                tmp_path / "dup_pkg",
+                source_files=[first, second],
+                output_format="directory",
+            )
+
 
 # ---------------------------------------------------------------------------
 # inspect_package
@@ -148,6 +165,14 @@ class TestInspectPackage:
         meta = inspect_package(zip_path)
         assert isinstance(meta, ExchangePackageMetadata)
         assert "source" in meta.manifest.artifact_types
+
+    def test_inspect_zip_missing_manifest_raises_value_error(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "no_manifest.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("source/file.lmn", "# content")
+
+        with pytest.raises(ValueError, match="manifest.json not found"):
+            inspect_package(zip_path)
 
 
 # ---------------------------------------------------------------------------
