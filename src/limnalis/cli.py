@@ -1238,6 +1238,15 @@ def _cmd_project_linkml(args: argparse.Namespace) -> int:
     from .interop import project_linkml_schema
 
     try:
+        if args.output is None:
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_output = Path(tmp_dir) / "projected.linkml.yaml"
+                project_linkml_schema(args.target, output_path=tmp_output)
+                print(tmp_output.read_text(encoding="utf-8"))
+            return 0
+
         result = project_linkml_schema(args.target, output_path=args.output)
     except (ValueError, OSError, RuntimeError) as exc:
         _error(f"project-linkml failed: {exc}")

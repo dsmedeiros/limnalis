@@ -124,6 +124,17 @@ class TestCreatePackage:
             ).hexdigest()
             assert actual == expected_hash
 
+    def test_recreate_directory_package_clears_stale_files(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "stale_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+        (pkg_dir / "source" / "stale.lmn").write_text("# stale", encoding="utf-8")
+
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+        issues = validate_package(pkg_dir)
+        assert issues == []
+
     def test_rejects_duplicate_basenames_within_artifact_group(self, tmp_path: Path) -> None:
         first_dir = tmp_path / "a"
         second_dir = tmp_path / "b"

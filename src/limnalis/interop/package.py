@@ -87,6 +87,11 @@ def create_package(
     else:
         tmp_dir_obj = None
         build_root = output_path
+        if build_root.exists():
+            if build_root.is_dir():
+                shutil.rmtree(build_root)
+            else:
+                build_root.unlink()
         build_root.mkdir(parents=True, exist_ok=True)
 
     try:

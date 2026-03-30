@@ -163,6 +163,13 @@ class _JsonSchemaToLinkML:
                 if cls is not None:
                     classes[def_name] = cls
 
+        # Convert root schema class (model_json_schema top-level object), which
+        # is not guaranteed to be duplicated under $defs.
+        if self.root_class_name not in classes:
+            root_cls = self._convert_class(self.root_class_name, json_schema)
+            if root_cls is not None:
+                classes[self.root_class_name] = root_cls
+
         # Build the top-level LinkML document
         doc: dict[str, Any] = {
             "id": self.schema_id,

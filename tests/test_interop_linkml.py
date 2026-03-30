@@ -89,3 +89,12 @@ def test_generated_yaml_has_expected_top_level_keys(tmp_path: Path) -> None:
     assert "classes" in parsed
     assert "prefixes" in parsed
     assert "default_range" in parsed
+
+
+def test_projection_includes_root_entrypoint_class(tmp_path: Path) -> None:
+    out = tmp_path / "schema.linkml.yaml"
+    project_linkml_schema("ast", output_path=out)
+
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert "classes" in parsed
+    assert "BundleNode" in parsed["classes"]

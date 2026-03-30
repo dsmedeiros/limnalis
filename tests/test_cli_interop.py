@@ -199,10 +199,9 @@ def test_project_linkml_default(capsys) -> None:
 
     captured = capsys.readouterr()
     assert code == 0
-    payload = json.loads(captured.out)
-    assert payload["status"] == "ok"
-    assert payload["source_model"] == "ast"
-    assert payload["target_format"] == "linkml"
+    payload = yaml.safe_load(captured.out)
+    assert payload["id"] == "https://limnalis.dev/schema/ast"
+    assert "classes" in payload
 
 
 def test_project_linkml_evaluation_result(capsys) -> None:
@@ -210,9 +209,8 @@ def test_project_linkml_evaluation_result(capsys) -> None:
 
     captured = capsys.readouterr()
     assert code == 0
-    payload = json.loads(captured.out)
-    assert payload["status"] == "ok"
-    assert payload["source_model"] == "evaluation_result"
+    payload = yaml.safe_load(captured.out)
+    assert payload["id"] == "https://limnalis.dev/schema/results"
 
 
 # ---------------------------------------------------------------------------
