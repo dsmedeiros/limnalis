@@ -16,9 +16,7 @@ name: limnalis_results
 title: Limnalis Evaluation Result Schema (Projected)
 description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.conformance.
 
-  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/conformance.
-
-  Generated: 2026-03-30T14:04:23Z'
+  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/conformance.'
 prefixes:
   linkml: https://w3id.org/linkml/
   limnalis: https://limnalis.dev/schema/
@@ -135,3 +133,20 @@ classes:
         range: EvalSnapshot
       per_evaluator:
         range: string
+  ExpectedResult:
+    description: ExpectedResult model
+    attributes:
+      baseline_states:
+        range: string
+        description: Open dict type (lossy projection)
+      sessions:
+        required: true
+        multivalued: true
+        range: SessionExpectation
+      adequacy_expectations:
+        range: string
+        description: Open dict type (lossy projection)
+      diagnostics:
+        required: true
+        multivalued: true
+        range: DiagnosticExpectation

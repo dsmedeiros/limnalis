@@ -16,9 +16,7 @@ name: limnalis_ast
 title: Limnalis Ast Schema (Projected)
 description: 'LinkML projection of the canonical Limnalis Pydantic models from limnalis.models.ast.
 
-  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/ast.
-
-  Generated: 2026-03-30T14:04:22Z'
+  This is a DERIVED artifact — the canonical source of truth is the Pydantic model layer in limnalis/models/ast.'
 prefixes:
   linkml: https://w3id.org/linkml/
   limnalis: https://limnalis.dev/schema/
@@ -756,3 +754,56 @@ classes:
       value:
         required: true
         range: string
+  BundleNode:
+    description: BundleNode model
+    attributes:
+      node:
+        range: string
+        equals_string: Bundle
+      id:
+        required: true
+        range: string
+      frame:
+        required: true
+        range: FrameNode
+        description: 'Discriminated union (lossy projection). Canonical variants: FrameNode, FramePatternNode'
+      evaluators:
+        required: true
+        multivalued: true
+        range: EvaluatorNode
+      resolutionPolicy:
+        required: true
+        range: ResolutionPolicyNode
+      time:
+        range: TimeCtxNode
+      bindings:
+        multivalued: true
+        range: BindingNode
+      facetPolicies:
+        multivalued: true
+        range: FrameFacetPolicyNode
+      assumptions:
+        multivalued: true
+        range: AssumptionNode
+      baselines:
+        multivalued: true
+        range: BaselineNode
+      evidence:
+        multivalued: true
+        range: EvidenceNode
+      evidenceRelations:
+        multivalued: true
+        range: EvidenceRelationNode
+      anchors:
+        multivalued: true
+        range: AnchorNode
+      jointAdequacies:
+        multivalued: true
+        range: JointAdequacyNode
+      bridges:
+        multivalued: true
+        range: BridgeNode
+      claimBlocks:
+        required: true
+        multivalued: true
+        range: ClaimBlockNode

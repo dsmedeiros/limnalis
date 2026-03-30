@@ -188,6 +188,16 @@ class TestImportASTEnvelope:
         assert isinstance(env, ASTEnvelope)
         assert env.normalized_ast == sample_ast_dict
 
+    def test_from_json_file_path_string(
+        self, tmp_path: Path, sample_ast_dict: dict
+    ) -> None:
+        exported = export_ast_from_dict(sample_ast_dict, output_format="json")
+        p = tmp_path / "test_ast_string_path.json"
+        p.write_text(exported, encoding="utf-8")
+        env = import_ast_envelope(str(p))
+        assert isinstance(env, ASTEnvelope)
+        assert env.normalized_ast == sample_ast_dict
+
     def test_string_without_format_raises(self, sample_ast_dict: dict) -> None:
         exported = export_ast_from_dict(sample_ast_dict, output_format="json")
         with pytest.raises(ValueError, match="input_format parameter is required"):
@@ -232,6 +242,14 @@ class TestRoundTrips:
         assert env.evaluation_result == sample_result_data
         assert env.artifact_kind == "evaluation_result"
         assert env.spec_version == SPEC_VERSION
+
+    def test_result_round_trip_from_path_string(self, tmp_path: Path, sample_result_data: dict) -> None:
+        exported = export_result(sample_result_data, output_format="json")
+        p = tmp_path / "result_env.json"
+        p.write_text(exported, encoding="utf-8")
+        env = import_result_envelope(str(p))
+        assert isinstance(env, ResultEnvelope)
+        assert env.evaluation_result == sample_result_data
 
     def test_conformance_round_trip(self, sample_conformance_report: dict) -> None:
         exported = export_conformance(

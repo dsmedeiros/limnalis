@@ -57,7 +57,18 @@ def _load_input(
         resolved_format = input_format or _detect_format(data)
         return _parse_text(text, input_format=resolved_format)
 
-    # str input: require explicit format
+    # str input: if it points to an existing file, treat it as a file path.
+    candidate_path = Path(data)
+    try:
+        candidate_exists = candidate_path.exists()
+    except OSError:
+        candidate_exists = False
+    if candidate_exists:
+        text = candidate_path.read_text(encoding="utf-8")
+        resolved_format = input_format or _detect_format(candidate_path)
+        return _parse_text(text, input_format=resolved_format)
+
+    # Otherwise treat str as raw serialized content and require explicit format.
     if input_format is None:
         raise ValueError(
             "input_format parameter is required when importing from a string; "
