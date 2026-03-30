@@ -310,6 +310,21 @@ class TestExtractPackage:
         assert (extract_dir / "source" / source_file.name).is_file()
         assert (extract_dir / "ast" / ast_file.name).is_file()
 
+    def test_extract_from_zip_clears_existing_output_dir(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        zip_path = tmp_path / "extract_clean.zip"
+        create_package(zip_path, source_files=[source_file], output_format="zip")
+
+        extract_dir = tmp_path / "extracted_clean"
+        extract_dir.mkdir()
+        stale = extract_dir / "stale.txt"
+        stale.write_text("old", encoding="utf-8")
+
+        extract_package(zip_path, extract_dir)
+        assert not stale.exists()
+        assert (extract_dir / "manifest.json").is_file()
+
     def test_extract_from_directory(
         self, tmp_path: Path, source_file: Path
     ) -> None:

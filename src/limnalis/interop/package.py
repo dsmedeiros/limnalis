@@ -410,6 +410,19 @@ def extract_package(
     output_dir = Path(output_dir)
 
     if _is_zip_package(package_path):
+        if output_dir.exists():
+            resolved_output = output_dir.resolve()
+            resolved_package = package_path.resolve()
+            package_inside_output = False
+            try:
+                resolved_package.relative_to(resolved_output)
+            except ValueError:
+                package_inside_output = False
+            else:
+                package_inside_output = True
+            if package_inside_output:
+                raise ValueError("output_dir must not contain package_path when extracting zip")
+            shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(package_path, "r") as zf:
             resolved_output = output_dir.resolve()
