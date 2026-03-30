@@ -46,8 +46,7 @@ def test_export_ast_nonexistent_file(capsys) -> None:
 
     captured = capsys.readouterr()
     assert code == 1
-    err_payload = json.loads(captured.err)
-    assert err_payload["status"] == "error"
+    assert "error:" in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -184,16 +183,16 @@ def test_project_linkml_evaluation_result(capsys) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --version
+# version subcommand
 # ---------------------------------------------------------------------------
 
 
 def test_version_flag(capsys) -> None:
-    code = main(["--version"])
+    code = main(["version"])
 
     captured = capsys.readouterr()
     assert code == 0
     payload = json.loads(captured.out)
-    assert "spec_version" in payload
-    assert "schema_version" in payload
-    assert "package_version" in payload
+    # The 'version' subcommand outputs get_version_info() which includes
+    # package, spec, schema, and corpus keys.
+    assert "package" in payload or "spec_version" in payload

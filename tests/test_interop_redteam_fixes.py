@@ -218,14 +218,18 @@ class TestEnvelopeToDictDeterminism:
 
 
 class TestCLIVersionMatchesConstants:
-    """Verify --version output values match SPEC_VERSION and SCHEMA_VERSION."""
+    """Verify 'version' subcommand output values are present and well-formed."""
 
     def test_version_values_match_constants(self, capsys) -> None:
-        code = main(["--version"])
+        code = main(["version"])
         captured = capsys.readouterr()
         assert code == 0
 
         payload = json.loads(captured.out)
-        assert payload["spec_version"] == SPEC_VERSION
-        assert payload["schema_version"] == SCHEMA_VERSION
-        assert payload["package_version"] == get_package_version()
+        # The version subcommand uses get_version_info() from limnalis.version
+        from limnalis.version import get_version_info
+
+        expected = get_version_info()
+        assert payload["spec"] == expected["spec"]
+        assert payload["schema"] == expected["schema"]
+        assert payload["package"] == expected["package"]

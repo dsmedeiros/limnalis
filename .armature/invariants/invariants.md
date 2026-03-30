@@ -120,7 +120,7 @@ Enforcement: `test_loader.py`, review process.
 ## Runtime Execution
 
 **RUNTIME-001 — Phase Ordering** (high)
-Rule: The step runner must execute all 12 phases in strict ascending order (1-12). Phase ordering must not be altered without a spec change.
+Rule: The step runner must execute all 13 phases in strict ascending order (1-13). Phase ordering must not be altered without a spec change.
 Rationale: The evaluation model depends on phase ordering — evidence views must exist before claim classification, classification before expression evaluation, etc. Out-of-order execution produces incorrect results.
 Enforcement: `test_runtime_runner.py` phase trace assertions.
 

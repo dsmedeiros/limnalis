@@ -9,6 +9,7 @@ from typing import Any
 from lark import Token, Tree
 from pydantic import ValidationError
 
+from . import SPEC_VERSION
 from .diagnostics import Diagnostic, SourcePosition, SourceSpan
 from .models.ast import (
     AdequacyAssessmentNode,
@@ -96,12 +97,13 @@ class Normalizer:
         "order": "order",
         "binding": "binding",
     }
-    _LOGICAL_OPERATORS = {
-        "AND": "and",
-        "IFF": "iff",
-        "IMPLIES": "implies",
-        "OR": "or",
-    }
+    # Ordered by precedence: first match wins (highest precedence first)
+    _LOGICAL_OPERATORS = [
+        ("AND", "and"),
+        ("IFF", "iff"),
+        ("IMPLIES", "implies"),
+        ("OR", "or"),
+    ]
     _CAUSAL_RE = re.compile(r"^=>\[(?P<mode>obs|do)(?::(?P<intervention>.+))?\]$")
     _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
@@ -300,7 +302,7 @@ class Normalizer:
                     code="evaluator_kind_canonicalized",
                     message=(
                         "Canonicalized authored evaluator kind 'audit' to canonical "
-                        "AST kind 'process' because schema v0.2.2 does not admit "
+                        f"AST kind 'process' because schema {SPEC_VERSION} does not admit "
                         "'audit' as an Evaluator.kind value."
                     ),
                     source_node=source_tree,
@@ -1030,7 +1032,7 @@ class Normalizer:
                     op="not",
                     args=[self._parse_expr_text(inner[4:].strip())],
                 )
-            for token, op in self._LOGICAL_OPERATORS.items():
+            for token, op in self._LOGICAL_OPERATORS:
                 parts = self._split_top_level(inner, f" {token} ")
                 if len(parts) > 1:
                     return LogicalExprNode(

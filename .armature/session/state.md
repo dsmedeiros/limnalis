@@ -4,7 +4,7 @@
 Milestone 6A: Interoperability, exchange formats, and LinkML/export pipeline for Limnalis v0.2.2
 
 ## Build Candidate
-{none}
+{pending — ready for tagging}
 
 ## Task Status
 | Task | Description | Status | Depends |
@@ -33,5 +33,13 @@ MODEL-001, MODEL-002, SCHEMA-001, NORM-001
 <!-- APPEND-ONLY BELOW THIS LINE -->
 
 ## Decisions Log
+- Extension SDK uses pure re-export modules (no new logic in api/ layer)
+- Plugin registry keyed by (kind, plugin_id) tuples for deterministic lookup
+- Plugin packs are example-level implementations, not production-ready
+- fixtures.py uses internal imports (acceptable as package-internal module)
+- CLI plugins commands use demo registry with auto-discovery of installed packs
 
 ## Discovered Context
+- Consumer examples can use conformance runner for B1/B2 (fixture-backed bindings), demonstrating the plugin registration pattern alongside conformance
+- RegistryEvaluatorBindings uses "evaluator_id::expr_type" composite keys
+- build_services_from_registry bridges registry to runner's services dict format

@@ -95,6 +95,8 @@ def test_normalizer_handles_frame_blocks_and_logical_claims() -> None:
 
 @pytest.mark.parametrize(
     "case_id",
+    # A4 excluded: its moving+fixed baseline fails schema validation;
+    # it has a dedicated test below (test_normalizer_accepts_invalid_moving_baseline_fixture).
     sorted(case_id for case_id in FIXTURE_CASES if case_id != "A4"),
 )
 def test_fixture_corpus_cases_normalize_to_schema_valid_ast(case_id: str) -> None:
@@ -103,13 +105,13 @@ def test_fixture_corpus_cases_normalize_to_schema_valid_ast(case_id: str) -> Non
     assert result.canonical_ast.id == FIXTURE_CASES[case_id]["source"].split()[1]
 
 
-def test_normalizer_rejects_invalid_moving_baseline_fixture() -> None:
+def test_normalizer_accepts_invalid_moving_baseline_fixture() -> None:
+    """A4 moving+fixed baseline normalizes OK; validation is at runtime."""
     tree = LimnalisParser().parse_text(FIXTURE_CASES["A4"]["source"])
-
-    with pytest.raises(
-        NormalizationError, match="moving baselines require evaluationMode='tracked'"
-    ):
-        Normalizer().normalize(tree)
+    result = Normalizer().normalize(tree)
+    baselines = {bl.id: bl for bl in result.canonical_ast.baselines}
+    assert baselines["b_invalid"].kind == "moving"
+    assert baselines["b_invalid"].evaluationMode == "fixed"
 
 
 def test_normalizer_synthesizes_ids_for_authored_adequacy_blocks() -> None:
@@ -184,3 +186,13 @@ def test_normalizer_emits_compatibility_diagnostics_for_surface_only_forms() -> 
     assert [diagnostic["code"] for diagnostic in a12.diagnostics] == [
         "extra_resolution_policy_omitted"
     ]
+
+
+def test_a4_public_api_rejects_moving_fixed_baseline() -> None:
+    """Public API enforces schema: moving+fixed baseline raises SchemaValidationError."""
+    from limnalis.api.normalizer import normalize_surface_text
+    from limnalis.schema import SchemaValidationError
+
+    source = FIXTURE_CASES["A4"]["source"]
+    with pytest.raises(SchemaValidationError):
+        normalize_surface_text(source, validate_schema=True)
