@@ -243,3 +243,30 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Reviews:** 8 reviewer verdicts (7 PASS_WITH_ADVISORIES, 1 initial FAIL remediated to PASS). Non-blocking advisories: BaseModel vs LimnalisModel consistency, duplicate SummaryScope, transport.py import style, API import-only assertions.
 
 **Approved by:** Orchestrator (all reviewer verdicts received, all tests pass)
+
+## 2026-03-31 — Milestone 6B: Red Team Review Cycle
+
+**Event:** Red team adversarial review of full M6B changeset, followed by fix cycle and clean re-review.
+
+**Red team findings:** 1 CRITICAL, 2 HIGH, 4 MEDIUM, 4 LOW.
+
+**Critical fix applied:**
+- C1: CLI `summarize` command crashed with TypeError — wrong args to `execute_summary` and missing `model_dump()` on BundleResult
+
+**High fixes applied:**
+- H1: `adequate=True` with `failure_kind="method_conflict"` was semantically contradictory — divergence now produces diagnostic warning, not failure_kind
+- H2: Added 6 CLI tests for `summarize` and `list-summary-policies` commands
+
+**Low fixes applied:**
+- L2: Removed unused `_SUMMARY_SEVERITY_RANK_TO_TRUTH` variable
+- L3: Consolidated redundant `Protocol` imports
+
+**Medium findings documented (not fixed — intentional design):**
+- M1: Duplicate SummaryScope definition (ast.py + conformance.py) — consolidation deferred
+- M2: New conformance.py types use BaseModel not LimnalisModel — intentional for runtime types
+- M3: Scope inconsistency between policies for block scope — PassthroughNormative reads per_block_aggregates while others read block_results
+- M4: First-trace-only in paraconsistent aggregation — information loss noted
+
+**Re-review verdict:** ALL 5 findings FIXED. 653 tests passing. No new issues introduced.
+
+**Approved by:** Orchestrator (red team cycle 2 PASS)
