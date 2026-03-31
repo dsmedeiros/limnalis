@@ -33,6 +33,7 @@ from ..models.ast import (
     FrameNode,
     FrameOrPatternNode,
     FramePatternNode,
+    InferredEvidenceRelation,
     JointAdequacyNode,
     JudgedExprNode,
     LogicalExprNode,
@@ -44,7 +45,12 @@ from ..models.ast import (
     TransportNode,
     TransportPlan,
 )
-from ..models.conformance import TransportTrace, TruthValue
+from ..models.conformance import (
+    AdequacyExecutionTrace,
+    BasisResolutionEntry,
+    TransportTrace,
+    TruthValue,
+)
 from .models import (
     AdequacyResult,
     AnchorAdequacyResult,
@@ -3349,3 +3355,524 @@ def run_summaries(
         execute_summary(request, eval_results, services, policies)
         for request in requests
     ]
+
+
+# ===================================================================
+# T4: EVIDENCE INFERENCE LAYER + STRONGER ADEQUACY EXECUTION
+# ===================================================================
+#
+# Part A: Evidence inference (opt-in).
+# Part B: Basis-driven adequacy execution with contested aggregation.
+#
+# These are additive functions. They do NOT modify existing
+# primitives, PrimitiveSet, or runner phases.
+# ===================================================================
+
+from typing import Protocol as _TypingProtocol, runtime_checkable as _runtime_checkable
+
+
+# ---------------------------------------------------------------------------
+# Part A: Evidence Inference
+# ---------------------------------------------------------------------------
+
+
+@_runtime_checkable
+class EvidenceInferencePolicyProtocol(_TypingProtocol):
+    """Protocol for evidence inference policies.
+
+    Implementations receive declared evidence and relations, then produce
+    inferred evidence relations that complement (but do not replace) the
+    declared ones.
+    """
+
+    def infer(
+        self,
+        evidence: list[EvidenceNode],
+        declared_relations: list[EvidenceRelationNode],
+        services: dict[str, Any],
+    ) -> list[InferredEvidenceRelation]: ...
+
+
+class TransitivityInferencePolicy:
+    """Deterministic transitivity-based inference policy.
+
+    Rules:
+    - If A conflicts with B, and B conflicts with C, infer A may corroborate C.
+    - If A corroborates B, and B corroborates C, infer A corroborates C (transitive).
+
+    Confidence is the product of the chain scores (0.5 for None scores).
+    """
+
+    def infer(
+        self,
+        evidence: list[EvidenceNode],
+        declared_relations: list[EvidenceRelationNode],
+        services: dict[str, Any],
+    ) -> list[InferredEvidenceRelation]:
+        inferred: list[InferredEvidenceRelation] = []
+        # Track already-declared pairs to avoid redundant inferences
+        declared_pairs: set[tuple[str, str, str]] = set()
+        for r in declared_relations:
+            declared_pairs.add((r.lhs, r.rhs, r.kind))
+            declared_pairs.add((r.rhs, r.lhs, r.kind))
+
+        evidence_ids = {e.id for e in evidence}
+        seen_inferred: set[tuple[str, str, str]] = set()
+        counter = 0
+
+        for rel1 in declared_relations:
+            for rel2 in declared_relations:
+                if rel1.id == rel2.id:
+                    continue
+
+                # Find shared pivot: rel1 connects (A, B), rel2 connects (B, C)
+                # Check all orientations where B is shared
+                pairs = self._find_transitive_pairs(rel1, rel2)
+                for a, c, inferred_kind, r1, r2 in pairs:
+                    if a == c:
+                        continue
+                    if a not in evidence_ids or c not in evidence_ids:
+                        continue
+                    # Canonical ordering for dedup
+                    key = (min(a, c), max(a, c), inferred_kind)
+                    if key in declared_pairs or key in seen_inferred:
+                        continue
+                    seen_inferred.add(key)
+
+                    score1 = r1.score if r1.score is not None else 0.5
+                    score2 = r2.score if r2.score is not None else 0.5
+                    confidence = score1 * score2
+
+                    counter += 1
+                    inferred.append(InferredEvidenceRelation(
+                        id=f"inferred-{counter}",
+                        lhs=a,
+                        rhs=c,
+                        kind=inferred_kind,
+                        confidence=confidence,
+                        method="transitivity",
+                        declared=False,
+                        provenance=[
+                            f"inferred via transitivity from {r1.id} + {r2.id}"
+                        ],
+                    ))
+
+        return inferred
+
+    @staticmethod
+    def _find_transitive_pairs(
+        rel1: EvidenceRelationNode,
+        rel2: EvidenceRelationNode,
+    ) -> list[tuple[str, str, str, EvidenceRelationNode, EvidenceRelationNode]]:
+        """Find (A, C, inferred_kind, rel1, rel2) from two relations sharing a pivot B."""
+        results: list[tuple[str, str, str, EvidenceRelationNode, EvidenceRelationNode]] = []
+
+        # Gather edges: each relation (lhs, rhs, kind) is undirected
+        edges1 = [(rel1.lhs, rel1.rhs), (rel1.rhs, rel1.lhs)]
+        edges2 = [(rel2.lhs, rel2.rhs), (rel2.rhs, rel2.lhs)]
+
+        for a, b1 in edges1:
+            for b2, c in edges2:
+                if b1 != b2:
+                    continue
+                # a -- rel1.kind -- b -- rel2.kind -- c
+                inferred_kind = TransitivityInferencePolicy._combine_kinds(
+                    rel1.kind, rel2.kind
+                )
+                if inferred_kind is not None:
+                    results.append((a, c, inferred_kind, rel1, rel2))
+
+        return results
+
+    @staticmethod
+    def _combine_kinds(kind1: str, kind2: str) -> str | None:
+        """Combine two relation kinds to determine the inferred kind.
+
+        - conflicts + conflicts -> corroborates (enemy of my enemy)
+        - corroborates + corroborates -> corroborates (transitive)
+        """
+        if kind1 == "conflicts" and kind2 == "conflicts":
+            return "corroborates"
+        if kind1 == "corroborates" and kind2 == "corroborates":
+            return "corroborates"
+        return None
+
+
+def build_evidence_view_with_inference(
+    claim_id: str,
+    evidence_nodes: list[EvidenceNode],
+    declared_relations: list[EvidenceRelationNode],
+    inference_policy: EvidenceInferencePolicyProtocol | None,
+    services: dict[str, Any],
+) -> tuple[ClaimEvidenceView, list[InferredEvidenceRelation], Diagnostics]:
+    """Build an evidence view with optional inference.
+
+    If inference_policy is None, behaves like the declared-only path.
+    If provided, also runs inference and returns inferred relations separately.
+    Inferred relations do NOT appear in ClaimEvidenceView.relations (declared-only).
+    """
+    diags: Diagnostics = []
+
+    # Build evidence lookup
+    evidence_by_id: dict[str, EvidenceNode] = {e.id: e for e in evidence_nodes}
+
+    # Relevant relations for this claim's evidence
+    explicit_ids: set[str] = {e.id for e in evidence_nodes}
+    relevant_relations: list[EvidenceRelationNode] = [
+        r for r in declared_relations
+        if r.lhs in explicit_ids or r.rhs in explicit_ids
+    ]
+
+    # Cross-conflict score
+    conflict_scores = [
+        r.score for r in relevant_relations
+        if r.kind == "conflicts" and r.score is not None
+    ]
+    cross_conflict_score = max(conflict_scores) if conflict_scores else None
+
+    # Completeness summary
+    completeness_values = [
+        e.completeness for e in evidence_nodes if e.completeness is not None
+    ]
+    completeness_summary = min(completeness_values) if completeness_values else None
+
+    view = ClaimEvidenceView(
+        claim_id=claim_id,
+        explicit_evidence=list(evidence_nodes),
+        related_evidence=[],
+        relations=relevant_relations,
+        cross_conflict_score=cross_conflict_score,
+        completeness_summary=completeness_summary,
+    )
+
+    # Run inference if policy provided
+    inferred: list[InferredEvidenceRelation] = []
+    if inference_policy is not None:
+        try:
+            inferred = inference_policy.infer(evidence_nodes, declared_relations, services)
+        except Exception as exc:
+            diags.append({
+                "severity": "warning",
+                "code": "evidence_inference_error",
+                "claim_id": claim_id,
+                "message": str(exc),
+            })
+
+    return view, inferred, diags
+
+
+def get_evidence_view_combined(
+    evidence_view: ClaimEvidenceView,
+    inferred_relations: list[InferredEvidenceRelation],
+) -> dict[str, Any]:
+    """Combine declared evidence view with inferred relations.
+
+    Returns a dict with both perspectives:
+    - declared_only: the original ClaimEvidenceView
+    - inferred: list of InferredEvidenceRelation
+    - combined_relations: declared + inferred (all relation objects)
+    """
+    combined: list[Any] = list(evidence_view.relations) + list(inferred_relations)
+    return {
+        "declared_only": evidence_view,
+        "inferred": inferred_relations,
+        "combined_relations": combined,
+    }
+
+
+def get_builtin_inference_policies() -> dict[str, EvidenceInferencePolicyProtocol]:
+    """Return a dict of built-in evidence inference policies keyed by id."""
+    return {
+        "transitivity": TransitivityInferencePolicy(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Part B: Stronger Adequacy Execution
+# ---------------------------------------------------------------------------
+
+
+def detect_basis_circularity(
+    assessment: AdequacyAssessmentNode,
+) -> tuple[bool, Diagnostics]:
+    """Check if an assessment's basis references include its own id or task.
+
+    Returns (is_circular, diagnostics).
+    """
+    diags: Diagnostics = []
+    # Self-referencing: basis contains the assessment's own id
+    if assessment.id in assessment.basis:
+        diags.append({
+            "severity": "error",
+            "code": "circular_basis",
+            "subject": assessment.id,
+            "message": f"Assessment {assessment.id} has circular basis: "
+                       f"references itself",
+        })
+        return True, diags
+
+    # Also check if the assessment's task appears as a basis reference
+    # (a weaker form of circularity)
+    if assessment.task in assessment.basis:
+        diags.append({
+            "severity": "warning",
+            "code": "circular_basis",
+            "subject": assessment.id,
+            "message": f"Assessment {assessment.id} has basis referencing its own "
+                       f"task '{assessment.task}'",
+        })
+        return True, diags
+
+    return False, diags
+
+
+def execute_adequacy_with_basis(
+    assessment: AdequacyAssessmentNode,
+    basis_claims: list[str],
+    basis_results: dict[str, Any],
+    services: dict[str, Any],
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Execute adequacy with basis resolution.
+
+    Resolves each basis item, builds BasisResolutionEntry for each,
+    optionally calls method bindings, compares computed vs declared scores,
+    and detects failure kinds.
+    """
+    diags: Diagnostics = []
+
+    # Detect circularity
+    is_circular, circ_diags = detect_basis_circularity(assessment)
+    diags.extend(circ_diags)
+    if is_circular:
+        return AdequacyExecutionTrace(
+            assessment_id=assessment.id,
+            method=assessment.method,
+            basis_resolution=[],
+            computed_score=None,
+            declared_score=assessment.score if assessment.score != "N" else None,
+            score_divergence=None,
+            threshold=assessment.threshold,
+            adequate=False,
+            failure_kind="circular_basis",
+            provenance=[assessment.id, assessment.producer],
+            diagnostics=list(diags),
+        ), diags
+
+    # Resolve basis items
+    basis_entries: list[BasisResolutionEntry] = []
+    has_unresolved = False
+    for basis_id in basis_claims:
+        result = basis_results.get(basis_id)
+        if result is not None:
+            # Determine truth from result
+            if hasattr(result, "truth"):
+                truth_val = str(result.truth)
+            elif isinstance(result, dict):
+                truth_val = str(result.get("truth", "N"))
+            else:
+                truth_val = "N"
+            basis_entries.append(BasisResolutionEntry(
+                basis_id=basis_id,
+                resolved=True,
+                truth=truth_val,
+                source="claim",
+                provenance=[basis_id],
+            ))
+        else:
+            has_unresolved = True
+            basis_entries.append(BasisResolutionEntry(
+                basis_id=basis_id,
+                resolved=False,
+                truth=None,
+                source="claim",
+                provenance=[basis_id],
+            ))
+
+    # Determine declared score
+    declared_score: float | None = None
+    if assessment.score is not None and assessment.score != "N":
+        declared_score = float(assessment.score)
+
+    # Try to compute score via method binding
+    computed_score: float | None = None
+    method_handler = services.get("adequacy_handlers", {}).get(assessment.method)
+    if method_handler is not None:
+        try:
+            computed = method_handler(assessment)
+            if isinstance(computed, (int, float)):
+                computed_score = float(computed)
+        except Exception as exc:
+            diags.append({
+                "severity": "warning",
+                "code": "adequacy_method_error",
+                "subject": assessment.id,
+                "message": str(exc),
+            })
+
+    # If no computed score, use declared
+    effective_score = computed_score if computed_score is not None else declared_score
+
+    # Score divergence
+    score_divergence: float | None = None
+    if computed_score is not None and declared_score is not None:
+        score_divergence = abs(computed_score - declared_score)
+
+    # Determine adequacy and failure kind
+    adequate: bool | None = None
+    failure_kind = None
+    tolerance = services.get("adequacy_divergence_tolerance", 0.1)
+
+    if has_unresolved:
+        adequate = False
+        failure_kind = "basis_failure"
+    elif effective_score is not None:
+        adequate = effective_score >= assessment.threshold
+        if not adequate:
+            failure_kind = "threshold"
+        elif score_divergence is not None and score_divergence > tolerance:
+            failure_kind = "method_conflict"
+    else:
+        adequate = False
+        failure_kind = "policy_failure"
+
+    trace = AdequacyExecutionTrace(
+        assessment_id=assessment.id,
+        method=assessment.method,
+        basis_resolution=basis_entries,
+        computed_score=computed_score,
+        declared_score=declared_score,
+        score_divergence=score_divergence,
+        threshold=assessment.threshold,
+        adequate=adequate,
+        failure_kind=failure_kind,
+        provenance=[assessment.id, assessment.producer],
+        diagnostics=list(diags),
+    )
+    return trace, diags
+
+
+def aggregate_contested_adequacy(
+    assessments: list[AdequacyAssessmentNode],
+    basis_results: dict[str, Any],
+    resolution_kind: str,
+    services: dict[str, Any],
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Multi-producer adequacy aggregation.
+
+    resolution_kind is one of:
+    - "single": use the first assessment only
+    - "paraconsistent_union": all must agree; disagreement -> truth="B"
+    - "priority_order": use first adequate, or first if all inadequate
+    - "adjudicated": delegate to adjudicator in services; fallback to paraconsistent_union
+    """
+    diags: Diagnostics = []
+
+    if not assessments:
+        return AdequacyExecutionTrace(
+            assessment_id="__empty__",
+            method="none",
+            adequate=False,
+            failure_kind="policy_failure",
+            provenance=[],
+            diagnostics=[{
+                "severity": "warning",
+                "code": "no_assessments",
+                "message": "No assessments provided for aggregation",
+            }],
+        ), diags
+
+    # Execute each assessment individually
+    traces: list[AdequacyExecutionTrace] = []
+    for aa in assessments:
+        trace, aa_diags = execute_adequacy_with_basis(
+            aa, aa.basis, basis_results, services,
+        )
+        traces.append(trace)
+        diags.extend(aa_diags)
+
+    if resolution_kind == "single":
+        result_trace = traces[0]
+        return result_trace, diags
+
+    elif resolution_kind == "paraconsistent_union":
+        return _aggregate_paraconsistent(assessments, traces, diags)
+
+    elif resolution_kind == "priority_order":
+        # Use first adequate trace, or first if all inadequate
+        for trace in traces:
+            if trace.adequate:
+                return trace, diags
+        return traces[0], diags
+
+    elif resolution_kind == "adjudicated":
+        adjudicator = services.get("adequacy_adjudicator")
+        if adjudicator is not None:
+            try:
+                result = adjudicator(assessments, traces)
+                if isinstance(result, AdequacyExecutionTrace):
+                    return result, diags
+                if isinstance(result, tuple) and len(result) >= 1:
+                    return result[0], diags
+            except Exception as exc:
+                diags.append({
+                    "severity": "warning",
+                    "code": "adjudicator_error",
+                    "message": str(exc),
+                })
+        # Fallback to paraconsistent_union
+        return _aggregate_paraconsistent(assessments, traces, diags)
+
+    # Unknown resolution kind
+    diags.append({
+        "severity": "error",
+        "code": "unknown_resolution_kind",
+        "message": f"Unknown resolution kind: {resolution_kind}",
+    })
+    return traces[0], diags
+
+
+def _aggregate_paraconsistent(
+    assessments: list[AdequacyAssessmentNode],
+    traces: list[AdequacyExecutionTrace],
+    diags: Diagnostics,
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Paraconsistent union aggregation for adequacy traces.
+
+    All must agree on adequacy. If they disagree, failure_kind="method_conflict".
+    """
+    adequacy_values = [t.adequate for t in traces if t.adequate is not None]
+    all_agree = len(set(adequacy_values)) <= 1
+
+    if all_agree and adequacy_values:
+        # All agree
+        adequate = adequacy_values[0]
+        failure_kind = traces[0].failure_kind if not adequate else None
+    else:
+        # Disagreement
+        adequate = False
+        failure_kind = "method_conflict"
+
+    # Merge basis resolutions and provenance
+    all_basis: list[BasisResolutionEntry] = []
+    all_provenance: list[str] = []
+    for t in traces:
+        all_basis.extend(t.basis_resolution)
+        all_provenance.extend(t.provenance)
+
+    # Use first assessment as representative
+    first = assessments[0]
+    first_trace = traces[0]
+
+    return AdequacyExecutionTrace(
+        assessment_id=first.id,
+        method=first.method,
+        basis_resolution=all_basis,
+        computed_score=first_trace.computed_score,
+        declared_score=first_trace.declared_score,
+        score_divergence=first_trace.score_divergence,
+        threshold=first.threshold,
+        adequate=adequate,
+        failure_kind=failure_kind,
+        provenance=sorted(set(all_provenance)),
+        diagnostics=list(diags),
+    ), diags
