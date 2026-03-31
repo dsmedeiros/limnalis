@@ -239,6 +239,29 @@ class TestTransportChain:
 
         assert result.per_hop[0].status != "blocked"
 
+    def test_transport_chain_query_step_matches_fixture_step_from_services(self):
+        """Step-scoped query matching should use services['__fixture_step_index__']."""
+        bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
+        plan = TransportPlan(id="plan_step", hops=[_hop("br1")])
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {
+            "__fixture_step_index__": 1,
+            "__transport_queries__": [
+                {"id": "q0", "bridgeId": "br1", "claimId": "claim0", "__fixture_step_index__": 0},
+                {"id": "q1", "bridgeId": "br1", "claimId": "claim1", "__fixture_step_index__": 1},
+            ],
+            "__per_claim_aggregates__": {
+                "claim0": EvalNode(truth="F", reason="wrong_step"),
+                "claim1": EvalNode(truth="T", reason="active_step"),
+            },
+        }
+
+        result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+
+        assert result.per_hop[0].status != "blocked"
+
     def test_transport_chain_passes_prior_hop_dst_to_subsequent_hop_execution(self, monkeypatch):
         """Second-hop execution should see previous hop dstAggregate via per-claim aggregates."""
         br1 = _bridge(id="br1", mode="preserve")

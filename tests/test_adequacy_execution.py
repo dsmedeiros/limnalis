@@ -179,6 +179,18 @@ class TestContestedAdequacy:
         assert trace.assessment_id == "aa1"
         assert trace.adequate is True
 
+    def test_contested_adequacy_single_does_not_run_later_assessments(self):
+        """Single mode should not execute non-selected assessments or include their diagnostics."""
+        aa1 = _assessment(id="aa1", score=0.8, threshold=0.5, basis=[])
+        aa2 = _assessment(id="aa2", score=0.8, threshold=0.5, basis=["aa2"])  # circular if executed
+
+        trace, diags = aggregate_contested_adequacy(
+            [aa1, aa2], {}, "single", {}
+        )
+
+        assert trace.assessment_id == "aa1"
+        assert not any(d.get("code") == "circular_basis" for d in diags)
+
     def test_contested_adequacy_paraconsistent_agree(self):
         """All agree -> consolidated result."""
         aa1 = _assessment(id="aa1", score=0.8, threshold=0.5)

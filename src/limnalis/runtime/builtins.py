@@ -2529,7 +2529,7 @@ def execute_transport_chain(
             "__per_claim_aggregates__", {}
         )
         transport_queries = services.get("__transport_queries__", [])
-        current_step_index = getattr(step_ctx, "step_index", None)
+        current_step_index = services.get("__fixture_step_index__")
 
         def _query_matches_current_step(query: dict[str, Any]) -> bool:
             query_step_index = query.get("__fixture_step_index__")
@@ -3848,6 +3848,13 @@ def aggregate_contested_adequacy(
             diagnostics=[no_assessments_diag],
         ), diags
 
+    if resolution_kind == "single":
+        trace, aa_diags = execute_adequacy_with_basis(
+            assessments[0], assessments[0].basis, basis_results, services,
+        )
+        diags.extend(aa_diags)
+        return trace, diags
+
     # Execute each assessment individually
     traces: list[AdequacyExecutionTrace] = []
     for aa in assessments:
@@ -3857,21 +3864,17 @@ def aggregate_contested_adequacy(
         traces.append(trace)
         diags.extend(aa_diags)
 
-    if resolution_kind == "single":
-        result_trace = traces[0]
-        return result_trace, diags
-
-    elif resolution_kind == "paraconsistent_union":
+    if resolution_kind == "paraconsistent_union":
         return _aggregate_paraconsistent(assessments, traces, diags)
 
-    elif resolution_kind == "priority_order":
+    if resolution_kind == "priority_order":
         # Use first adequate trace, or first if all inadequate
         for trace in traces:
             if trace.adequate:
                 return trace, diags
         return traces[0], diags
 
-    elif resolution_kind == "adjudicated":
+    if resolution_kind == "adjudicated":
         adjudicator = services.get("adequacy_adjudicator")
         if adjudicator is not None:
             try:
