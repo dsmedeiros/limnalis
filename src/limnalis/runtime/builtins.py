@@ -2939,3 +2939,413 @@ def apply_destination_completion_policy(
         "message": f"Unknown completion strategy: {completion_policy.strategy}",
     })
     return result, diags
+
+
+# ===================================================================
+# SUMMARY POLICY FRAMEWORK (post-evaluation, non-normative)
+# ===================================================================
+#
+# This section implements the summary policy layer described in T3.
+# Summaries are additive artifacts produced AFTER normal evaluation.
+# They do NOT modify fold_block, apply_resolution_policy, or any
+# existing evaluation functions.
+# ===================================================================
+
+from typing import Protocol as TypingProtocol, runtime_checkable
+
+from ..models.conformance import SummaryRequest, SummaryResult
+
+
+# ---------------------------------------------------------------------------
+# Severity ordering for truth values: F > B > N > T (worst-first)
+# ---------------------------------------------------------------------------
+
+_SUMMARY_SEVERITY_ORDER: dict[str, int] = {"F": 0, "B": 1, "N": 2, "T": 3}
+_SUMMARY_SEVERITY_RANK_TO_TRUTH: dict[int, str] = {
+    v: k for k, v in _SUMMARY_SEVERITY_ORDER.items()
+}
+
+
+def _summary_worst_truth(truths: list[str]) -> str:
+    """Return the worst truth value using severity ordering F > B > N > T."""
+    if not truths:
+        return "N"
+    return min(truths, key=lambda t: _SUMMARY_SEVERITY_ORDER.get(t, 2))
+
+
+# ---------------------------------------------------------------------------
+# SummaryPolicyProtocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class SummaryPolicyProtocol(TypingProtocol):
+    """Protocol for summary policy implementations.
+
+    Summary policies are post-evaluation artifacts that consume completed
+    evaluation results and produce non-normative SummaryResult instances.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult: ...
+
+
+# ---------------------------------------------------------------------------
+# Helper: extract truths from eval_results for various scopes
+# ---------------------------------------------------------------------------
+
+
+def _extract_truths_for_scope(
+    scope: str,
+    target_ids: list[str],
+    eval_results: dict[str, Any],
+) -> list[str]:
+    """Extract truth values from eval_results based on scope.
+
+    eval_results is expected to contain keys like:
+      - "per_claim_aggregates": dict[str, EvalNode]
+      - "per_block_aggregates": dict[str, EvalNode]
+      - "block_results": list[BlockResult]
+      - "claim_results": list[ClaimResult]
+    """
+    truths: list[str] = []
+
+    if scope == "block":
+        # Aggregate truths from claims within the specified block(s)
+        per_claim = eval_results.get("per_claim_aggregates", {})
+        block_results = eval_results.get("block_results", [])
+        for br in block_results:
+            block_id = br.block_id if hasattr(br, "block_id") else br.get("block_id", "")
+            if target_ids and block_id not in target_ids:
+                continue
+            claims = br.claims if hasattr(br, "claims") else br.get("claims", [])
+            for cid in claims:
+                agg = per_claim.get(cid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
+
+    elif scope == "bundle":
+        # Aggregate truths from all block aggregates
+        per_block = eval_results.get("per_block_aggregates", {})
+        for block_id, agg in per_block.items():
+            if target_ids and block_id not in target_ids:
+                continue
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+            truths.append(t)
+
+    elif scope == "claim_collection":
+        # Aggregate truths from specified claim aggregates
+        per_claim = eval_results.get("per_claim_aggregates", {})
+        for cid in target_ids:
+            agg = per_claim.get(cid)
+            if agg is not None:
+                t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(t)
+
+    elif scope == "session":
+        # Aggregate truths from all block aggregates across the session
+        per_block = eval_results.get("per_block_aggregates", {})
+        for agg in per_block.values():
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+            truths.append(t)
+
+    return truths
+
+
+def _extract_block_aggregate(
+    target_ids: list[str],
+    eval_results: dict[str, Any],
+) -> tuple[str | None, float | None]:
+    """Extract aggregate truth and support for block scope."""
+    per_block = eval_results.get("per_block_aggregates", {})
+    for bid in target_ids:
+        agg = per_block.get(bid)
+        if agg is not None:
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth")
+            s = agg.support if hasattr(agg, "support") else agg.get("support")
+            return t, None  # support is a SupportValue string, not a float
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# PassthroughNormativePolicy
+# ---------------------------------------------------------------------------
+
+
+class PassthroughNormativePolicy:
+    """Exposes existing canonical fold/aggregate results as a summary.
+
+    Simply passes through the normative evaluation results without
+    performing any additional computation.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        scope = request.scope
+        target_ids = request.target_ids
+
+        if scope == "block":
+            per_block = eval_results.get("per_block_aggregates", {})
+            # Use first matching target
+            for bid in target_ids:
+                agg = per_block.get(bid)
+                if agg is not None:
+                    truth = agg.truth if hasattr(agg, "truth") else agg.get("truth")
+                    return SummaryResult(
+                        policy_id="passthrough_normative",
+                        scope=scope,
+                        normative=False,
+                        summary_truth=truth,
+                        detail={"source": "block_aggregate", "block_id": bid},
+                        provenance=["passthrough from normative fold"],
+                    )
+            # No matching block found
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth="N",
+                detail={"source": "block_aggregate", "note": "no matching block"},
+                provenance=["passthrough from normative fold"],
+            )
+
+        elif scope == "bundle":
+            per_block = eval_results.get("per_block_aggregates", {})
+            truths = []
+            for bid, agg in per_block.items():
+                if target_ids and bid not in target_ids:
+                    continue
+                t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(t)
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "bundle_aggregate", "block_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+        elif scope == "claim_collection":
+            per_claim = eval_results.get("per_claim_aggregates", {})
+            truths = []
+            for cid in target_ids:
+                agg = per_claim.get(cid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "claim_collection_aggregate", "claim_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+        else:
+            # session or unknown — aggregate all blocks
+            per_block = eval_results.get("per_block_aggregates", {})
+            truths = [
+                (agg.truth if hasattr(agg, "truth") else agg.get("truth", "N"))
+                for agg in per_block.values()
+            ]
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "session_aggregate", "block_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+
+# ---------------------------------------------------------------------------
+# SeverityMaxPolicy
+# ---------------------------------------------------------------------------
+
+
+class SeverityMaxPolicy:
+    """Summarize using severity ordering: F > B > N > T.
+
+    Returns the worst truth value across the scoped results.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        truths = _extract_truths_for_scope(
+            request.scope, request.target_ids, eval_results
+        )
+        worst = _summary_worst_truth(truths) if truths else "N"
+        count = len(truths)
+        return SummaryResult(
+            policy_id="severity_max",
+            scope=request.scope,
+            normative=False,
+            summary_truth=worst,
+            detail={"worst_truth": worst, "result_count": count},
+            provenance=[f"severity_max over {count} results"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# MajorityVotePolicy
+# ---------------------------------------------------------------------------
+
+
+class MajorityVotePolicy:
+    """Count truth values and return the one with the highest count.
+
+    Breaks ties using severity ordering (F > B > N > T).
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        truths = _extract_truths_for_scope(
+            request.scope, request.target_ids, eval_results
+        )
+        votes: dict[str, int] = {"T": 0, "F": 0, "N": 0, "B": 0}
+        for t in truths:
+            if t in votes:
+                votes[t] += 1
+            else:
+                votes[t] = votes.get(t, 0) + 1
+
+        count = len(truths)
+        if count == 0:
+            return SummaryResult(
+                policy_id="majority_vote",
+                scope=request.scope,
+                normative=False,
+                summary_truth="N",
+                detail={"votes": votes},
+                provenance=[f"majority_vote over {count} results"],
+            )
+
+        # Find the maximum vote count
+        max_count = max(votes.values())
+        # Collect all truths with that count
+        tied = [t for t, c in votes.items() if c == max_count]
+        # Break ties using severity ordering (worst wins)
+        winner = _summary_worst_truth(tied)
+
+        return SummaryResult(
+            policy_id="majority_vote",
+            scope=request.scope,
+            normative=False,
+            summary_truth=winner,
+            detail={"votes": votes},
+            provenance=[f"majority_vote over {count} results"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Summary policy registry
+# ---------------------------------------------------------------------------
+
+
+def get_builtin_summary_policies() -> dict[str, SummaryPolicyProtocol]:
+    """Return a dict of built-in summary policies keyed by policy id."""
+    return {
+        "passthrough_normative": PassthroughNormativePolicy(),
+        "severity_max": SeverityMaxPolicy(),
+        "majority_vote": MajorityVotePolicy(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# execute_summary: single summary request execution
+# ---------------------------------------------------------------------------
+
+
+def execute_summary(
+    request: SummaryRequest,
+    eval_results: dict[str, Any],
+    services: dict[str, Any],
+    policies: dict[str, SummaryPolicyProtocol],
+) -> SummaryResult:
+    """Execute a single summary request against the given policies.
+
+    Looks up the requested policy by request.policy_id in the policies dict,
+    calls policy.summarize(), and returns the SummaryResult.
+
+    If the policy is not found, returns a SummaryResult with a diagnostic
+    keyed "summary_policy_not_found".
+    """
+    policy = policies.get(request.policy_id)
+    if policy is None:
+        return SummaryResult(
+            policy_id=request.policy_id,
+            scope=request.scope,
+            normative=False,
+            summary_truth=None,
+            diagnostics=[
+                {
+                    "severity": "error",
+                    "code": "summary_policy_not_found",
+                    "policy_id": request.policy_id,
+                    "message": f"Summary policy '{request.policy_id}' not found",
+                }
+            ],
+        )
+    return policy.summarize(request, eval_results, services)
+
+
+# ---------------------------------------------------------------------------
+# run_summaries: batch summary execution (post-evaluation entry point)
+# ---------------------------------------------------------------------------
+
+
+def run_summaries(
+    requests: list[SummaryRequest],
+    eval_results: dict[str, Any],
+    services: dict[str, Any],
+    policies: dict[str, SummaryPolicyProtocol] | None = None,
+) -> list[SummaryResult]:
+    """Execute a batch of summary requests against completed evaluation results.
+
+    This is the main integration point, called AFTER a bundle/session evaluation.
+    It does NOT modify eval_results — it purely reads them and produces
+    non-normative SummaryResult artifacts.
+
+    Args:
+        requests: List of SummaryRequest describing what summaries to produce.
+        eval_results: Completed evaluation results (from runner). Expected keys:
+            - "per_claim_aggregates": dict[str, EvalNode]
+            - "per_block_aggregates": dict[str, EvalNode]
+            - "block_results": list[BlockResult]
+            - "claim_results": list[ClaimResult]
+        services: Service dict (passed through to policies).
+        policies: Optional dict of policy_id -> policy. If None, uses
+            get_builtin_summary_policies().
+
+    Returns:
+        List of SummaryResult, one per request.
+    """
+    if policies is None:
+        policies = get_builtin_summary_policies()
+
+    return [
+        execute_summary(request, eval_results, services, policies)
+        for request in requests
+    ]
