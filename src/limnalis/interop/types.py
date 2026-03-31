@@ -6,9 +6,7 @@ from typing import Any
 from pydantic import Field
 
 from limnalis.models.base import LimnalisModel
-
-SPEC_VERSION = "0.2.2"
-SCHEMA_VERSION = "0.2.2"
+from limnalis.version import SCHEMA_VERSION, SPEC_VERSION
 
 
 def get_package_version() -> str:
