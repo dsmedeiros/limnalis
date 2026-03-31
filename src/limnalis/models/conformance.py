@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .ast import SummaryScope
 from .base import LimnalisModel
 
 TruthValue = Literal["T", "F", "B", "N"]
@@ -108,8 +109,6 @@ class ExpectedResult(LimnalisModel):
 # ---------------------------------------------------------------------------
 # Milestone 6B: Summary runtime types
 # ---------------------------------------------------------------------------
-
-SummaryScope = Literal["claim_collection", "block", "bundle", "session"]
 
 
 class SummaryRequest(BaseModel):
