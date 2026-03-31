@@ -343,6 +343,25 @@ class TestValidatePackage:
         issues = validate_package(zip_path)
         assert any("Unknown artifact type" in i for i in issues)
 
+    def test_rejects_symlink_entries_in_directory_package_validation(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "symlink_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        outside_dir = tmp_path / "outside_dir"
+        outside_dir.mkdir()
+        (outside_dir / "external.txt").write_text("external", encoding="utf-8")
+
+        symlink_path = pkg_dir / "source" / "linkdir"
+        try:
+            symlink_path.symlink_to(outside_dir, target_is_directory=True)
+        except OSError:
+            pytest.skip("Symlink creation is not supported in this environment")
+
+        issues = validate_package(pkg_dir)
+        assert any("Symlink entries are not allowed" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # extract_package
@@ -416,6 +435,24 @@ class TestExtractPackage:
         extract_dir = tmp_path / "out"
         with pytest.raises(ValueError, match="Path traversal detected"):
             extract_package(zip_path, extract_dir)
+
+    def test_extract_directory_rejects_symlink_entries(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "symlink_extract_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        outside_file = tmp_path / "outside.txt"
+        outside_file.write_text("outside", encoding="utf-8")
+        symlink_path = pkg_dir / "source" / "outside-link.txt"
+        try:
+            symlink_path.symlink_to(outside_file)
+        except OSError:
+            pytest.skip("Symlink creation is not supported in this environment")
+
+        extract_dir = tmp_path / "extract_symlink_reject"
+        with pytest.raises(ValueError, match="contains symlink entry"):
+            extract_package(pkg_dir, extract_dir)
 
 
 # ---------------------------------------------------------------------------

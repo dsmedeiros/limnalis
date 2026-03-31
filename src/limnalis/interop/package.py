@@ -364,6 +364,11 @@ def validate_package(
                 return []
             return [f.name for f in d.iterdir() if f.is_file()]
 
+        for p in package_path.rglob("*"):
+            if p.is_symlink():
+                rel = str(p.relative_to(package_path)).replace("\\", "/")
+                issues.append(f"Symlink entries are not allowed in directory packages: {rel}")
+
         packaged_files = {
             str(p.relative_to(package_path)).replace("\\", "/")
             for p in package_path.rglob("*")
@@ -460,6 +465,13 @@ def extract_package(
         resolved_output = output_dir.resolve()
         if resolved_package == resolved_output:
             raise ValueError("output_dir must be different from package_path")
+        for p in package_path.rglob("*"):
+            if p.is_symlink():
+                rel = str(p.relative_to(package_path)).replace("\\", "/")
+                raise ValueError(
+                    "Directory package contains symlink entry and cannot be extracted: "
+                    f"{rel}"
+                )
         package_inside_output = False
         try:
             resolved_package.relative_to(resolved_output)
