@@ -226,6 +226,19 @@ class TransportResult(BaseModel):
     per_evaluator: dict[str, EvalNode] = Field(default_factory=dict)
     provenance: list[str] = Field(default_factory=list)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+    degradation_policy_used: str | None = None
+    completion_actions: list[str] = Field(default_factory=list)
+
+
+class TransportChainResult(BaseModel):
+    """Result of executing a chained transport plan across multiple bridges."""
+
+    plan_id: str
+    status: TransportStatus
+    per_hop: list[TransportResult] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -14,20 +14,42 @@ Submodules:
     context      -- Context and state types for plugin implementations
     results      -- Result types for plugin implementations
     models       -- AST model types for plugin authors
+    summary      -- Summary policy framework (M6B)
+    evidence     -- Evidence inference layer (M6B)
+    adequacy     -- Adequacy execution with basis resolution (M6B)
+    transport    -- Transport chain extensions (M6B)
 """
 
 from __future__ import annotations
 
-from . import conformance, context, evaluator, models, normalizer, parser, plugins, results, services
+from . import (
+    adequacy,
+    conformance,
+    context,
+    evaluator,
+    evidence,
+    models,
+    normalizer,
+    parser,
+    plugins,
+    results,
+    services,
+    summary,
+    transport,
+)
 
 __all__ = [
+    "adequacy",
     "conformance",
     "context",
     "evaluator",
+    "evidence",
     "models",
     "normalizer",
     "parser",
     "plugins",
     "results",
     "services",
+    "summary",
+    "transport",
 ]

@@ -23,6 +23,8 @@ from ..models.ast import (
     ClaimNode,
     CriterionExprNode,
     DeclarationExprNode,
+    DegradationPolicyNode,
+    DestinationCompletionPolicy,
     DynamicExprNode,
     EmergenceExprNode,
     EvidenceNode,
@@ -31,6 +33,7 @@ from ..models.ast import (
     FrameNode,
     FrameOrPatternNode,
     FramePatternNode,
+    InferredEvidenceRelation,
     JointAdequacyNode,
     JudgedExprNode,
     LogicalExprNode,
@@ -38,9 +41,16 @@ from ..models.ast import (
     PredicateExprNode,
     ResolutionPolicyNode,
     TimeCtxNode,
+    TransportHop,
     TransportNode,
+    TransportPlan,
 )
-from ..models.conformance import TruthValue
+from ..models.conformance import (
+    AdequacyExecutionTrace,
+    BasisResolutionEntry,
+    TransportTrace,
+    TruthValue,
+)
 from .models import (
     AdequacyResult,
     AnchorAdequacyResult,
@@ -60,6 +70,7 @@ from .models import (
     StepConfig,
     StepContext,
     SupportResult,
+    TransportChainResult,
     TransportResult,
     TruthCore,
 )
@@ -2383,3 +2394,1550 @@ def _execute_remap_recompute(
         per_evaluator=per_evaluator,
         provenance=[bridge.id, bridge.via, claim_id],
     )
+
+
+# ===================================================================
+# T2: Advanced Transport Engine — helper functions
+# ===================================================================
+
+
+def _build_transport_trace(
+    hop_results: list[tuple[TransportHop, TransportResult]],
+    precondition_outcomes: dict[str, bool] | None = None,
+    mapping_steps: list[str] | None = None,
+) -> TransportTrace:
+    """Build a rich TransportTrace from execution state.
+
+    Populates hops, precondition_outcomes, mapping_steps, total_loss, total_gain
+    from the per-hop execution results.
+    """
+    hops: list[dict[str, Any]] = []
+    per_hop_evals: dict[str, dict[str, Any]] = {}
+    total_loss: list[str] = []
+    total_gain: list[str] = []
+
+    for idx, (hop, result) in enumerate(hop_results):
+        hop_entry: dict[str, Any] = {
+            "bridge_id": hop.bridge_id,
+            "src_frame": hop.src_frame,
+            "dst_frame": hop.dst_frame,
+            "status": result.status,
+            "loss": hop.loss,
+            "gain": hop.gain,
+            "risk": hop.risk,
+            "provenance": result.provenance,
+        }
+        hops.append(hop_entry)
+        hop_key = hop.bridge_id
+        if hop_key in per_hop_evals:
+            hop_key = f"{hop.bridge_id}#{idx}"
+        per_hop_evals[hop_key] = {
+            "status": result.status,
+            "srcAggregate": result.srcAggregate.model_dump() if result.srcAggregate else None,
+            "dstAggregate": result.dstAggregate.model_dump() if result.dstAggregate else None,
+            "bridge_id": hop.bridge_id,
+        }
+        # Accumulate loss/gain across hops (deduplicated)
+        for item in hop.loss:
+            if item not in total_loss:
+                total_loss.append(item)
+        for item in hop.gain:
+            if item not in total_gain:
+                total_gain.append(item)
+
+    return TransportTrace(
+        hops=hops,
+        precondition_outcomes=precondition_outcomes or {},
+        mapping_steps=mapping_steps or [],
+        per_hop_evals=per_hop_evals,
+        total_loss=total_loss,
+        total_gain=total_gain,
+    )
+
+
+def execute_transport_chain(
+    plan: TransportPlan,
+    bridges: dict[str, BridgeNode],
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TransportChainResult, MachineState, Diagnostics]:
+    """Execute a sequence of bridges as a chained transport plan.
+
+    Iterates through plan.hops, executing each bridge's transport in sequence.
+    Per-hop: runs preconditions, executes transport mode, records loss/gain/risk.
+
+    Supports:
+    - failure_mode="fail_fast": stop on first failure
+    - failure_mode="best_effort": continue on failure, record failures
+
+    Returns a consolidated TransportChainResult with full TransportTrace.
+    """
+    diags: Diagnostics = []
+    hop_results: list[tuple[TransportHop, TransportResult]] = []
+    precondition_outcomes: dict[str, bool] = {}
+    precondition_counts: dict[str, int] = {}
+    all_provenance: list[str] = [plan.id]
+    overall_status: str = "transported"
+
+    if not plan.hops:
+        diags.append({
+            "severity": "error",
+            "code": "transport_chain_empty_plan",
+            "plan_id": plan.id,
+            "message": "Transport chain plan must contain at least one hop",
+        })
+        chain_result = TransportChainResult(
+            plan_id=plan.id,
+            status="blocked",
+            per_hop=[],
+            metadata={"transport_trace": _build_transport_trace([], precondition_outcomes).model_dump()},
+            provenance=all_provenance,
+            diagnostics=list(diags),
+        )
+        return chain_result, machine_state, diags
+
+    for hop in plan.hops:
+        bridge = bridges.get(hop.bridge_id)
+        if bridge is None:
+            diags.append({
+                "severity": "error",
+                "code": "transport_chain_bridge_missing",
+                "plan_id": plan.id,
+                "bridge_id": hop.bridge_id,
+                "message": f"Bridge {hop.bridge_id} not found for transport chain hop",
+            })
+            hop_result = TransportResult(
+                status="unresolved",
+                metadata={},
+                provenance=[hop.bridge_id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_chain_bridge_missing",
+                    "bridge_id": hop.bridge_id,
+                    "message": f"Bridge {hop.bridge_id} not found",
+                }],
+            )
+            hop_results.append((hop, hop_result))
+            all_provenance.extend(hop_result.provenance)
+            overall_status = "blocked"
+            if plan.failure_mode == "fail_fast":
+                break
+            continue
+
+        # Check preconditions for this hop
+        per_claim_aggregates: dict[str, EvalNode] = services.get(
+            "__per_claim_aggregates__", {}
+        )
+        transport_queries = services.get("__transport_queries__", [])
+        current_step_index = services.get("__fixture_step_index__")
+
+        def _query_matches_current_step(query: dict[str, Any]) -> bool:
+            query_step_index = query.get("__fixture_step_index__")
+            if query_step_index is None:
+                return True
+            if not isinstance(current_step_index, int):
+                return False
+            return query_step_index == current_step_index
+
+        matching_queries = [
+            tq for tq in transport_queries
+            if tq.get("bridgeId") == hop.bridge_id and _query_matches_current_step(tq)
+        ]
+        primary_claim_id = next(
+            (tq.get("claimId") for tq in matching_queries if tq.get("claimId")),
+            None,
+        )
+        # Use a synthetic EvalNode for precondition checking based on
+        # the current chain state. If we have results from the previous
+        # hop, use its dstAggregate as the "source" for the next hop.
+        precondition_src: EvalNode
+        if hop_results and hop_results[-1][1].dstAggregate is not None:
+            precondition_src = hop_results[-1][1].dstAggregate
+        elif primary_claim_id and primary_claim_id in per_claim_aggregates:
+            precondition_src = per_claim_aggregates[primary_claim_id]
+        elif per_claim_aggregates:
+            precondition_src = next(iter(per_claim_aggregates.values()))
+        else:
+            # Use first available aggregate or a neutral N node
+            precondition_src = EvalNode(truth="N", reason="chain_start")
+
+        precondition_ok = _check_preconditions(bridge, precondition_src)
+        precondition_idx = precondition_counts.get(hop.bridge_id, 0)
+        precondition_counts[hop.bridge_id] = precondition_idx + 1
+        precondition_key = hop.bridge_id if precondition_idx == 0 else f"{hop.bridge_id}#{precondition_idx}"
+        precondition_outcomes[precondition_key] = precondition_ok
+
+        # Execute the bridge transport
+        try:
+            hop_services = dict(services)
+            if hop_results and hop_results[-1][1].dstAggregate is not None:
+                prior_dst = hop_results[-1][1].dstAggregate
+                scoped_claim_aggregates = dict(per_claim_aggregates)
+                target_claim_ids = [
+                    tq.get("claimId") for tq in matching_queries if tq.get("claimId")
+                ]
+                if target_claim_ids:
+                    for claim_id in target_claim_ids:
+                        scoped_claim_aggregates[claim_id] = prior_dst
+                elif primary_claim_id:
+                    scoped_claim_aggregates[primary_claim_id] = prior_dst
+                hop_services["__per_claim_aggregates__"] = scoped_claim_aggregates
+            hop_result, machine_state, hop_diags = execute_transport(
+                bridge, step_ctx, machine_state, hop_services,
+            )
+            diags.extend(hop_diags)
+        except Exception as exc:
+            hop_result = TransportResult(
+                status="unresolved",
+                metadata={},
+                provenance=[hop.bridge_id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_chain_hop_error",
+                    "bridge_id": hop.bridge_id,
+                    "message": str(exc),
+                }],
+            )
+            diags.append({
+                "severity": "error",
+                "code": "transport_chain_hop_error",
+                "plan_id": plan.id,
+                "bridge_id": hop.bridge_id,
+                "message": str(exc),
+            })
+
+        hop_results.append((hop, hop_result))
+        all_provenance.extend(hop_result.provenance)
+
+        # Check for failure
+        if hop_result.status in ("blocked", "unresolved"):
+            overall_status = "blocked"
+            if plan.failure_mode == "fail_fast":
+                break
+
+    # If no hops failed, determine overall status from individual results
+    if overall_status != "blocked":
+        statuses = {r.status for _, r in hop_results}
+        if "degraded" in statuses:
+            overall_status = "degraded"
+        elif "transported" in statuses:
+            overall_status = "transported"
+        elif "preserved" in statuses:
+            overall_status = "preserved"
+        elif "pattern_only" in statuses:
+            overall_status = "pattern_only"
+        elif "metadata_only" in statuses:
+            overall_status = "metadata_only"
+
+    # Build trace and attach to metadata
+    trace = _build_transport_trace(hop_results, precondition_outcomes)
+    chain_metadata: dict[str, Any] = {
+        "transport_trace": trace.model_dump(),
+    }
+
+    chain_result = TransportChainResult(
+        plan_id=plan.id,
+        status=overall_status,  # type: ignore[arg-type]
+        per_hop=[r for _, r in hop_results],
+        metadata=chain_metadata,
+        provenance=sorted(set(all_provenance)),
+        diagnostics=list(diags),
+    )
+
+    return chain_result, machine_state, diags
+
+
+def execute_transport_with_degradation_policy(
+    bridge: BridgeNode,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+    degradation_policy: DegradationPolicyNode | None = None,
+) -> tuple[TransportResult, MachineState, Diagnostics]:
+    """Execute transport with optional degradation policy override.
+
+    Extends the existing degrade path:
+    - If kind="default" or no policy, use current behavior via execute_transport.
+    - If kind="custom" with a binding, look up the binding in services and call it.
+    - Preserve the preserve_fields from the policy.
+    - Check max_loss if specified; if degradation exceeds max_loss, produce a
+      diagnostic and set status to "blocked".
+    - Record which degradation policy was used in provenance.
+    """
+    diags: Diagnostics = []
+
+    # No policy or default: delegate to existing execute_transport
+    if degradation_policy is None or degradation_policy.kind == "default":
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        if degradation_policy is not None:
+            result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Custom degradation policy
+    assert degradation_policy.kind == "custom"
+
+    binding_name = degradation_policy.binding
+    if binding_name is None:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_policy_no_binding",
+            "policy_id": degradation_policy.id,
+            "message": "Custom degradation policy requires a binding",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Look up the binding handler in services
+    degradation_handlers: dict[str, Callable] = services.get(
+        "__degradation_handlers__", {}
+    )
+    handler = degradation_handlers.get(binding_name)
+
+    if handler is None:
+        diags.append({
+            "severity": "warning",
+            "code": "degradation_binding_not_found",
+            "policy_id": degradation_policy.id,
+            "binding": binding_name,
+            "message": f"Degradation binding '{binding_name}' not found in services; "
+                       "falling back to default behavior",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Call the custom degradation handler
+    try:
+        custom_result = handler(bridge, step_ctx, machine_state, services, degradation_policy)
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_binding_error",
+            "policy_id": degradation_policy.id,
+            "binding": binding_name,
+            "message": str(exc),
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Normalize the custom result
+    if isinstance(custom_result, TransportResult):
+        result = custom_result
+    elif isinstance(custom_result, dict):
+        result = TransportResult.model_validate(custom_result)
+    elif isinstance(custom_result, tuple) and len(custom_result) >= 1:
+        result = custom_result[0] if isinstance(custom_result[0], TransportResult) else TransportResult.model_validate(custom_result[0])
+        if len(custom_result) >= 2:
+            machine_state = custom_result[1]
+        if len(custom_result) >= 3:
+            diags.extend(custom_result[2])
+    else:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_binding_invalid_result",
+            "policy_id": degradation_policy.id,
+            "message": f"Custom degradation handler returned unexpected type: {type(custom_result).__name__}",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    result.degradation_policy_used = degradation_policy.id
+
+    # Enforce preserve_fields: if the policy specifies fields to preserve,
+    # copy them from the source aggregate to the destination aggregate
+    if degradation_policy.preserve_fields and result.srcAggregate and result.dstAggregate:
+        for field_name in degradation_policy.preserve_fields:
+            src_val = getattr(result.srcAggregate, field_name, None)
+            if src_val is not None and hasattr(result.dstAggregate, field_name):
+                object.__setattr__(result.dstAggregate, field_name, src_val)
+
+    # Check max_loss constraint
+    if degradation_policy.max_loss is not None and result.status == "degraded":
+        # Compute a simple loss metric: count of items in bridge.lose
+        # relative to total facets (preserve + lose)
+        total_facets = len(bridge.preserve) + len(bridge.lose)
+        if total_facets > 0:
+            loss_ratio = len(bridge.lose) / total_facets
+        else:
+            loss_ratio = 0.0
+
+        if loss_ratio > degradation_policy.max_loss:
+            diags.append({
+                "severity": "error",
+                "code": "degradation_exceeds_max_loss",
+                "policy_id": degradation_policy.id,
+                "loss_ratio": loss_ratio,
+                "max_loss": degradation_policy.max_loss,
+                "message": (
+                    f"Degradation loss ratio {loss_ratio:.2f} exceeds "
+                    f"max_loss {degradation_policy.max_loss:.2f}"
+                ),
+            })
+            result.status = "blocked"  # type: ignore[assignment]
+
+    return result, machine_state, diags
+
+
+def validate_claim_map_result(
+    claim_map_output: dict[str, Any] | None,
+    bridge: BridgeNode,
+    transport: TransportNode,
+    claim_id: str,
+    services: dict[str, Any],
+) -> Diagnostics:
+    """Validate claim-map results for remap_recompute mode.
+
+    Checks:
+    - claim_map output is non-empty
+    - mapped claims reference valid destination frame evaluators (if known)
+
+    Returns diagnostics for any validation failures.
+    """
+    diags: Diagnostics = []
+
+    # Check that claim_map output is non-empty
+    if claim_map_output is None or not claim_map_output:
+        diags.append({
+            "severity": "error",
+            "code": "transport_mapping_missing",
+            "bridge_id": bridge.id,
+            "claim_id": claim_id,
+            "message": f"Claim map produced empty output for claim {claim_id}",
+        })
+        return diags
+
+    # Check mapped claim reference
+    mapped_claim = claim_map_output.get("mappedClaim")
+    if mapped_claim is None:
+        diags.append({
+            "severity": "error",
+            "code": "transport_mapping_missing",
+            "bridge_id": bridge.id,
+            "claim_id": claim_id,
+            "message": f"Claim map produced no mappedClaim for claim {claim_id}",
+        })
+
+    # Check that per_evaluator results reference valid destination evaluators
+    per_evaluator = claim_map_output.get("per_evaluator", {})
+    dst_evaluators = transport.dstEvaluators
+    if dst_evaluators is not None and per_evaluator:
+        dst_evaluator_set = set(dst_evaluators)
+        invalid_evaluators = [
+            eid for eid in per_evaluator if eid not in dst_evaluator_set
+        ]
+        if invalid_evaluators:
+            diags.append({
+                "severity": "warning",
+                "code": "transport_mapping_invalid",
+                "bridge_id": bridge.id,
+                "claim_id": claim_id,
+                "invalid_evaluators": invalid_evaluators,
+                "message": (
+                    f"Claim map produced results for evaluators "
+                    f"{invalid_evaluators} not in dstEvaluators {dst_evaluators}"
+                ),
+            })
+
+    return diags
+
+
+def apply_destination_completion_policy(
+    result: TransportResult,
+    completion_policy: DestinationCompletionPolicy,
+    bridge: BridgeNode,
+    services: dict[str, Any],
+) -> tuple[TransportResult, Diagnostics]:
+    """Apply a destination completion policy after transport execution.
+
+    Strategies:
+    - none: do nothing
+    - infer_defaults: fill missing destination facets from policy.defaults
+    - require_explicit: produce diagnostic if any destination facets are missing
+    - binding: call the binding from services
+
+    Records completion actions in the result's provenance and completion_actions.
+    """
+    diags: Diagnostics = []
+
+    if completion_policy.strategy == "none":
+        result.completion_actions.append("completion:none")
+        return result, diags
+
+    if completion_policy.strategy == "infer_defaults":
+        # Fill missing destination facets from policy.defaults
+        if completion_policy.defaults:
+            applied_defaults: list[str] = []
+            dst_metadata = dict(result.metadata)
+
+            for key, default_value in completion_policy.defaults.items():
+                if key not in dst_metadata or dst_metadata[key] is None:
+                    dst_metadata[key] = default_value
+                    applied_defaults.append(key)
+
+            result.metadata = dst_metadata
+            if applied_defaults:
+                result.completion_actions.append(
+                    f"completion:infer_defaults:{','.join(applied_defaults)}"
+                )
+            else:
+                result.completion_actions.append("completion:infer_defaults:no_missing")
+        else:
+            result.completion_actions.append("completion:infer_defaults:no_defaults")
+        return result, diags
+
+    if completion_policy.strategy == "require_explicit":
+        # Check that all expected destination facets are present
+        missing_facets: list[str] = []
+        # Check against bridge.preserve as the expected destination facets
+        dst_metadata = result.metadata
+        for facet in bridge.preserve:
+            if facet not in dst_metadata or dst_metadata.get(facet) is None:
+                missing_facets.append(facet)
+
+        if missing_facets:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_missing_facets",
+                "policy_id": completion_policy.id,
+                "bridge_id": bridge.id,
+                "missing_facets": missing_facets,
+                "message": (
+                    f"Destination missing required facets: {missing_facets}"
+                ),
+            })
+            result.completion_actions.append(
+                f"completion:require_explicit:missing:{','.join(missing_facets)}"
+            )
+        else:
+            result.completion_actions.append("completion:require_explicit:ok")
+        return result, diags
+
+    if completion_policy.strategy == "binding":
+        binding_name = completion_policy.binding
+        if binding_name is None:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_no_binding",
+                "policy_id": completion_policy.id,
+                "message": "Binding completion strategy requires a binding name",
+            })
+            result.completion_actions.append("completion:binding:no_binding")
+            return result, diags
+
+        completion_handlers: dict[str, Callable] = services.get(
+            "__completion_handlers__", {}
+        )
+        handler = completion_handlers.get(binding_name)
+
+        if handler is None:
+            diags.append({
+                "severity": "warning",
+                "code": "destination_completion_binding_not_found",
+                "policy_id": completion_policy.id,
+                "binding": binding_name,
+                "message": f"Completion binding '{binding_name}' not found in services",
+            })
+            result.completion_actions.append(f"completion:binding:not_found:{binding_name}")
+            return result, diags
+
+        try:
+            updated_result = handler(result, bridge, services, completion_policy)
+            if isinstance(updated_result, TransportResult):
+                result = updated_result
+            elif isinstance(updated_result, dict):
+                # Merge updates into existing result metadata
+                result.metadata.update(updated_result)
+            result.completion_actions.append(f"completion:binding:{binding_name}")
+        except Exception as exc:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_binding_error",
+                "policy_id": completion_policy.id,
+                "binding": binding_name,
+                "message": str(exc),
+            })
+            result.completion_actions.append(f"completion:binding:error:{binding_name}")
+
+        return result, diags
+
+    # Unknown strategy
+    diags.append({
+        "severity": "error",
+        "code": "destination_completion_unknown_strategy",
+        "policy_id": completion_policy.id,
+        "strategy": completion_policy.strategy,
+        "message": f"Unknown completion strategy: {completion_policy.strategy}",
+    })
+    return result, diags
+
+
+# ===================================================================
+# SUMMARY POLICY FRAMEWORK (post-evaluation, non-normative)
+# ===================================================================
+#
+# This section implements the summary policy layer described in T3.
+# Summaries are additive artifacts produced AFTER normal evaluation.
+# They do NOT modify fold_block, apply_resolution_policy, or any
+# existing evaluation functions.
+# ===================================================================
+
+from typing import Protocol as TypingProtocol, runtime_checkable
+
+from ..models.conformance import SummaryRequest, SummaryResult
+
+
+# ---------------------------------------------------------------------------
+# Severity ordering for truth values: F > B > N > T (worst-first)
+# ---------------------------------------------------------------------------
+
+_SUMMARY_SEVERITY_ORDER: dict[str, int] = {"F": 0, "B": 1, "N": 2, "T": 3}
+
+def _summary_worst_truth(truths: list[str]) -> str:
+    """Return the worst truth value using severity ordering F > B > N > T."""
+    if not truths:
+        return "N"
+    return min(truths, key=lambda t: _SUMMARY_SEVERITY_ORDER.get(t, 2))
+
+
+# ---------------------------------------------------------------------------
+# SummaryPolicyProtocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class SummaryPolicyProtocol(TypingProtocol):
+    """Protocol for summary policy implementations.
+
+    Summary policies are post-evaluation artifacts that consume completed
+    evaluation results and produce non-normative SummaryResult instances.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult: ...
+
+
+# ---------------------------------------------------------------------------
+# Helper: extract truths from eval_results for various scopes
+# ---------------------------------------------------------------------------
+
+
+def _extract_truths_for_scope(
+    scope: str,
+    target_ids: list[str],
+    eval_results: dict[str, Any],
+) -> list[str]:
+    """Extract truth values from eval_results based on scope.
+
+    eval_results is expected to contain keys like:
+      - "per_claim_aggregates": dict[str, EvalNode]
+      - "per_block_aggregates": dict[str, EvalNode]
+      - "block_results": list[BlockResult]
+      - "claim_results": list[ClaimResult]
+    """
+    truths: list[str] = []
+
+    if scope == "block":
+        # Aggregate truths from claims within the specified block(s)
+        per_claim = eval_results.get("per_claim_aggregates", {})
+        block_results = eval_results.get("block_results", [])
+        for br in block_results:
+            block_id = br.block_id if hasattr(br, "block_id") else br.get("block_id", "")
+            if target_ids and block_id not in target_ids:
+                continue
+            claims = br.claims if hasattr(br, "claims") else br.get("claims", [])
+            for cid in claims:
+                agg = per_claim.get(cid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
+        # Fallback: if block_results are not present, use direct block aggregates.
+        if not truths:
+            per_block = eval_results.get("per_block_aggregates", {})
+            selected_ids = target_ids if target_ids else list(per_block.keys())
+            for bid in selected_ids:
+                agg = per_block.get(bid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
+
+    elif scope == "bundle":
+        # Aggregate truths from all block aggregates
+        per_block = eval_results.get("per_block_aggregates", {})
+        for block_id, agg in per_block.items():
+            if target_ids and block_id not in target_ids:
+                continue
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+            truths.append(t)
+
+    elif scope == "claim_collection":
+        # Aggregate truths from specified claim aggregates
+        per_claim = eval_results.get("per_claim_aggregates", {})
+        for cid in target_ids:
+            agg = per_claim.get(cid)
+            if agg is not None:
+                t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(t)
+
+    elif scope == "session":
+        # Aggregate truths from all block aggregates across the session
+        per_block = eval_results.get("per_block_aggregates", {})
+        for agg in per_block.values():
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+            truths.append(t)
+
+    return truths
+
+
+def _extract_block_aggregate(
+    target_ids: list[str],
+    eval_results: dict[str, Any],
+) -> tuple[str | None, float | None]:
+    """Extract aggregate truth and support for block scope."""
+    per_block = eval_results.get("per_block_aggregates", {})
+    for bid in target_ids:
+        agg = per_block.get(bid)
+        if agg is not None:
+            t = agg.truth if hasattr(agg, "truth") else agg.get("truth")
+            s = agg.support if hasattr(agg, "support") else agg.get("support")
+            return t, None  # support is a SupportValue string, not a float
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# PassthroughNormativePolicy
+# ---------------------------------------------------------------------------
+
+
+class PassthroughNormativePolicy:
+    """Exposes existing canonical fold/aggregate results as a summary.
+
+    Simply passes through the normative evaluation results without
+    performing any additional computation.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        scope = request.scope
+        target_ids = request.target_ids
+
+        if scope == "block":
+            per_block = eval_results.get("per_block_aggregates", {})
+            selected_ids = target_ids if target_ids else list(per_block.keys())
+            truths: list[str] = []
+            matched_ids: list[str] = []
+            for bid in selected_ids:
+                agg = per_block.get(bid)
+                if agg is None:
+                    continue
+                truth = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(truth)
+                matched_ids.append(bid)
+            if truths:
+                return SummaryResult(
+                    policy_id="passthrough_normative",
+                    scope=scope,
+                    normative=False,
+                    summary_truth=_summary_worst_truth(truths),
+                    detail={"source": "block_aggregate", "block_ids": matched_ids, "block_count": len(matched_ids)},
+                    provenance=["passthrough from normative fold"],
+                )
+            # No matching block found
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth="N",
+                detail={"source": "block_aggregate", "note": "no matching block"},
+                provenance=["passthrough from normative fold"],
+            )
+
+        elif scope == "bundle":
+            per_block = eval_results.get("per_block_aggregates", {})
+            truths = []
+            for bid, agg in per_block.items():
+                if target_ids and bid not in target_ids:
+                    continue
+                t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(t)
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "bundle_aggregate", "block_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+        elif scope == "claim_collection":
+            per_claim = eval_results.get("per_claim_aggregates", {})
+            truths = []
+            for cid in target_ids:
+                agg = per_claim.get(cid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "claim_collection_aggregate", "claim_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+        else:
+            # session or unknown — aggregate all blocks
+            per_block = eval_results.get("per_block_aggregates", {})
+            truths = [
+                (agg.truth if hasattr(agg, "truth") else agg.get("truth", "N"))
+                for agg in per_block.values()
+            ]
+            agg_truth = _summary_worst_truth(truths) if truths else "N"
+            return SummaryResult(
+                policy_id="passthrough_normative",
+                scope=scope,
+                normative=False,
+                summary_truth=agg_truth,
+                detail={"source": "session_aggregate", "block_count": len(truths)},
+                provenance=["passthrough from normative fold"],
+            )
+
+
+# ---------------------------------------------------------------------------
+# SeverityMaxPolicy
+# ---------------------------------------------------------------------------
+
+
+class SeverityMaxPolicy:
+    """Summarize using severity ordering: F > B > N > T.
+
+    Returns the worst truth value across the scoped results.
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        truths = _extract_truths_for_scope(
+            request.scope, request.target_ids, eval_results
+        )
+        worst = _summary_worst_truth(truths) if truths else "N"
+        count = len(truths)
+        return SummaryResult(
+            policy_id="severity_max",
+            scope=request.scope,
+            normative=False,
+            summary_truth=worst,
+            detail={"worst_truth": worst, "result_count": count},
+            provenance=[f"severity_max over {count} results"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# MajorityVotePolicy
+# ---------------------------------------------------------------------------
+
+
+class MajorityVotePolicy:
+    """Count truth values and return the one with the highest count.
+
+    Breaks ties using severity ordering (F > B > N > T).
+    """
+
+    def summarize(
+        self,
+        request: SummaryRequest,
+        eval_results: dict[str, Any],
+        services: dict[str, Any],
+    ) -> SummaryResult:
+        truths = _extract_truths_for_scope(
+            request.scope, request.target_ids, eval_results
+        )
+        votes: dict[str, int] = {"T": 0, "F": 0, "N": 0, "B": 0}
+        for t in truths:
+            if t in votes:
+                votes[t] += 1
+            else:
+                votes[t] = votes.get(t, 0) + 1
+
+        count = len(truths)
+        if count == 0:
+            return SummaryResult(
+                policy_id="majority_vote",
+                scope=request.scope,
+                normative=False,
+                summary_truth="N",
+                detail={"votes": votes},
+                provenance=[f"majority_vote over {count} results"],
+            )
+
+        # Find the maximum vote count
+        max_count = max(votes.values())
+        # Collect all truths with that count
+        tied = [t for t, c in votes.items() if c == max_count]
+        # Break ties using severity ordering (worst wins)
+        winner = _summary_worst_truth(tied)
+
+        return SummaryResult(
+            policy_id="majority_vote",
+            scope=request.scope,
+            normative=False,
+            summary_truth=winner,
+            detail={"votes": votes},
+            provenance=[f"majority_vote over {count} results"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Summary policy registry
+# ---------------------------------------------------------------------------
+
+
+def get_builtin_summary_policies() -> dict[str, SummaryPolicyProtocol]:
+    """Return a dict of built-in summary policies keyed by policy id."""
+    return {
+        "passthrough_normative": PassthroughNormativePolicy(),
+        "severity_max": SeverityMaxPolicy(),
+        "majority_vote": MajorityVotePolicy(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# execute_summary: single summary request execution
+# ---------------------------------------------------------------------------
+
+
+def execute_summary(
+    request: SummaryRequest,
+    eval_results: dict[str, Any],
+    services: dict[str, Any],
+    policies: dict[str, SummaryPolicyProtocol],
+) -> SummaryResult:
+    """Execute a single summary request against the given policies.
+
+    Looks up the requested policy by request.policy_id in the policies dict,
+    calls policy.summarize(), and returns the SummaryResult.
+
+    If the policy is not found, returns a SummaryResult with a diagnostic
+    keyed "summary_policy_not_found".
+    """
+    policy = policies.get(request.policy_id)
+    if policy is None:
+        return SummaryResult(
+            policy_id=request.policy_id,
+            scope=request.scope,
+            normative=False,
+            summary_truth=None,
+            diagnostics=[
+                {
+                    "severity": "error",
+                    "code": "summary_policy_not_found",
+                    "policy_id": request.policy_id,
+                    "message": f"Summary policy '{request.policy_id}' not found",
+                }
+            ],
+        )
+    return policy.summarize(request, eval_results, services)
+
+
+# ---------------------------------------------------------------------------
+# run_summaries: batch summary execution (post-evaluation entry point)
+# ---------------------------------------------------------------------------
+
+
+def run_summaries(
+    requests: list[SummaryRequest],
+    eval_results: dict[str, Any],
+    services: dict[str, Any],
+    policies: dict[str, SummaryPolicyProtocol] | None = None,
+) -> list[SummaryResult]:
+    """Execute a batch of summary requests against completed evaluation results.
+
+    This is the main integration point, called AFTER a bundle/session evaluation.
+    It does NOT modify eval_results — it purely reads them and produces
+    non-normative SummaryResult artifacts.
+
+    Args:
+        requests: List of SummaryRequest describing what summaries to produce.
+        eval_results: Completed evaluation results (from runner). Expected keys:
+            - "per_claim_aggregates": dict[str, EvalNode]
+            - "per_block_aggregates": dict[str, EvalNode]
+            - "block_results": list[BlockResult]
+            - "claim_results": list[ClaimResult]
+        services: Service dict (passed through to policies).
+        policies: Optional dict of policy_id -> policy. If None, uses
+            get_builtin_summary_policies().
+
+    Returns:
+        List of SummaryResult, one per request.
+    """
+    if policies is None:
+        policies = get_builtin_summary_policies()
+
+    return [
+        execute_summary(request, eval_results, services, policies)
+        for request in requests
+    ]
+
+
+# ===================================================================
+# T4: EVIDENCE INFERENCE LAYER + STRONGER ADEQUACY EXECUTION
+# ===================================================================
+#
+# Part A: Evidence inference (opt-in).
+# Part B: Basis-driven adequacy execution with contested aggregation.
+#
+# These are additive functions. They do NOT modify existing
+# primitives, PrimitiveSet, or runner phases.
+# ===================================================================
+
+
+
+# ---------------------------------------------------------------------------
+# Part A: Evidence Inference
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class EvidenceInferencePolicyProtocol(TypingProtocol):
+    """Protocol for evidence inference policies.
+
+    Implementations receive declared evidence and relations, then produce
+    inferred evidence relations that complement (but do not replace) the
+    declared ones.
+    """
+
+    def infer(
+        self,
+        evidence: list[EvidenceNode],
+        declared_relations: list[EvidenceRelationNode],
+        services: dict[str, Any],
+    ) -> list[InferredEvidenceRelation]: ...
+
+
+class TransitivityInferencePolicy:
+    """Deterministic transitivity-based inference policy.
+
+    Rules:
+    - If A conflicts with B, and B conflicts with C, infer A may corroborate C.
+    - If A corroborates B, and B corroborates C, infer A corroborates C (transitive).
+
+    Confidence is the product of the chain scores (0.5 for None scores).
+    """
+
+    def infer(
+        self,
+        evidence: list[EvidenceNode],
+        declared_relations: list[EvidenceRelationNode],
+        services: dict[str, Any],
+    ) -> list[InferredEvidenceRelation]:
+        inferred: list[InferredEvidenceRelation] = []
+        # Track already-declared pairs to avoid redundant inferences
+        declared_pairs: set[tuple[str, str, str]] = set()
+        for r in declared_relations:
+            declared_pairs.add((r.lhs, r.rhs, r.kind))
+            declared_pairs.add((r.rhs, r.lhs, r.kind))
+
+        evidence_ids = {e.id for e in evidence}
+        seen_inferred: set[tuple[str, str, str]] = set()
+        counter = 0
+
+        for rel1 in declared_relations:
+            for rel2 in declared_relations:
+                if rel1.id == rel2.id:
+                    continue
+
+                # Find shared pivot: rel1 connects (A, B), rel2 connects (B, C)
+                # Check all orientations where B is shared
+                pairs = self._find_transitive_pairs(rel1, rel2)
+                for a, c, inferred_kind, r1, r2 in pairs:
+                    if a == c:
+                        continue
+                    if a not in evidence_ids or c not in evidence_ids:
+                        continue
+                    # Canonical ordering for dedup
+                    key = (min(a, c), max(a, c), inferred_kind)
+                    if key in declared_pairs or key in seen_inferred:
+                        continue
+                    seen_inferred.add(key)
+
+                    score1 = r1.score if r1.score is not None else 0.5
+                    score2 = r2.score if r2.score is not None else 0.5
+                    confidence = score1 * score2
+
+                    counter += 1
+                    inferred.append(InferredEvidenceRelation(
+                        id=f"inferred-{counter}",
+                        lhs=a,
+                        rhs=c,
+                        kind=inferred_kind,
+                        confidence=confidence,
+                        method="transitivity",
+                        declared=False,
+                        provenance=[
+                            f"inferred via transitivity from {r1.id} + {r2.id}"
+                        ],
+                    ))
+
+        return inferred
+
+    @staticmethod
+    def _find_transitive_pairs(
+        rel1: EvidenceRelationNode,
+        rel2: EvidenceRelationNode,
+    ) -> list[tuple[str, str, str, EvidenceRelationNode, EvidenceRelationNode]]:
+        """Find (A, C, inferred_kind, rel1, rel2) from two relations sharing a pivot B."""
+        results: list[tuple[str, str, str, EvidenceRelationNode, EvidenceRelationNode]] = []
+
+        # Gather edges: each relation (lhs, rhs, kind) is undirected
+        edges1 = [(rel1.lhs, rel1.rhs), (rel1.rhs, rel1.lhs)]
+        edges2 = [(rel2.lhs, rel2.rhs), (rel2.rhs, rel2.lhs)]
+
+        for a, b1 in edges1:
+            for b2, c in edges2:
+                if b1 != b2:
+                    continue
+                # a -- rel1.kind -- b -- rel2.kind -- c
+                inferred_kind = TransitivityInferencePolicy._combine_kinds(
+                    rel1.kind, rel2.kind
+                )
+                if inferred_kind is not None:
+                    results.append((a, c, inferred_kind, rel1, rel2))
+
+        return results
+
+    @staticmethod
+    def _combine_kinds(kind1: str, kind2: str) -> str | None:
+        """Combine two relation kinds to determine the inferred kind.
+
+        - conflicts + conflicts -> corroborates (enemy of my enemy)
+        - corroborates + corroborates -> corroborates (transitive)
+        """
+        if kind1 == "conflicts" and kind2 == "conflicts":
+            return "corroborates"
+        if kind1 == "corroborates" and kind2 == "corroborates":
+            return "corroborates"
+        return None
+
+
+def build_evidence_view_with_inference(
+    claim_id: str,
+    evidence_nodes: list[EvidenceNode],
+    declared_relations: list[EvidenceRelationNode],
+    inference_policy: EvidenceInferencePolicyProtocol | None,
+    services: dict[str, Any],
+) -> tuple[ClaimEvidenceView, list[InferredEvidenceRelation], Diagnostics]:
+    """Build an evidence view with optional inference.
+
+    If inference_policy is None, behaves like the declared-only path.
+    If provided, also runs inference and returns inferred relations separately.
+    Inferred relations do NOT appear in ClaimEvidenceView.relations (declared-only).
+    """
+    diags: Diagnostics = []
+
+    # Build evidence lookup
+    evidence_by_id: dict[str, EvidenceNode] = {e.id: e for e in evidence_nodes}
+
+    # Relevant relations for this claim's evidence
+    explicit_ids: set[str] = {e.id for e in evidence_nodes}
+    relevant_relations: list[EvidenceRelationNode] = [
+        r for r in declared_relations
+        if r.lhs in explicit_ids or r.rhs in explicit_ids
+    ]
+
+    # Cross-conflict score
+    conflict_scores = [
+        r.score for r in relevant_relations
+        if r.kind == "conflicts" and r.score is not None
+    ]
+    cross_conflict_score = max(conflict_scores) if conflict_scores else None
+
+    # Completeness summary
+    completeness_values = [
+        e.completeness for e in evidence_nodes if e.completeness is not None
+    ]
+    completeness_summary = min(completeness_values) if completeness_values else None
+
+    view = ClaimEvidenceView(
+        claim_id=claim_id,
+        explicit_evidence=list(evidence_nodes),
+        related_evidence=[],
+        relations=relevant_relations,
+        cross_conflict_score=cross_conflict_score,
+        completeness_summary=completeness_summary,
+    )
+
+    # Run inference if policy provided
+    inferred: list[InferredEvidenceRelation] = []
+    if inference_policy is not None:
+        try:
+            inferred = inference_policy.infer(evidence_nodes, declared_relations, services)
+        except Exception as exc:
+            diags.append({
+                "severity": "warning",
+                "code": "evidence_inference_error",
+                "claim_id": claim_id,
+                "message": str(exc),
+            })
+
+    return view, inferred, diags
+
+
+def get_evidence_view_combined(
+    evidence_view: ClaimEvidenceView,
+    inferred_relations: list[InferredEvidenceRelation],
+) -> dict[str, Any]:
+    """Combine declared evidence view with inferred relations.
+
+    Returns a dict with both perspectives:
+    - declared_only: the original ClaimEvidenceView
+    - inferred: list of InferredEvidenceRelation
+    - combined_relations: declared + inferred (all relation objects)
+    """
+    combined: list[Any] = list(evidence_view.relations) + list(inferred_relations)
+    return {
+        "declared_only": evidence_view,
+        "inferred": inferred_relations,
+        "combined_relations": combined,
+    }
+
+
+def get_builtin_inference_policies() -> dict[str, EvidenceInferencePolicyProtocol]:
+    """Return a dict of built-in evidence inference policies keyed by id."""
+    return {
+        "transitivity": TransitivityInferencePolicy(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Part B: Stronger Adequacy Execution
+# ---------------------------------------------------------------------------
+
+
+def detect_basis_circularity(
+    assessment: AdequacyAssessmentNode,
+) -> tuple[bool, Diagnostics]:
+    """Check if an assessment's basis references include its own id or task.
+
+    Returns (is_circular, diagnostics).
+    """
+    diags: Diagnostics = []
+    # Self-referencing: basis contains the assessment's own id
+    if assessment.id in assessment.basis:
+        diags.append({
+            "severity": "error",
+            "code": "circular_basis",
+            "subject": assessment.id,
+            "message": f"Assessment {assessment.id} has circular basis: "
+                       f"references itself",
+        })
+        return True, diags
+
+    # Also check if the assessment's task appears as a basis reference
+    # (a weaker form of circularity)
+    if assessment.task in assessment.basis:
+        diags.append({
+            "severity": "warning",
+            "code": "circular_basis",
+            "subject": assessment.id,
+            "message": f"Assessment {assessment.id} has basis referencing its own "
+                       f"task '{assessment.task}'",
+        })
+        return True, diags
+
+    return False, diags
+
+
+def execute_adequacy_with_basis(
+    assessment: AdequacyAssessmentNode,
+    basis_claims: list[str],
+    basis_results: dict[str, Any],
+    services: dict[str, Any],
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Execute adequacy with basis resolution.
+
+    Resolves each basis item, builds BasisResolutionEntry for each,
+    optionally calls method bindings, compares computed vs declared scores,
+    and detects failure kinds.
+    """
+    diags: Diagnostics = []
+
+    # Detect circularity
+    is_circular, circ_diags = detect_basis_circularity(assessment)
+    diags.extend(circ_diags)
+    if is_circular:
+        return AdequacyExecutionTrace(
+            assessment_id=assessment.id,
+            method=assessment.method,
+            basis_resolution=[],
+            computed_score=None,
+            declared_score=assessment.score if assessment.score != "N" else None,
+            score_divergence=None,
+            threshold=assessment.threshold,
+            adequate=False,
+            failure_kind="circular_basis",
+            provenance=[assessment.id, assessment.producer],
+            diagnostics=list(diags),
+        ), diags
+
+    # Resolve basis items
+    basis_entries: list[BasisResolutionEntry] = []
+    has_unresolved = False
+    for basis_id in basis_claims:
+        result = basis_results.get(basis_id)
+        if result is not None:
+            # Determine truth from result
+            if hasattr(result, "truth"):
+                truth_val = str(result.truth)
+            elif isinstance(result, dict):
+                truth_val = str(result.get("truth", "N"))
+            else:
+                truth_val = "N"
+            basis_entries.append(BasisResolutionEntry(
+                basis_id=basis_id,
+                resolved=True,
+                truth=truth_val,
+                source="claim",
+                provenance=[basis_id],
+            ))
+        else:
+            has_unresolved = True
+            basis_entries.append(BasisResolutionEntry(
+                basis_id=basis_id,
+                resolved=False,
+                truth=None,
+                source="claim",
+                provenance=[basis_id],
+            ))
+
+    # Determine declared score
+    declared_score: float | None = None
+    if assessment.score is not None and assessment.score != "N":
+        declared_score = float(assessment.score)
+
+    # Try to compute score via method binding
+    computed_score: float | None = None
+    method_handler = services.get("adequacy_handlers", {}).get(assessment.method)
+    if method_handler is not None:
+        try:
+            computed = method_handler(assessment)
+            if isinstance(computed, (int, float)):
+                computed_score = float(computed)
+        except Exception as exc:
+            diags.append({
+                "severity": "warning",
+                "code": "adequacy_method_error",
+                "subject": assessment.id,
+                "message": str(exc),
+            })
+
+    # If no computed score, use declared
+    effective_score = computed_score if computed_score is not None else declared_score
+
+    # Score divergence
+    score_divergence: float | None = None
+    if computed_score is not None and declared_score is not None:
+        score_divergence = abs(computed_score - declared_score)
+
+    # Determine adequacy and failure kind
+    adequate: bool | None = None
+    failure_kind = None
+    tolerance = services.get("adequacy_divergence_tolerance", 0.1)
+
+    if has_unresolved:
+        adequate = False
+        failure_kind = "basis_failure"
+    elif effective_score is not None:
+        adequate = effective_score >= assessment.threshold
+        if not adequate:
+            failure_kind = "threshold"
+        if score_divergence is not None and score_divergence > tolerance:
+            diags.append({
+                "severity": "warning",
+                "code": "method_conflict_warning",
+                "subject": assessment.id,
+                "message": f"method_conflict_warning: score divergence {score_divergence} exceeds tolerance {tolerance}",
+            })
+            failure_kind = "method_conflict"
+            adequate = False
+    else:
+        adequate = False
+        failure_kind = "policy_failure"
+
+    trace = AdequacyExecutionTrace(
+        assessment_id=assessment.id,
+        method=assessment.method,
+        basis_resolution=basis_entries,
+        computed_score=computed_score,
+        declared_score=declared_score,
+        score_divergence=score_divergence,
+        threshold=assessment.threshold,
+        adequate=adequate,
+        failure_kind=failure_kind,
+        provenance=[assessment.id, assessment.producer],
+        diagnostics=list(diags),
+    )
+    return trace, diags
+
+
+def aggregate_contested_adequacy(
+    assessments: list[AdequacyAssessmentNode],
+    basis_results: dict[str, Any],
+    resolution_kind: str,
+    services: dict[str, Any],
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Multi-producer adequacy aggregation.
+
+    resolution_kind is one of:
+    - "single": use the first assessment only
+    - "paraconsistent_union": all must agree; disagreement -> truth="B"
+    - "priority_order": use first adequate, or first if all inadequate
+    - "adjudicated": delegate to adjudicator in services; fallback to paraconsistent_union
+    """
+    diags: Diagnostics = []
+
+    if not assessments:
+        no_assessments_diag = {
+            "severity": "warning",
+            "code": "no_assessments",
+            "message": "No assessments provided for aggregation",
+        }
+        diags.append(no_assessments_diag)
+        return AdequacyExecutionTrace(
+            assessment_id="__empty__",
+            method="none",
+            adequate=False,
+            failure_kind="policy_failure",
+            provenance=[],
+            diagnostics=[no_assessments_diag],
+        ), diags
+
+    if resolution_kind == "single":
+        trace, aa_diags = execute_adequacy_with_basis(
+            assessments[0], assessments[0].basis, basis_results, services,
+        )
+        diags.extend(aa_diags)
+        return trace, diags
+
+    # Execute each assessment individually
+    traces: list[AdequacyExecutionTrace] = []
+    for aa in assessments:
+        trace, aa_diags = execute_adequacy_with_basis(
+            aa, aa.basis, basis_results, services,
+        )
+        traces.append(trace)
+        diags.extend(aa_diags)
+
+    if resolution_kind == "paraconsistent_union":
+        return _aggregate_paraconsistent(assessments, traces, diags)
+
+    if resolution_kind == "priority_order":
+        # Use first adequate trace, or first if all inadequate
+        for trace in traces:
+            if trace.adequate:
+                return trace, diags
+        return traces[0], diags
+
+    if resolution_kind == "adjudicated":
+        adjudicator = services.get("adequacy_adjudicator")
+        if adjudicator is not None:
+            try:
+                result = adjudicator(assessments, traces)
+                if isinstance(result, AdequacyExecutionTrace):
+                    return result, diags
+                if isinstance(result, tuple) and len(result) >= 1:
+                    return result[0], diags
+            except Exception as exc:
+                diags.append({
+                    "severity": "warning",
+                    "code": "adjudicator_error",
+                    "message": str(exc),
+                })
+        # Fallback to paraconsistent_union
+        return _aggregate_paraconsistent(assessments, traces, diags)
+
+    # Unknown resolution kind
+    diags.append({
+        "severity": "error",
+        "code": "unknown_resolution_kind",
+        "message": f"Unknown resolution kind: {resolution_kind}",
+    })
+    return traces[0], diags
+
+
+def _aggregate_paraconsistent(
+    assessments: list[AdequacyAssessmentNode],
+    traces: list[AdequacyExecutionTrace],
+    diags: Diagnostics,
+) -> tuple[AdequacyExecutionTrace, Diagnostics]:
+    """Paraconsistent union aggregation for adequacy traces.
+
+    All must agree on adequacy. If they disagree, failure_kind="method_conflict".
+    """
+    adequacy_values = [t.adequate for t in traces if t.adequate is not None]
+    all_agree = len(set(adequacy_values)) <= 1
+
+    if all_agree and adequacy_values:
+        # All agree
+        adequate = adequacy_values[0]
+        failure_kind = traces[0].failure_kind if not adequate else None
+    else:
+        # Disagreement
+        adequate = False
+        failure_kind = "method_conflict"
+
+    # Merge basis resolutions and provenance
+    all_basis: list[BasisResolutionEntry] = []
+    all_provenance: list[str] = []
+    for t in traces:
+        all_basis.extend(t.basis_resolution)
+        all_provenance.extend(t.provenance)
+
+    # Use first assessment as representative
+    first = assessments[0]
+    first_trace = traces[0]
+
+    return AdequacyExecutionTrace(
+        assessment_id=first.id,
+        method=first.method,
+        basis_resolution=all_basis,
+        computed_score=first_trace.computed_score,
+        declared_score=first_trace.declared_score,
+        score_divergence=first_trace.score_divergence,
+        threshold=first.threshold,
+        adequate=adequate,
+        failure_kind=failure_kind,
+        provenance=sorted(set(all_provenance)),
+        diagnostics=list(diags),
+    ), diags

@@ -1,0 +1,151 @@
+# Governance Stack / Multi-Evaluator Bundle
+#
+# Stress test: multiple evaluators with different roles that may produce
+# conflicting verdicts, adjudicated resolution policy, evidence relations
+# showing conflicts and corroboration, and adequacy assessment.
+#
+# Scenario: a compliance claim is evaluated by three independent evaluators
+# (external auditor, self-assessment, automated checker) who may disagree.
+# An adjudicated resolution policy resolves the disagreement.
+
+bundle governance_stack {
+  frame {
+    system Compliance;
+    namespace Audit;
+    scale enterprise;
+    task review;
+    regime annual;
+  }
+
+  evaluator ev_auditor {
+    kind institution;
+    role primary;
+    binding test://eval/external_auditor;
+  }
+
+  evaluator ev_self {
+    kind human;
+    role auxiliary;
+    binding test://eval/self_assessment;
+  }
+
+  evaluator ev_auto {
+    kind model;
+    role audit;
+    binding test://eval/automated_checker;
+  }
+
+  resolution_policy rp_adjudicated {
+    kind adjudicated;
+    members [ev_auditor, ev_self, ev_auto];
+    binding test://resolution/compliance_adjudicator_v1;
+  }
+
+  evidence e_audit {
+    kind audit;
+    binding test://evidence/audit_report;
+    completeness 1.0;
+  }
+
+  evidence e_self {
+    kind testimony;
+    binding test://evidence/self_report;
+    completeness 0.70;
+  }
+
+  evidence e_auto {
+    kind measurement;
+    binding test://evidence/auto_scan;
+    completeness 0.90;
+    internal_conflict 0.05;
+  }
+
+  evidence e_prior_audit {
+    kind audit;
+    binding test://evidence/prior_year_audit;
+    completeness 1.0;
+  }
+
+  evidence_relation r_audit_self {
+    lhs e_audit;
+    rhs e_self;
+    kind conflicts;
+    score 0.60;
+    refs [test://analysis/audit_self_discrepancy];
+  }
+
+  evidence_relation r_audit_auto {
+    lhs e_audit;
+    rhs e_auto;
+    kind corroborates;
+    score 0.85;
+  }
+
+  evidence_relation r_prior_current {
+    lhs e_prior_audit;
+    rhs e_audit;
+    kind corroborates;
+    score 0.78;
+  }
+
+  anchor a_independence {
+    term symbol evaluator_independence;
+    subtype idealization;
+    status active;
+
+    adequacy {
+      id aa_independence_review;
+      task review;
+      producer ev_auditor;
+      score 0.85;
+      threshold 0.70;
+      method test://method/independence_check;
+      basis [e_audit, e_auto];
+    }
+  }
+
+  anchor a_completeness {
+    term symbol data_completeness;
+    subtype proxy;
+    status active;
+
+    adequacy {
+      id aa_completeness_review;
+      task review;
+      producer ev_auto;
+      score 0.72;
+      threshold 0.80;
+      method test://method/completeness_check;
+      basis [e_self, e_auto];
+    }
+  }
+
+  joint_adequacy ja_compliance {
+    anchors [a_independence, a_completeness];
+    assessment {
+      id ja_compliance_assess;
+      task review;
+      producer ev_auditor;
+      score 0.68;
+      threshold 0.75;
+      method test://method/joint_compliance;
+    }
+  }
+
+  local {
+    c_access: access_control_adequate(system_1, policy_A) refs [e_audit, e_auto];
+    c_encrypt: encryption_standard_met(data_store_1, AES256) refs [e_auto];
+    c_retention: data_retention_compliant(archive_1, 7years) refs [e_self, e_prior_audit];
+  }
+
+  systemic {
+    c_overall: overall_compliance_status(org_1, framework_X)
+      refs [e_audit, e_self, e_auto]
+      uses [a_independence, a_completeness]
+      annotations {"license_task": "review"};
+  }
+
+  meta {
+    c_note: note "Three evaluators disagree on access_control_adequate. Auditor finds T, self-assessment finds F, automated checker finds N due to incomplete scan data.";
+  }
+}
