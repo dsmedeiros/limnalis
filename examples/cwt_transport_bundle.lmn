@@ -1,0 +1,124 @@
+# CWT Cross-Frame Transport Bundle
+#
+# Stress test: transport across multiple frames at different abstraction levels.
+# Models a physical measurement claim transported first to a theoretical frame
+# (remap_recompute), then from theory to a policy/governance frame (degrade).
+# Tests: chained bridges, remap_recompute with claim_map, degrade mode,
+# truth change across bridges, transport loss/gain/risk, multiple evidence items.
+
+bundle cwt_transport {
+  frame {
+    system Physics;
+    namespace Measurement;
+    scale laboratory;
+    task observation;
+    regime nominal;
+  }
+
+  evaluator ev_phys {
+    kind model;
+    binding test://eval/physics_v1;
+  }
+
+  evaluator ev_theory {
+    kind model;
+    binding test://eval/theory_v1;
+  }
+
+  evaluator ev_policy {
+    kind model;
+    binding test://eval/policy_v1;
+  }
+
+  resolution_policy rp0 {
+    kind single;
+    members [ev_phys];
+  }
+
+  evidence e_sensor {
+    kind measurement;
+    binding test://evidence/temp_sensor;
+    completeness 0.95;
+    internal_conflict 0.03;
+  }
+
+  evidence e_calibration {
+    kind measurement;
+    binding test://evidence/calibration_log;
+    completeness 1.0;
+  }
+
+  evidence e_model_output {
+    kind simulation;
+    binding test://evidence/model_output;
+    completeness 0.80;
+  }
+
+  evidence e_policy_doc {
+    kind dataset;
+    binding test://evidence/policy_document;
+    completeness 0.60;
+  }
+
+  evidence_relation er_sensor_cal {
+    lhs e_sensor;
+    rhs e_calibration;
+    kind corroborates;
+    score 0.92;
+  }
+
+  evidence_relation er_sensor_model {
+    lhs e_sensor;
+    rhs e_model_output;
+    kind depends_on;
+    score 0.75;
+  }
+
+  # Bridge 1: Physics -> Theory via remap_recompute
+  # The claim mapping remaps concrete measurement predicates to theoretical
+  # model-fit predicates. Evidence e_sensor is preserved, e_model_output is gained.
+  bridge b_phys_to_theory {
+    from @{system=Physics, namespace=Measurement, scale=laboratory, task=observation};
+    to @{system=Theory, namespace=ModelFit, scale=computational, task=analysis, regime=nominal};
+    via test://bridge/phys_to_theory;
+    preserve [e_sensor, e_calibration];
+    lose [];
+    gain [e_model_output];
+    risk [aggregation_reversal, observer_shift];
+    transport {
+      mode remap_recompute;
+      claim_map test://map/phys_claims_to_theory;
+      preconditions [test://pre/frame_compatible];
+    }
+  }
+
+  # Bridge 2: Theory -> Policy via degrade
+  # Theory-level detail is lost when entering the policy frame.
+  # Evidence from sensors is dropped.
+  bridge b_theory_to_policy {
+    from @{system=Theory, namespace=ModelFit, scale=computational, task=analysis};
+    to @{system=Policy, namespace=Compliance, scale=regulatory, task=enforcement, regime=nominal};
+    via test://bridge/theory_to_policy;
+    preserve [e_model_output];
+    lose [e_sensor, e_calibration];
+    gain [e_policy_doc];
+    risk [aliasing, temporal_smear];
+    transport {
+      mode degrade;
+      preconditions [test://pre/policy_accepts_theory];
+    }
+  }
+
+  local {
+    c_temp: temperature_within_range(sensor_1, 20, 25) refs [e_sensor, e_calibration];
+    c_stable: reading_stable(sensor_1, 0.5) refs [e_sensor];
+  }
+
+  systemic {
+    c_model: model_fit_adequate(fit_1, 0.95) refs [e_model_output] requires [e_sensor];
+  }
+
+  meta {
+    c_compliant: regulatory_threshold_met(param_1, limit_A) refs [e_policy_doc];
+  }
+}

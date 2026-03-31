@@ -1,0 +1,348 @@
+version: v0.2.2-m6b
+meta:
+  name: "Milestone 6B stress-test corpus"
+  purpose: "Cross-frame transport and governance stack stress bundles for conformance coverage expansion"
+  bundles:
+  - cwt_transport_bundle.lmn
+  - governance_stack_bundle.lmn
+  focus_areas:
+  - chained_bridges
+  - remap_recompute_with_claim_map
+  - degrade_transport
+  - transport_loss_gain_risk
+  - multi_evaluator_adjudicated
+  - evidence_relations
+  - joint_adequacy
+  - anchor_adequacy_below_threshold
+  - note_claims
+cases:
+- id: M6B-T1
+  name: "CWT cross-frame transport chain"
+  track: M6B
+  focus:
+  - chained_bridges
+  - remap_recompute
+  - degrade
+  - transport_loss_gain
+  - evidence_relations
+  - multi_frame
+  description: >
+    Tests transport across three frames at different abstraction levels.
+    Bridge b_phys_to_theory uses remap_recompute mode with a claim_map binding,
+    transporting claims from a Physics/Measurement frame to a Theory/ModelFit frame.
+    Bridge b_theory_to_policy uses degrade mode, transporting from Theory to
+    Policy/Compliance. The bundle includes four evidence items, two evidence
+    relations (corroborates + depends_on), and claims spread across local,
+    systemic, and meta strata. Three evaluators are declared but only ev_phys
+    is in the resolution policy (single), making ev_theory and ev_policy
+    available for transport destination evaluator panels.
+  source: |
+    bundle cwt_transport {
+      frame {
+        system Physics;
+        namespace Measurement;
+        scale laboratory;
+        task observation;
+        regime nominal;
+      }
+
+      evaluator ev_phys {
+        kind model;
+        binding test://eval/physics_v1;
+      }
+
+      evaluator ev_theory {
+        kind model;
+        binding test://eval/theory_v1;
+      }
+
+      evaluator ev_policy {
+        kind model;
+        binding test://eval/policy_v1;
+      }
+
+      resolution_policy rp0 {
+        kind single;
+        members [ev_phys];
+      }
+
+      evidence e_sensor {
+        kind measurement;
+        binding test://evidence/temp_sensor;
+        completeness 0.95;
+        internal_conflict 0.03;
+      }
+
+      evidence e_calibration {
+        kind measurement;
+        binding test://evidence/calibration_log;
+        completeness 1.0;
+      }
+
+      evidence e_model_output {
+        kind simulation;
+        binding test://evidence/model_output;
+        completeness 0.80;
+      }
+
+      evidence e_policy_doc {
+        kind dataset;
+        binding test://evidence/policy_document;
+        completeness 0.60;
+      }
+
+      evidence_relation er_sensor_cal {
+        lhs e_sensor;
+        rhs e_calibration;
+        kind corroborates;
+        score 0.92;
+      }
+
+      evidence_relation er_sensor_model {
+        lhs e_sensor;
+        rhs e_model_output;
+        kind depends_on;
+        score 0.75;
+      }
+
+      bridge b_phys_to_theory {
+        from @{system=Physics, namespace=Measurement, scale=laboratory, task=observation};
+        to @{system=Theory, namespace=ModelFit, scale=computational, task=analysis, regime=nominal};
+        via test://bridge/phys_to_theory;
+        preserve [e_sensor, e_calibration];
+        lose [];
+        gain [e_model_output];
+        risk [aggregation_reversal, observer_shift];
+        transport {
+          mode remap_recompute;
+          claim_map test://map/phys_claims_to_theory;
+          preconditions [test://pre/frame_compatible];
+        }
+      }
+
+      bridge b_theory_to_policy {
+        from @{system=Theory, namespace=ModelFit, scale=computational, task=analysis};
+        to @{system=Policy, namespace=Compliance, scale=regulatory, task=enforcement, regime=nominal};
+        via test://bridge/theory_to_policy;
+        preserve [e_model_output];
+        lose [e_sensor, e_calibration];
+        gain [e_policy_doc];
+        risk [aliasing, temporal_smear];
+        transport {
+          mode degrade;
+          preconditions [test://pre/policy_accepts_theory];
+        }
+      }
+
+      local {
+        c_temp: temperature_within_range(sensor_1, 20, 25) refs [e_sensor, e_calibration];
+        c_stable: reading_stable(sensor_1, 0.5) refs [e_sensor];
+      }
+
+      systemic {
+        c_model: model_fit_adequate(fit_1, 0.95) refs [e_model_output] requires [e_sensor];
+      }
+
+      meta {
+        c_compliant: regulatory_threshold_met(param_1, limit_A) refs [e_policy_doc];
+      }
+    }
+  normalized_ast_expectations:
+  - "BundleNode with 3 evaluators (ev_phys, ev_theory, ev_policy)"
+  - "ResolutionPolicyNode(kind=single, members=[ev_phys])"
+  - "4 EvidenceNodes with varying completeness and internalConflict"
+  - "2 EvidenceRelationNodes (corroborates + depends_on)"
+  - "BridgeNode b_phys_to_theory: TransportNode(mode=remap_recompute, claimMap set)"
+  - "BridgeNode b_theory_to_policy: TransportNode(mode=degrade)"
+  - "Bridge gain/lose/risk lists populated across both bridges"
+  - "3 ClaimBlocks: local (2 claims), systemic (1 claim), meta (1 claim)"
+  - "c_model has semanticRequirements from 'requires' keyword"
+  expected_notes:
+  - "Transport queries against b_phys_to_theory should invoke remap_recompute logic"
+  - "Transport queries against b_theory_to_policy should invoke degrade logic"
+  - "Chained transport (physics -> theory -> policy) requires two sequential queries"
+  - "Evidence e_sensor has internalConflict=0.03, affecting support computation"
+  - "Evidence e_policy_doc has completeness=0.60, likely yielding partial support"
+
+- id: M6B-G1
+  name: "Governance stack with adjudicated resolution"
+  track: M6B
+  focus:
+  - multi_evaluator
+  - adjudicated_resolution
+  - evidence_relations_conflict
+  - anchor_adequacy
+  - joint_adequacy
+  - note_claim
+  - evaluator_roles
+  description: >
+    Tests a governance scenario with three evaluators (institution/primary,
+    human/auxiliary, model/audit) under an adjudicated resolution policy.
+    Evidence relations include both conflicts (audit vs self-report) and
+    corroboration (audit vs auto-scan, prior vs current audit). Two anchors
+    with adequacy assessments -- one passes threshold (a_independence at
+    0.85 >= 0.70) and one fails (a_completeness at 0.72 < 0.80). A
+    joint_adequacy also fails threshold (0.68 < 0.75). The systemic claim
+    c_overall uses both anchors and has license_task annotation for licensing.
+    A meta note claim documents evaluator disagreement.
+  source: |
+    bundle governance_stack {
+      frame {
+        system Compliance;
+        namespace Audit;
+        scale enterprise;
+        task review;
+        regime annual;
+      }
+
+      evaluator ev_auditor {
+        kind institution;
+        role primary;
+        binding test://eval/external_auditor;
+      }
+
+      evaluator ev_self {
+        kind human;
+        role auxiliary;
+        binding test://eval/self_assessment;
+      }
+
+      evaluator ev_auto {
+        kind model;
+        role audit;
+        binding test://eval/automated_checker;
+      }
+
+      resolution_policy rp_adjudicated {
+        kind adjudicated;
+        members [ev_auditor, ev_self, ev_auto];
+        binding test://resolution/compliance_adjudicator_v1;
+      }
+
+      evidence e_audit {
+        kind audit;
+        binding test://evidence/audit_report;
+        completeness 1.0;
+      }
+
+      evidence e_self {
+        kind testimony;
+        binding test://evidence/self_report;
+        completeness 0.70;
+      }
+
+      evidence e_auto {
+        kind measurement;
+        binding test://evidence/auto_scan;
+        completeness 0.90;
+        internal_conflict 0.05;
+      }
+
+      evidence e_prior_audit {
+        kind audit;
+        binding test://evidence/prior_year_audit;
+        completeness 1.0;
+      }
+
+      evidence_relation r_audit_self {
+        lhs e_audit;
+        rhs e_self;
+        kind conflicts;
+        score 0.60;
+        refs [test://analysis/audit_self_discrepancy];
+      }
+
+      evidence_relation r_audit_auto {
+        lhs e_audit;
+        rhs e_auto;
+        kind corroborates;
+        score 0.85;
+      }
+
+      evidence_relation r_prior_current {
+        lhs e_prior_audit;
+        rhs e_audit;
+        kind corroborates;
+        score 0.78;
+      }
+
+      anchor a_independence {
+        term symbol evaluator_independence;
+        subtype idealization;
+        status active;
+
+        adequacy {
+          id aa_independence_review;
+          task review;
+          producer ev_auditor;
+          score 0.85;
+          threshold 0.70;
+          method test://method/independence_check;
+          basis [e_audit, e_auto];
+        }
+      }
+
+      anchor a_completeness {
+        term symbol data_completeness;
+        subtype proxy;
+        status active;
+
+        adequacy {
+          id aa_completeness_review;
+          task review;
+          producer ev_auto;
+          score 0.72;
+          threshold 0.80;
+          method test://method/completeness_check;
+          basis [e_self, e_auto];
+        }
+      }
+
+      joint_adequacy ja_compliance {
+        anchors [a_independence, a_completeness];
+        assessment {
+          id ja_compliance_assess;
+          task review;
+          producer ev_auditor;
+          score 0.68;
+          threshold 0.75;
+          method test://method/joint_compliance;
+        }
+      }
+
+      local {
+        c_access: access_control_adequate(system_1, policy_A) refs [e_audit, e_auto];
+        c_encrypt: encryption_standard_met(data_store_1, AES256) refs [e_auto];
+        c_retention: data_retention_compliant(archive_1, 7years) refs [e_self, e_prior_audit];
+      }
+
+      systemic {
+        c_overall: overall_compliance_status(org_1, framework_X)
+          refs [e_audit, e_self, e_auto]
+          uses [a_independence, a_completeness]
+          annotations {"license_task": "review"};
+      }
+
+      meta {
+        c_note: note "Three evaluators disagree on access_control_adequate. Auditor finds T, self-assessment finds F, automated checker finds N due to incomplete scan data.";
+      }
+    }
+  normalized_ast_expectations:
+  - "BundleNode with 3 evaluators using different kinds (institution, human, model)"
+  - "Each evaluator has a distinct role (primary, auxiliary, audit)"
+  - "ResolutionPolicyNode(kind=adjudicated, members=[ev_auditor, ev_self, ev_auto], binding set)"
+  - "4 EvidenceNodes spanning audit, testimony, measurement kinds"
+  - "3 EvidenceRelationNodes: 1 conflicts, 2 corroborates"
+  - "AnchorNode a_independence: idealization, adequacy score 0.85 >= threshold 0.70 (passes)"
+  - "AnchorNode a_completeness: proxy, adequacy score 0.72 < threshold 0.80 (fails)"
+  - "JointAdequacyNode ja_compliance: score 0.68 < threshold 0.75 (fails)"
+  - "ClaimNode c_overall: usesAnchors=[a_independence, a_completeness], annotations with license_task"
+  - "ClaimNode c_note: kind=note, NoteExprNode"
+  - "3 ClaimBlocks: local (3 claims), systemic (1 claim), meta (1 note claim)"
+  expected_notes:
+  - "Adjudicated resolution policy routes claim aggregation through binding"
+  - "a_completeness adequacy fails threshold -> licensing impact on claims using it"
+  - "ja_compliance joint adequacy fails threshold -> additional licensing impact"
+  - "Evidence conflicts (r_audit_self) may affect support computation"
+  - "c_note is a note claim: per_evaluator and aggregate should be omitted per corpus rules"
+  - "c_overall licensing depends on anchor adequacy for task=review"
