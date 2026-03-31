@@ -383,6 +383,43 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", type=Path, default=None, help="Output file path (prints to stdout if omitted)"
     )
 
+    # --- Summary commands ---
+    summarize_cmd = sub.add_parser(
+        "summarize",
+        help="Run a summary policy on an evaluated bundle",
+        description=(
+            "Parse, normalize, evaluate a .lmn bundle, then run a summary policy.\n\n"
+            "Example: limnalis summarize examples/minimal_bundle.lmn\n"
+            "         limnalis summarize examples/minimal_bundle.lmn --policy severity_max"
+        ),
+    )
+    summarize_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
+    summarize_cmd.add_argument(
+        "--policy",
+        type=str,
+        default="passthrough_normative",
+        help="Summary policy ID (default: passthrough_normative)",
+    )
+    summarize_cmd.add_argument(
+        "--scope",
+        type=str,
+        default="bundle",
+        help="Summary scope (default: bundle)",
+    )
+    summarize_cmd.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        default=False,
+        help="Output as machine-parseable JSON (default behavior; accepted for explicitness)",
+    )
+
+    sub.add_parser(
+        "list-summary-policies",
+        help="List available built-in summary policies",
+        description="List the IDs of all built-in summary policies.",
+    )
+
     return parser
 
 
@@ -496,6 +533,13 @@ def main(argv: list[str] | None = None) -> int:
     # --- LinkML projection ---
     if args.command == "project-linkml":
         return _cmd_project_linkml(args)
+
+    # --- Summary commands ---
+    if args.command == "summarize":
+        return _cmd_summarize(args)
+
+    if args.command == "list-summary-policies":
+        return _cmd_list_summary_policies()
 
     parser.error("unknown command")
 
@@ -1368,4 +1412,97 @@ def _cmd_plugins_show(args: argparse.Namespace) -> int:
         print(f"Description: {meta.description}")
         print(f"Handler:     {meta.handler!r}")
 
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: summarize
+# ---------------------------------------------------------------------------
+
+
+def _cmd_summarize(args: argparse.Namespace) -> int:
+    """Parse, normalize, evaluate, then run a summary policy."""
+    from .runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
+    from .runtime.runner import run_bundle
+    from .runtime import get_builtin_summary_policies, execute_summary
+    from .models.conformance import SummaryRequest
+
+    json_output = getattr(args, "json_output", False)
+
+    def _emit_error(message: str, *, detail: str | None = None) -> int:
+        if json_output:
+            payload: dict[str, str] = {"status": "error", "error": message}
+            if detail:
+                payload["detail"] = detail
+            print(json.dumps(payload, indent=2))
+        else:
+            _error(message, detail=detail)
+        return 1
+
+    # --- Load and evaluate the bundle ---
+    try:
+        result = normalize_surface_file(args.path, validate_schema=True)
+        if result.canonical_ast is None:
+            return _emit_error("normalization produced no canonical AST")
+        bundle = result.canonical_ast
+    except FileNotFoundError:
+        return _emit_error(f"file not found: {args.path}")
+    except UnexpectedInput as exc:
+        return _emit_error(f"parse error in {args.path}", detail=str(exc))
+    except NormalizationError as exc:
+        return _emit_error(f"normalization error in {args.path}", detail=str(exc))
+    except SchemaValidationError as exc:
+        return _emit_error(
+            f"schema validation failed for {args.path}",
+            detail="\n".join(
+                f"  {v.path}: {v.message}" for v in exc.violations
+            ),
+        )
+    except Exception as exc:
+        return _emit_error(f"failed to load {args.path}: {type(exc).__name__}: {exc}")
+
+    sessions = [SessionConfig(id="default", steps=[StepConfig(id="step0")])]
+    env = EvaluationEnvironment()
+
+    try:
+        eval_result = run_bundle(bundle, sessions, env)
+    except Exception as exc:
+        return _emit_error(f"evaluation failed: {type(exc).__name__}: {exc}")
+
+    # --- Run the summary policy ---
+    policies = get_builtin_summary_policies()
+    policy_id = args.policy
+    if policy_id not in policies:
+        available = ", ".join(sorted(policies.keys()))
+        return _emit_error(
+            f"unknown summary policy: {policy_id!r}",
+            detail=f"available policies: {available}",
+        )
+
+    request = SummaryRequest(
+        policy_id=policy_id,
+        scope=args.scope,
+    )
+
+    try:
+        summary_result = execute_summary(request, eval_result, policies[policy_id])
+    except Exception as exc:
+        return _emit_error(f"summary execution failed: {type(exc).__name__}: {exc}")
+
+    print(summary_result.model_dump_json(indent=2, exclude_none=True))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command: list-summary-policies
+# ---------------------------------------------------------------------------
+
+
+def _cmd_list_summary_policies() -> int:
+    """List available built-in summary policies."""
+    from .runtime import get_builtin_summary_policies
+
+    policies = get_builtin_summary_policies()
+    for policy_id in sorted(policies.keys()):
+        print(policy_id)
     return 0
