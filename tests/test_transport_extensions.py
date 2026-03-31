@@ -60,11 +60,14 @@ def _bridge(
     lose: list[str] | None = None,
     gain: list[str] | None = None,
     risk: list[str] | None = None,
+    preconditions: list[str] | None = None,
     claim_map: str | None = None,
 ) -> BridgeNode:
     transport_kwargs: dict = {"mode": mode}
     if mode == "remap_recompute":
         transport_kwargs["claimMap"] = claim_map or "default_map"
+    if preconditions:
+        transport_kwargs["preconditions"] = preconditions
     return BridgeNode(
         id=id,
         **{"from": _frame_pattern(system="src")},
@@ -174,6 +177,19 @@ class TestTransportChain:
         assert len(result.per_hop) == 3
         # Overall status should be blocked because one hop failed
         assert result.status == "blocked"
+
+    def test_transport_chain_first_hop_uses_existing_aggregate_for_preconditions(self):
+        """First hop preconditions should evaluate against real source aggregate when available."""
+        bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
+        plan = TransportPlan(id="plan_pre", hops=[_hop("br1")])
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {"__per_claim_aggregates__": {"claim1": EvalNode(truth="T", reason="seeded")}}
+
+        result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+
+        assert result.per_hop[0].status != "blocked"
 
 
 # ===================================================================

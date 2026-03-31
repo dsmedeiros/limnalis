@@ -1486,8 +1486,31 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
     )
 
     try:
-        eval_dict = eval_result.model_dump() if hasattr(eval_result, "model_dump") else eval_result
-        summary_result = execute_summary(request, eval_dict, {}, policies)
+        # execute_summary expects a step-shaped payload with top-level
+        # per_claim_aggregates/per_block_aggregates keys. run_bundle returns
+        # BundleResult(session_results -> step_results), so flatten to the
+        # first session's final step for summarize.
+        eval_payload: dict[str, object]
+        if hasattr(eval_result, "session_results"):
+            first_session = eval_result.session_results[0] if eval_result.session_results else None
+            final_step = (
+                first_session.step_results[-1]
+                if first_session is not None and first_session.step_results
+                else None
+            )
+            if final_step is not None:
+                eval_payload = (
+                    final_step.model_dump() if hasattr(final_step, "model_dump") else final_step
+                )
+            else:
+                eval_payload = {}
+        elif isinstance(eval_result, dict) and "session_results" in eval_result:
+            sessions = eval_result.get("session_results", [])
+            steps = sessions[0].get("step_results", []) if sessions else []
+            eval_payload = steps[-1] if steps else {}
+        else:
+            eval_payload = eval_result.model_dump() if hasattr(eval_result, "model_dump") else eval_result
+        summary_result = execute_summary(request, eval_payload, {}, policies)
     except Exception as exc:
         return _emit_error(f"summary execution failed: {type(exc).__name__}: {exc}")
 

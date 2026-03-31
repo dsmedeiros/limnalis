@@ -133,6 +133,15 @@ class TestExecuteAdequacyWithBasis:
 
 
 class TestContestedAdequacy:
+    def test_contested_adequacy_no_assessments_returns_diag_tuple(self):
+        """Empty assessments should emit no_assessments in both trace and returned diagnostics."""
+        trace, diags = aggregate_contested_adequacy([], {}, "single", {})
+
+        assert trace.diagnostics
+        assert trace.diagnostics[0]["code"] == "no_assessments"
+        assert diags
+        assert diags[0]["code"] == "no_assessments"
+
     def test_contested_adequacy_single(self):
         """Resolution 'single' uses first assessment."""
         aa1 = _assessment(id="aa1", score=0.8, threshold=0.5)

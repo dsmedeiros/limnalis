@@ -2512,6 +2512,8 @@ def execute_transport_chain(
         precondition_src: EvalNode
         if hop_results and hop_results[-1][1].dstAggregate is not None:
             precondition_src = hop_results[-1][1].dstAggregate
+        elif per_claim_aggregates:
+            precondition_src = next(iter(per_claim_aggregates.values()))
         else:
             # Use first available aggregate or a neutral N node
             precondition_src = EvalNode(truth="N", reason="chain_start")
@@ -3768,17 +3770,19 @@ def aggregate_contested_adequacy(
     diags: Diagnostics = []
 
     if not assessments:
+        no_assessments_diag = {
+            "severity": "warning",
+            "code": "no_assessments",
+            "message": "No assessments provided for aggregation",
+        }
+        diags.append(no_assessments_diag)
         return AdequacyExecutionTrace(
             assessment_id="__empty__",
             method="none",
             adequate=False,
             failure_kind="policy_failure",
             provenance=[],
-            diagnostics=[{
-                "severity": "warning",
-                "code": "no_assessments",
-                "message": "No assessments provided for aggregation",
-            }],
+            diagnostics=[no_assessments_diag],
         ), diags
 
     # Execute each assessment individually
