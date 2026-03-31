@@ -125,6 +125,29 @@ class TestExecuteAdequacyWithBasis:
         assert trace.failure_kind == "method_conflict"
         assert any(d.get("code") == "method_conflict_warning" for d in diags)
 
+    def test_execute_adequacy_divergence_below_threshold_still_flags_conflict(self):
+        """Large divergence should flag method_conflict even when computed score is below threshold."""
+        aa = _assessment(
+            score=0.95, threshold=0.5, method="custom_method", basis=["c1"]
+        )
+        basis_results = {"c1": EvalNode(truth="T")}
+
+        def custom_handler(assessment):
+            return 0.1
+
+        services = {
+            "adequacy_handlers": {"custom_method": custom_handler},
+            "adequacy_divergence_tolerance": 0.1,
+        }
+
+        trace, diags = execute_adequacy_with_basis(
+            aa, ["c1"], basis_results, services
+        )
+
+        assert trace.adequate is False
+        assert trace.failure_kind == "method_conflict"
+        assert any(d.get("code") == "method_conflict_warning" for d in diags)
+
     def test_execute_adequacy_circular_basis(self):
         """Self-referencing basis -> failure_kind='circular_basis'."""
         aa = _assessment(id="aa_circ", basis=["aa_circ"])

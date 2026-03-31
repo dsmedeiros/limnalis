@@ -3073,6 +3073,15 @@ def _extract_truths_for_scope(
                 if agg is not None:
                     t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
                     truths.append(t)
+        # Fallback: if block_results are not present, use direct block aggregates.
+        if not truths:
+            per_block = eval_results.get("per_block_aggregates", {})
+            selected_ids = target_ids if target_ids else list(per_block.keys())
+            for bid in selected_ids:
+                agg = per_block.get(bid)
+                if agg is not None:
+                    t = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                    truths.append(t)
 
     elif scope == "bundle":
         # Aggregate truths from all block aggregates
@@ -3773,15 +3782,15 @@ def execute_adequacy_with_basis(
         adequate = effective_score >= assessment.threshold
         if not adequate:
             failure_kind = "threshold"
-        if adequate and score_divergence is not None and score_divergence > tolerance:
+        if score_divergence is not None and score_divergence > tolerance:
             diags.append({
                 "severity": "warning",
                 "code": "method_conflict_warning",
                 "subject": assessment.id,
                 "message": f"method_conflict_warning: score divergence {score_divergence} exceeds tolerance {tolerance}",
             })
-            adequate = False
             failure_kind = "method_conflict"
+            adequate = False
     else:
         adequate = False
         failure_kind = "policy_failure"

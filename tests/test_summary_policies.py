@@ -166,6 +166,20 @@ class TestSeverityMaxPolicy:
         # B is worse than N and T but better than F
         assert result.summary_truth == "B"
 
+    def test_severity_max_block_scope_falls_back_to_block_aggregates(self):
+        """Block scope should use per_block_aggregates when block_results are absent."""
+        policy = SeverityMaxPolicy()
+        request = SummaryRequest(
+            policy_id="severity_max",
+            scope="block",
+            target_ids=["blk1", "blk2"],
+        )
+        er = _eval_results(per_block={"blk1": "T", "blk2": "F"})
+
+        result = policy.summarize(request, er, {})
+
+        assert result.summary_truth == "F"
+
 
 # ===================================================================
 # MajorityVotePolicy
