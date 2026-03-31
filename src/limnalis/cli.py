@@ -408,6 +408,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Summary scope (default: bundle)",
     )
     summarize_cmd.add_argument(
+        "--target-id",
+        dest="target_ids",
+        action="append",
+        default=[],
+        help=(
+            "Target ID for scoped summary (repeatable). "
+            "For block scope: block IDs; for claim_collection scope: claim IDs."
+        ),
+    )
+    summarize_cmd.add_argument(
         "--json",
         dest="json_output",
         action="store_true",
@@ -1480,11 +1490,6 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
             detail=f"available policies: {available}",
         )
 
-    request = SummaryRequest(
-        policy_id=policy_id,
-        scope=args.scope,
-    )
-
     try:
         # execute_summary expects a step-shaped payload with top-level
         # per_claim_aggregates/per_block_aggregates keys. run_bundle returns
@@ -1510,6 +1515,16 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
             eval_payload = steps[-1] if steps else {}
         else:
             eval_payload = eval_result.model_dump() if hasattr(eval_result, "model_dump") else eval_result
+        target_ids = list(getattr(args, "target_ids", []) or [])
+        if not target_ids and args.scope == "block":
+            target_ids = list((eval_payload.get("per_block_aggregates") or {}).keys())
+        elif not target_ids and args.scope == "claim_collection":
+            target_ids = list((eval_payload.get("per_claim_aggregates") or {}).keys())
+        request = SummaryRequest(
+            policy_id=policy_id,
+            scope=args.scope,
+            target_ids=target_ids,
+        )
         summary_result = execute_summary(request, eval_payload, {}, policies)
     except Exception as exc:
         return _emit_error(f"summary execution failed: {type(exc).__name__}: {exc}")

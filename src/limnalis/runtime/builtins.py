@@ -2588,6 +2588,10 @@ def execute_transport_chain(
             overall_status = "transported"
         elif "preserved" in statuses:
             overall_status = "preserved"
+        elif "pattern_only" in statuses:
+            overall_status = "pattern_only"
+        elif "metadata_only" in statuses:
+            overall_status = "metadata_only"
 
     # Build trace and attach to metadata
     trace = _build_transport_trace(hop_results, precondition_outcomes)

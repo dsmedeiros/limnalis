@@ -191,6 +191,20 @@ class TestTransportChain:
 
         assert result.per_hop[0].status != "blocked"
 
+    def test_transport_chain_status_pattern_only_when_no_transport_executes(self):
+        """When all hops are pattern_only/metadata_only, chain should not report transported."""
+        bridge = _bridge(id="br1", mode="preserve")
+        plan = TransportPlan(id="plan_pattern", hops=[_hop("br1")])
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {"__per_claim_aggregates__": {}, "__transport_queries__": []}
+
+        result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+
+        assert result.per_hop[0].status == "pattern_only"
+        assert result.status == "pattern_only"
+
 
 # ===================================================================
 # Test: degradation policy

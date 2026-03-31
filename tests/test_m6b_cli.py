@@ -87,6 +87,44 @@ class TestSummarizeCommand:
         code = main(["summarize", "dummy.lmn"])
         assert code == 0
 
+    def test_summarize_populates_block_target_ids_from_eval_payload(self, monkeypatch) -> None:
+        """Block scope without explicit target IDs should auto-select available blocks."""
+        import limnalis.cli as cli_mod
+        import limnalis.runtime as runtime_mod
+        import limnalis.runtime.runner as runner_mod
+
+        def fake_normalize_surface_file(path, validate_schema=True):
+            return SimpleNamespace(canonical_ast=object())
+
+        def fake_run_bundle(bundle, sessions, env):
+            return BundleResult(
+                bundle_id="b1",
+                session_results=[
+                    SessionResult(
+                        session_id="s1",
+                        step_results=[
+                            StepResult(
+                                step_id="step0",
+                                per_block_aggregates={"block-1": EvalNode(truth="T", reason="ok")},
+                            )
+                        ],
+                    )
+                ],
+            )
+
+        def fake_execute_summary(request, eval_results, services, policies):
+            assert request.scope == "block"
+            assert request.target_ids == ["block-1"]
+            return SummaryResult(policy_id=request.policy_id, scope=request.scope, summary_truth="T")
+
+        monkeypatch.setattr(cli_mod, "normalize_surface_file", fake_normalize_surface_file)
+        monkeypatch.setattr(runner_mod, "run_bundle", fake_run_bundle)
+        monkeypatch.setattr(runtime_mod, "execute_summary", fake_execute_summary)
+        monkeypatch.setattr(runtime_mod, "get_builtin_summary_policies", lambda: {"passthrough_normative": object()})
+
+        code = main(["summarize", "--scope", "block", "dummy.lmn"])
+        assert code == 0
+
 
 class TestListSummaryPoliciesCommand:
     def test_list_summary_policies_runs(self, capsys) -> None:
