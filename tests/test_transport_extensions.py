@@ -157,6 +157,7 @@ class TestTransportChain:
         assert result.status == "blocked"
         # fail_fast should stop after the missing bridge (2 hops attempted, chain stops at missing)
         assert len(result.per_hop) == 2
+        assert "br_missing" in result.provenance
 
     def test_transport_chain_best_effort(self):
         """Chain with failure_mode='best_effort', missing second bridge, verify continues."""
@@ -562,3 +563,17 @@ class TestBuildTransportTrace:
         assert "version" in trace.total_loss
         assert "derived_metric" in trace.total_gain
         assert trace.precondition_outcomes == {"br1": True, "br2": True}
+
+    def test_build_transport_trace_keeps_per_hop_evals_when_bridge_repeats(self):
+        """Repeated bridge IDs should not overwrite prior per-hop eval details."""
+        hop1 = _hop("br1")
+        hop2 = _hop("br1")
+        r1 = TransportResult(status="transported", provenance=["br1", "first"])
+        r2 = TransportResult(status="blocked", provenance=["br1", "second"])
+
+        trace = _build_transport_trace([(hop1, r1), (hop2, r2)])
+
+        assert len(trace.hops) == 2
+        assert len(trace.per_hop_evals) == 2
+        statuses = sorted(v["status"] for v in trace.per_hop_evals.values())
+        assert statuses == ["blocked", "transported"]

@@ -2416,7 +2416,7 @@ def _build_transport_trace(
     total_loss: list[str] = []
     total_gain: list[str] = []
 
-    for hop, result in hop_results:
+    for idx, (hop, result) in enumerate(hop_results):
         hop_entry: dict[str, Any] = {
             "bridge_id": hop.bridge_id,
             "src_frame": hop.src_frame,
@@ -2428,10 +2428,14 @@ def _build_transport_trace(
             "provenance": result.provenance,
         }
         hops.append(hop_entry)
-        per_hop_evals[hop.bridge_id] = {
+        hop_key = hop.bridge_id
+        if hop_key in per_hop_evals:
+            hop_key = f"{hop.bridge_id}#{idx}"
+        per_hop_evals[hop_key] = {
             "status": result.status,
             "srcAggregate": result.srcAggregate.model_dump() if result.srcAggregate else None,
             "dstAggregate": result.dstAggregate.model_dump() if result.dstAggregate else None,
+            "bridge_id": hop.bridge_id,
         }
         # Accumulate loss/gain across hops (deduplicated)
         for item in hop.loss:
@@ -2514,6 +2518,7 @@ def execute_transport_chain(
                 }],
             )
             hop_results.append((hop, hop_result))
+            all_provenance.extend(hop_result.provenance)
             overall_status = "blocked"
             if plan.failure_mode == "fail_fast":
                 break
@@ -2577,6 +2582,7 @@ def execute_transport_chain(
                 provenance=[hop.bridge_id, bridge.via],
             )
             hop_results.append((hop, hop_result))
+            all_provenance.extend(hop_result.provenance)
             overall_status = "blocked"
             if plan.failure_mode == "fail_fast":
                 break
