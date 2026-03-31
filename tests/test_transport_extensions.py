@@ -308,6 +308,30 @@ class TestTransportChain:
         assert call_truths[0] == "T"
         assert call_truths[1] == "F"
 
+    def test_transport_chain_preserves_precondition_outcomes_for_repeated_bridge_ids(self, monkeypatch):
+        """Repeated bridge IDs should retain per-hop precondition outcomes in trace."""
+        bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
+        plan = TransportPlan(id="plan_repeat_pre", hops=[_hop("br1"), _hop("br1")], failure_mode="best_effort")
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {"__per_claim_aggregates__": {"c1": EvalNode(truth="T", reason="seed")}}
+
+        outcomes = iter([False, True])
+        original = builtins_mod._check_preconditions
+
+        def fake_check_preconditions(_bridge, _src):
+            return next(outcomes)
+
+        monkeypatch.setattr(builtins_mod, "_check_preconditions", fake_check_preconditions)
+        try:
+            result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+        finally:
+            monkeypatch.setattr(builtins_mod, "_check_preconditions", original)
+
+        trace = TransportTrace.model_validate(result.metadata["transport_trace"])
+        assert trace.precondition_outcomes == {"br1": False, "br1#1": True}
+
 
 # ===================================================================
 # Test: degradation policy

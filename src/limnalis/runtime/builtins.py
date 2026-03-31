@@ -2476,6 +2476,7 @@ def execute_transport_chain(
     diags: Diagnostics = []
     hop_results: list[tuple[TransportHop, TransportResult]] = []
     precondition_outcomes: dict[str, bool] = {}
+    precondition_counts: dict[str, int] = {}
     all_provenance: list[str] = [plan.id]
     overall_status: str = "transported"
 
@@ -2562,7 +2563,10 @@ def execute_transport_chain(
             precondition_src = EvalNode(truth="N", reason="chain_start")
 
         precondition_ok = _check_preconditions(bridge, precondition_src)
-        precondition_outcomes[hop.bridge_id] = precondition_ok
+        precondition_idx = precondition_counts.get(hop.bridge_id, 0)
+        precondition_counts[hop.bridge_id] = precondition_idx + 1
+        precondition_key = hop.bridge_id if precondition_idx == 0 else f"{hop.bridge_id}#{precondition_idx}"
+        precondition_outcomes[precondition_key] = precondition_ok
 
         if not precondition_ok:
             hop_result = TransportResult(
@@ -3160,19 +3164,25 @@ class PassthroughNormativePolicy:
 
         if scope == "block":
             per_block = eval_results.get("per_block_aggregates", {})
-            # Use first matching target
-            for bid in target_ids:
+            selected_ids = target_ids if target_ids else list(per_block.keys())
+            truths: list[str] = []
+            matched_ids: list[str] = []
+            for bid in selected_ids:
                 agg = per_block.get(bid)
-                if agg is not None:
-                    truth = agg.truth if hasattr(agg, "truth") else agg.get("truth")
-                    return SummaryResult(
-                        policy_id="passthrough_normative",
-                        scope=scope,
-                        normative=False,
-                        summary_truth=truth,
-                        detail={"source": "block_aggregate", "block_id": bid},
-                        provenance=["passthrough from normative fold"],
-                    )
+                if agg is None:
+                    continue
+                truth = agg.truth if hasattr(agg, "truth") else agg.get("truth", "N")
+                truths.append(truth)
+                matched_ids.append(bid)
+            if truths:
+                return SummaryResult(
+                    policy_id="passthrough_normative",
+                    scope=scope,
+                    normative=False,
+                    summary_truth=_summary_worst_truth(truths),
+                    detail={"source": "block_aggregate", "block_ids": matched_ids, "block_count": len(matched_ids)},
+                    provenance=["passthrough from normative fold"],
+                )
             # No matching block found
             return SummaryResult(
                 policy_id="passthrough_normative",

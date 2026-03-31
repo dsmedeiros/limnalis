@@ -73,6 +73,21 @@ class TestPassthroughPolicy:
         assert result.scope == "block"
         assert result.normative is False
 
+    def test_passthrough_block_scope_aggregates_multiple_targets(self):
+        """Block scope should aggregate across all targeted blocks, not just first match."""
+        policy = PassthroughNormativePolicy()
+        request = SummaryRequest(
+            policy_id="passthrough_normative",
+            scope="block",
+            target_ids=["blk1", "blk2"],
+        )
+        er = _eval_results(per_block={"blk1": "T", "blk2": "F"})
+
+        result = policy.summarize(request, er, {})
+
+        assert result.summary_truth == "F"
+        assert result.detail["block_count"] == 2
+
     def test_passthrough_bundle_scope(self):
         """Passthrough on bundle scope, verify worst-of-blocks."""
         policy = PassthroughNormativePolicy()
