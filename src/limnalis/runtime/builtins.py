@@ -2506,12 +2506,33 @@ def execute_transport_chain(
         per_claim_aggregates: dict[str, EvalNode] = services.get(
             "__per_claim_aggregates__", {}
         )
+        transport_queries = services.get("__transport_queries__", [])
+        current_step_index = getattr(step_ctx, "step_index", None)
+
+        def _query_matches_current_step(query: dict[str, Any]) -> bool:
+            query_step_index = query.get("__fixture_step_index__")
+            if query_step_index is None:
+                return True
+            if not isinstance(current_step_index, int):
+                return False
+            return query_step_index == current_step_index
+
+        matching_queries = [
+            tq for tq in transport_queries
+            if tq.get("bridgeId") == hop.bridge_id and _query_matches_current_step(tq)
+        ]
+        primary_claim_id = next(
+            (tq.get("claimId") for tq in matching_queries if tq.get("claimId")),
+            None,
+        )
         # Use a synthetic EvalNode for precondition checking based on
         # the current chain state. If we have results from the previous
         # hop, use its dstAggregate as the "source" for the next hop.
         precondition_src: EvalNode
         if hop_results and hop_results[-1][1].dstAggregate is not None:
             precondition_src = hop_results[-1][1].dstAggregate
+        elif primary_claim_id and primary_claim_id in per_claim_aggregates:
+            precondition_src = per_claim_aggregates[primary_claim_id]
         elif per_claim_aggregates:
             precondition_src = next(iter(per_claim_aggregates.values()))
         else:
@@ -2546,8 +2567,21 @@ def execute_transport_chain(
 
         # Execute the bridge transport
         try:
+            hop_services = dict(services)
+            if hop_results and hop_results[-1][1].dstAggregate is not None:
+                prior_dst = hop_results[-1][1].dstAggregate
+                scoped_claim_aggregates = dict(per_claim_aggregates)
+                target_claim_ids = [
+                    tq.get("claimId") for tq in matching_queries if tq.get("claimId")
+                ]
+                if target_claim_ids:
+                    for claim_id in target_claim_ids:
+                        scoped_claim_aggregates[claim_id] = prior_dst
+                elif primary_claim_id:
+                    scoped_claim_aggregates[primary_claim_id] = prior_dst
+                hop_services["__per_claim_aggregates__"] = scoped_claim_aggregates
             hop_result, machine_state, hop_diags = execute_transport(
-                bridge, step_ctx, machine_state, services,
+                bridge, step_ctx, machine_state, hop_services,
             )
             diags.extend(hop_diags)
         except Exception as exc:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import limnalis.runtime.builtins as builtins_mod
 
 from limnalis.models.ast import (
     BridgeNode,
@@ -204,6 +205,71 @@ class TestTransportChain:
 
         assert result.per_hop[0].status == "pattern_only"
         assert result.status == "pattern_only"
+
+    def test_transport_chain_first_hop_preconditions_use_target_claim(self):
+        """First-hop precondition should bind to the transported claim, not arbitrary dict order."""
+        bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
+        plan = TransportPlan(id="plan_targeted", hops=[_hop("br1")])
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {
+            "__transport_queries__": [{"id": "tq1", "bridgeId": "br1", "claimId": "target_claim"}],
+            "__per_claim_aggregates__": {
+                "other_claim": EvalNode(truth="F", reason="unrelated"),
+                "target_claim": EvalNode(truth="T", reason="transported"),
+            },
+        }
+
+        result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+
+        assert result.per_hop[0].status != "blocked"
+
+    def test_transport_chain_passes_prior_hop_dst_to_subsequent_hop_execution(self, monkeypatch):
+        """Second-hop execution should see previous hop dstAggregate via per-claim aggregates."""
+        br1 = _bridge(id="br1", mode="preserve")
+        br2 = _bridge(id="br2", mode="preserve")
+        plan = TransportPlan(id="plan_prog", hops=[_hop("br1"), _hop("br2")], failure_mode="best_effort")
+        bridges = {"br1": br1, "br2": br2}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {
+            "__transport_queries__": [
+                {"id": "q1", "bridgeId": "br1", "claimId": "c1"},
+                {"id": "q2", "bridgeId": "br2", "claimId": "c1"},
+            ],
+            "__per_claim_aggregates__": {"c1": EvalNode(truth="T", reason="seed")},
+        }
+
+        call_truths: list[str] = []
+        orig_execute_transport = builtins_mod.execute_transport
+
+        def wrapped_execute_transport(bridge, step_ctx, machine_state, services):
+            claim_eval = services.get("__per_claim_aggregates__", {}).get("c1")
+            call_truths.append(claim_eval.truth if claim_eval is not None else "N")
+            if bridge.id == "br1":
+                return (
+                    TransportResult(
+                        status="transported",
+                        srcAggregate=EvalNode(truth="T", reason="src"),
+                        dstAggregate=EvalNode(truth="F", reason="hop1_dst"),
+                        metadata={},
+                        provenance=[bridge.id],
+                    ),
+                    machine_state,
+                    [],
+                )
+            return orig_execute_transport(bridge, step_ctx, machine_state, services)
+
+        monkeypatch.setattr(builtins_mod, "execute_transport", wrapped_execute_transport)
+        try:
+            execute_transport_chain(plan, bridges, step_ctx, ms, services)
+        finally:
+            monkeypatch.setattr(builtins_mod, "execute_transport", orig_execute_transport)
+
+        assert len(call_truths) >= 2
+        assert call_truths[0] == "T"
+        assert call_truths[1] == "F"
 
 
 # ===================================================================
