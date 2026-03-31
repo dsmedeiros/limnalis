@@ -311,6 +311,38 @@ class TestValidatePackage:
         issues = validate_package(zip_path)
         assert any("escapes package root" in i for i in issues)
 
+    def test_rejects_unknown_artifact_type_in_directory_manifest(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        pkg_dir = tmp_path / "unknown_artifact_type_pkg"
+        create_package(pkg_dir, source_files=[source_file], output_format="directory")
+
+        manifest_path = pkg_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["artifact_types"] = ["source", "unknown_type"]
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        issues = validate_package(pkg_dir)
+        assert any("Unknown artifact type" in i for i in issues)
+
+    def test_rejects_unknown_artifact_type_in_zip_manifest(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        zip_path = tmp_path / "unknown_artifact_type.zip"
+        create_package(zip_path, source_files=[source_file], output_format="zip")
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = {name: zf.read(name) for name in zf.namelist()}
+        manifest = json.loads(members["manifest.json"].decode("utf-8"))
+        manifest["artifact_types"] = ["source", "unknown_type"]
+        members["manifest.json"] = json.dumps(manifest, indent=2).encode("utf-8")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for name, data in members.items():
+                zf.writestr(name, data)
+
+        issues = validate_package(zip_path)
+        assert any("Unknown artifact type" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # extract_package

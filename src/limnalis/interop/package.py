@@ -307,6 +307,9 @@ def validate_package(
 
             # --- Check artifact_types vs directories ---
             type_to_dir = {v: k for k, v in _DIR_TO_ARTIFACT_TYPE.items()}
+            unknown_types = sorted(t for t in manifest.artifact_types if t not in type_to_dir)
+            for unknown in unknown_types:
+                issues.append(f"Unknown artifact type in manifest.artifact_types: {unknown}")
             expected_dirs = {type_to_dir[t] for t in manifest.artifact_types if t in type_to_dir}
 
             for subdir in ("source", "ast", "results", "conformance"):
@@ -393,6 +396,9 @@ def validate_package(
 
         # --- Check artifact_types vs directories ---
         type_to_dir = {v: k for k, v in _DIR_TO_ARTIFACT_TYPE.items()}
+        unknown_types = sorted(t for t in manifest.artifact_types if t not in type_to_dir)
+        for unknown in unknown_types:
+            issues.append(f"Unknown artifact type in manifest.artifact_types: {unknown}")
         expected_dirs = {type_to_dir[t] for t in manifest.artifact_types if t in type_to_dir}
 
         for subdir in ("source", "ast", "results", "conformance"):
