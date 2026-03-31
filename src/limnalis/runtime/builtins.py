@@ -23,6 +23,8 @@ from ..models.ast import (
     ClaimNode,
     CriterionExprNode,
     DeclarationExprNode,
+    DegradationPolicyNode,
+    DestinationCompletionPolicy,
     DynamicExprNode,
     EmergenceExprNode,
     EvidenceNode,
@@ -38,9 +40,11 @@ from ..models.ast import (
     PredicateExprNode,
     ResolutionPolicyNode,
     TimeCtxNode,
+    TransportHop,
     TransportNode,
+    TransportPlan,
 )
-from ..models.conformance import TruthValue
+from ..models.conformance import TransportTrace, TruthValue
 from .models import (
     AdequacyResult,
     AnchorAdequacyResult,
@@ -60,6 +64,7 @@ from .models import (
     StepConfig,
     StepContext,
     SupportResult,
+    TransportChainResult,
     TransportResult,
     TruthCore,
 )
@@ -2383,3 +2388,554 @@ def _execute_remap_recompute(
         per_evaluator=per_evaluator,
         provenance=[bridge.id, bridge.via, claim_id],
     )
+
+
+# ===================================================================
+# T2: Advanced Transport Engine — helper functions
+# ===================================================================
+
+
+def _build_transport_trace(
+    hop_results: list[tuple[TransportHop, TransportResult]],
+    precondition_outcomes: dict[str, bool] | None = None,
+    mapping_steps: list[str] | None = None,
+) -> TransportTrace:
+    """Build a rich TransportTrace from execution state.
+
+    Populates hops, precondition_outcomes, mapping_steps, total_loss, total_gain
+    from the per-hop execution results.
+    """
+    hops: list[dict[str, Any]] = []
+    per_hop_evals: dict[str, dict[str, Any]] = {}
+    total_loss: list[str] = []
+    total_gain: list[str] = []
+
+    for hop, result in hop_results:
+        hop_entry: dict[str, Any] = {
+            "bridge_id": hop.bridge_id,
+            "src_frame": hop.src_frame,
+            "dst_frame": hop.dst_frame,
+            "status": result.status,
+            "loss": hop.loss,
+            "gain": hop.gain,
+            "risk": hop.risk,
+            "provenance": result.provenance,
+        }
+        hops.append(hop_entry)
+        per_hop_evals[hop.bridge_id] = {
+            "status": result.status,
+            "srcAggregate": result.srcAggregate.model_dump() if result.srcAggregate else None,
+            "dstAggregate": result.dstAggregate.model_dump() if result.dstAggregate else None,
+        }
+        # Accumulate loss/gain across hops (deduplicated)
+        for item in hop.loss:
+            if item not in total_loss:
+                total_loss.append(item)
+        for item in hop.gain:
+            if item not in total_gain:
+                total_gain.append(item)
+
+    return TransportTrace(
+        hops=hops,
+        precondition_outcomes=precondition_outcomes or {},
+        mapping_steps=mapping_steps or [],
+        per_hop_evals=per_hop_evals,
+        total_loss=total_loss,
+        total_gain=total_gain,
+    )
+
+
+def execute_transport_chain(
+    plan: TransportPlan,
+    bridges: dict[str, BridgeNode],
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+) -> tuple[TransportChainResult, MachineState, Diagnostics]:
+    """Execute a sequence of bridges as a chained transport plan.
+
+    Iterates through plan.hops, executing each bridge's transport in sequence.
+    Per-hop: runs preconditions, executes transport mode, records loss/gain/risk.
+
+    Supports:
+    - failure_mode="fail_fast": stop on first failure
+    - failure_mode="best_effort": continue on failure, record failures
+
+    Returns a consolidated TransportChainResult with full TransportTrace.
+    """
+    diags: Diagnostics = []
+    hop_results: list[tuple[TransportHop, TransportResult]] = []
+    precondition_outcomes: dict[str, bool] = {}
+    all_provenance: list[str] = [plan.id]
+    overall_status: str = "transported"
+
+    for hop in plan.hops:
+        bridge = bridges.get(hop.bridge_id)
+        if bridge is None:
+            diags.append({
+                "severity": "error",
+                "code": "transport_chain_bridge_missing",
+                "plan_id": plan.id,
+                "bridge_id": hop.bridge_id,
+                "message": f"Bridge {hop.bridge_id} not found for transport chain hop",
+            })
+            hop_result = TransportResult(
+                status="unresolved",
+                metadata={},
+                provenance=[hop.bridge_id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_chain_bridge_missing",
+                    "bridge_id": hop.bridge_id,
+                    "message": f"Bridge {hop.bridge_id} not found",
+                }],
+            )
+            hop_results.append((hop, hop_result))
+            overall_status = "blocked"
+            if plan.failure_mode == "fail_fast":
+                break
+            continue
+
+        # Check preconditions for this hop
+        per_claim_aggregates: dict[str, EvalNode] = services.get(
+            "__per_claim_aggregates__", {}
+        )
+        # Use a synthetic EvalNode for precondition checking based on
+        # the current chain state. If we have results from the previous
+        # hop, use its dstAggregate as the "source" for the next hop.
+        precondition_src: EvalNode
+        if hop_results and hop_results[-1][1].dstAggregate is not None:
+            precondition_src = hop_results[-1][1].dstAggregate
+        else:
+            # Use first available aggregate or a neutral N node
+            precondition_src = EvalNode(truth="N", reason="chain_start")
+
+        precondition_ok = _check_preconditions(bridge, precondition_src)
+        precondition_outcomes[hop.bridge_id] = precondition_ok
+
+        if not precondition_ok:
+            hop_result = TransportResult(
+                status="blocked",
+                srcAggregate=precondition_src,
+                dstAggregate=EvalNode(
+                    truth="N",
+                    reason="transport_precondition",
+                    provenance=[hop.bridge_id],
+                ),
+                metadata={
+                    "preserve": bridge.preserve,
+                    "lose": bridge.lose,
+                    "gain": bridge.gain,
+                    "risk": bridge.risk,
+                },
+                provenance=[hop.bridge_id, bridge.via],
+            )
+            hop_results.append((hop, hop_result))
+            overall_status = "blocked"
+            if plan.failure_mode == "fail_fast":
+                break
+            continue
+
+        # Execute the bridge transport
+        try:
+            hop_result, machine_state, hop_diags = execute_transport(
+                bridge, step_ctx, machine_state, services,
+            )
+            diags.extend(hop_diags)
+        except Exception as exc:
+            hop_result = TransportResult(
+                status="unresolved",
+                metadata={},
+                provenance=[hop.bridge_id],
+                diagnostics=[{
+                    "severity": "error",
+                    "code": "transport_chain_hop_error",
+                    "bridge_id": hop.bridge_id,
+                    "message": str(exc),
+                }],
+            )
+            diags.append({
+                "severity": "error",
+                "code": "transport_chain_hop_error",
+                "plan_id": plan.id,
+                "bridge_id": hop.bridge_id,
+                "message": str(exc),
+            })
+
+        hop_results.append((hop, hop_result))
+        all_provenance.extend(hop_result.provenance)
+
+        # Check for failure
+        if hop_result.status in ("blocked", "unresolved"):
+            overall_status = "blocked"
+            if plan.failure_mode == "fail_fast":
+                break
+
+    # If no hops failed, determine overall status from individual results
+    if overall_status != "blocked":
+        statuses = {r.status for _, r in hop_results}
+        if "degraded" in statuses:
+            overall_status = "degraded"
+        elif "transported" in statuses:
+            overall_status = "transported"
+        elif "preserved" in statuses:
+            overall_status = "preserved"
+
+    # Build trace and attach to metadata
+    trace = _build_transport_trace(hop_results, precondition_outcomes)
+    chain_metadata: dict[str, Any] = {
+        "transport_trace": trace.model_dump(),
+    }
+
+    chain_result = TransportChainResult(
+        plan_id=plan.id,
+        status=overall_status,  # type: ignore[arg-type]
+        per_hop=[r for _, r in hop_results],
+        metadata=chain_metadata,
+        provenance=sorted(set(all_provenance)),
+        diagnostics=list(diags),
+    )
+
+    return chain_result, machine_state, diags
+
+
+def execute_transport_with_degradation_policy(
+    bridge: BridgeNode,
+    step_ctx: StepContext,
+    machine_state: MachineState,
+    services: dict[str, Any],
+    degradation_policy: DegradationPolicyNode | None = None,
+) -> tuple[TransportResult, MachineState, Diagnostics]:
+    """Execute transport with optional degradation policy override.
+
+    Extends the existing degrade path:
+    - If kind="default" or no policy, use current behavior via execute_transport.
+    - If kind="custom" with a binding, look up the binding in services and call it.
+    - Preserve the preserve_fields from the policy.
+    - Check max_loss if specified; if degradation exceeds max_loss, produce a
+      diagnostic and set status to "blocked".
+    - Record which degradation policy was used in provenance.
+    """
+    diags: Diagnostics = []
+
+    # No policy or default: delegate to existing execute_transport
+    if degradation_policy is None or degradation_policy.kind == "default":
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        if degradation_policy is not None:
+            result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Custom degradation policy
+    assert degradation_policy.kind == "custom"
+
+    binding_name = degradation_policy.binding
+    if binding_name is None:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_policy_no_binding",
+            "policy_id": degradation_policy.id,
+            "message": "Custom degradation policy requires a binding",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Look up the binding handler in services
+    degradation_handlers: dict[str, Callable] = services.get(
+        "__degradation_handlers__", {}
+    )
+    handler = degradation_handlers.get(binding_name)
+
+    if handler is None:
+        diags.append({
+            "severity": "warning",
+            "code": "degradation_binding_not_found",
+            "policy_id": degradation_policy.id,
+            "binding": binding_name,
+            "message": f"Degradation binding '{binding_name}' not found in services; "
+                       "falling back to default behavior",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Call the custom degradation handler
+    try:
+        custom_result = handler(bridge, step_ctx, machine_state, services, degradation_policy)
+    except Exception as exc:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_binding_error",
+            "policy_id": degradation_policy.id,
+            "binding": binding_name,
+            "message": str(exc),
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    # Normalize the custom result
+    if isinstance(custom_result, TransportResult):
+        result = custom_result
+    elif isinstance(custom_result, dict):
+        result = TransportResult.model_validate(custom_result)
+    elif isinstance(custom_result, tuple) and len(custom_result) >= 1:
+        result = custom_result[0] if isinstance(custom_result[0], TransportResult) else TransportResult.model_validate(custom_result[0])
+        if len(custom_result) >= 2:
+            machine_state = custom_result[1]
+        if len(custom_result) >= 3:
+            diags.extend(custom_result[2])
+    else:
+        diags.append({
+            "severity": "error",
+            "code": "degradation_binding_invalid_result",
+            "policy_id": degradation_policy.id,
+            "message": f"Custom degradation handler returned unexpected type: {type(custom_result).__name__}",
+        })
+        result, machine_state, tr_diags = execute_transport(
+            bridge, step_ctx, machine_state, services,
+        )
+        diags.extend(tr_diags)
+        result.degradation_policy_used = degradation_policy.id
+        return result, machine_state, diags
+
+    result.degradation_policy_used = degradation_policy.id
+
+    # Enforce preserve_fields: if the policy specifies fields to preserve,
+    # copy them from the source aggregate to the destination aggregate
+    if degradation_policy.preserve_fields and result.srcAggregate and result.dstAggregate:
+        for field_name in degradation_policy.preserve_fields:
+            src_val = getattr(result.srcAggregate, field_name, None)
+            if src_val is not None and hasattr(result.dstAggregate, field_name):
+                object.__setattr__(result.dstAggregate, field_name, src_val)
+
+    # Check max_loss constraint
+    if degradation_policy.max_loss is not None and result.status == "degraded":
+        # Compute a simple loss metric: count of items in bridge.lose
+        # relative to total facets (preserve + lose)
+        total_facets = len(bridge.preserve) + len(bridge.lose)
+        if total_facets > 0:
+            loss_ratio = len(bridge.lose) / total_facets
+        else:
+            loss_ratio = 0.0
+
+        if loss_ratio > degradation_policy.max_loss:
+            diags.append({
+                "severity": "error",
+                "code": "degradation_exceeds_max_loss",
+                "policy_id": degradation_policy.id,
+                "loss_ratio": loss_ratio,
+                "max_loss": degradation_policy.max_loss,
+                "message": (
+                    f"Degradation loss ratio {loss_ratio:.2f} exceeds "
+                    f"max_loss {degradation_policy.max_loss:.2f}"
+                ),
+            })
+            result.status = "blocked"  # type: ignore[assignment]
+
+    return result, machine_state, diags
+
+
+def validate_claim_map_result(
+    claim_map_output: dict[str, Any] | None,
+    bridge: BridgeNode,
+    transport: TransportNode,
+    claim_id: str,
+    services: dict[str, Any],
+) -> Diagnostics:
+    """Validate claim-map results for remap_recompute mode.
+
+    Checks:
+    - claim_map output is non-empty
+    - mapped claims reference valid destination frame evaluators (if known)
+
+    Returns diagnostics for any validation failures.
+    """
+    diags: Diagnostics = []
+
+    # Check that claim_map output is non-empty
+    if claim_map_output is None or not claim_map_output:
+        diags.append({
+            "severity": "error",
+            "code": "transport_mapping_missing",
+            "bridge_id": bridge.id,
+            "claim_id": claim_id,
+            "message": f"Claim map produced empty output for claim {claim_id}",
+        })
+        return diags
+
+    # Check mapped claim reference
+    mapped_claim = claim_map_output.get("mappedClaim")
+    if mapped_claim is None:
+        diags.append({
+            "severity": "error",
+            "code": "transport_mapping_missing",
+            "bridge_id": bridge.id,
+            "claim_id": claim_id,
+            "message": f"Claim map produced no mappedClaim for claim {claim_id}",
+        })
+
+    # Check that per_evaluator results reference valid destination evaluators
+    per_evaluator = claim_map_output.get("per_evaluator", {})
+    dst_evaluators = transport.dstEvaluators
+    if dst_evaluators is not None and per_evaluator:
+        dst_evaluator_set = set(dst_evaluators)
+        invalid_evaluators = [
+            eid for eid in per_evaluator if eid not in dst_evaluator_set
+        ]
+        if invalid_evaluators:
+            diags.append({
+                "severity": "warning",
+                "code": "transport_mapping_invalid",
+                "bridge_id": bridge.id,
+                "claim_id": claim_id,
+                "invalid_evaluators": invalid_evaluators,
+                "message": (
+                    f"Claim map produced results for evaluators "
+                    f"{invalid_evaluators} not in dstEvaluators {dst_evaluators}"
+                ),
+            })
+
+    return diags
+
+
+def apply_destination_completion_policy(
+    result: TransportResult,
+    completion_policy: DestinationCompletionPolicy,
+    bridge: BridgeNode,
+    services: dict[str, Any],
+) -> tuple[TransportResult, Diagnostics]:
+    """Apply a destination completion policy after transport execution.
+
+    Strategies:
+    - none: do nothing
+    - infer_defaults: fill missing destination facets from policy.defaults
+    - require_explicit: produce diagnostic if any destination facets are missing
+    - binding: call the binding from services
+
+    Records completion actions in the result's provenance and completion_actions.
+    """
+    diags: Diagnostics = []
+
+    if completion_policy.strategy == "none":
+        result.completion_actions.append("completion:none")
+        return result, diags
+
+    if completion_policy.strategy == "infer_defaults":
+        # Fill missing destination facets from policy.defaults
+        if completion_policy.defaults:
+            applied_defaults: list[str] = []
+            dst_metadata = dict(result.metadata)
+
+            for key, default_value in completion_policy.defaults.items():
+                if key not in dst_metadata or dst_metadata[key] is None:
+                    dst_metadata[key] = default_value
+                    applied_defaults.append(key)
+
+            result.metadata = dst_metadata
+            if applied_defaults:
+                result.completion_actions.append(
+                    f"completion:infer_defaults:{','.join(applied_defaults)}"
+                )
+            else:
+                result.completion_actions.append("completion:infer_defaults:no_missing")
+        else:
+            result.completion_actions.append("completion:infer_defaults:no_defaults")
+        return result, diags
+
+    if completion_policy.strategy == "require_explicit":
+        # Check that all expected destination facets are present
+        missing_facets: list[str] = []
+        # Check against bridge.preserve as the expected destination facets
+        dst_metadata = result.metadata
+        for facet in bridge.preserve:
+            if facet not in dst_metadata or dst_metadata.get(facet) is None:
+                missing_facets.append(facet)
+
+        if missing_facets:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_missing_facets",
+                "policy_id": completion_policy.id,
+                "bridge_id": bridge.id,
+                "missing_facets": missing_facets,
+                "message": (
+                    f"Destination missing required facets: {missing_facets}"
+                ),
+            })
+            result.completion_actions.append(
+                f"completion:require_explicit:missing:{','.join(missing_facets)}"
+            )
+        else:
+            result.completion_actions.append("completion:require_explicit:ok")
+        return result, diags
+
+    if completion_policy.strategy == "binding":
+        binding_name = completion_policy.binding
+        if binding_name is None:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_no_binding",
+                "policy_id": completion_policy.id,
+                "message": "Binding completion strategy requires a binding name",
+            })
+            result.completion_actions.append("completion:binding:no_binding")
+            return result, diags
+
+        completion_handlers: dict[str, Callable] = services.get(
+            "__completion_handlers__", {}
+        )
+        handler = completion_handlers.get(binding_name)
+
+        if handler is None:
+            diags.append({
+                "severity": "warning",
+                "code": "destination_completion_binding_not_found",
+                "policy_id": completion_policy.id,
+                "binding": binding_name,
+                "message": f"Completion binding '{binding_name}' not found in services",
+            })
+            result.completion_actions.append(f"completion:binding:not_found:{binding_name}")
+            return result, diags
+
+        try:
+            updated_result = handler(result, bridge, services, completion_policy)
+            if isinstance(updated_result, TransportResult):
+                result = updated_result
+            elif isinstance(updated_result, dict):
+                # Merge updates into existing result metadata
+                result.metadata.update(updated_result)
+            result.completion_actions.append(f"completion:binding:{binding_name}")
+        except Exception as exc:
+            diags.append({
+                "severity": "error",
+                "code": "destination_completion_binding_error",
+                "policy_id": completion_policy.id,
+                "binding": binding_name,
+                "message": str(exc),
+            })
+            result.completion_actions.append(f"completion:binding:error:{binding_name}")
+
+        return result, diags
+
+    # Unknown strategy
+    diags.append({
+        "severity": "error",
+        "code": "destination_completion_unknown_strategy",
+        "policy_id": completion_policy.id,
+        "strategy": completion_policy.strategy,
+        "message": f"Unknown completion strategy: {completion_policy.strategy}",
+    })
+    return result, diags
