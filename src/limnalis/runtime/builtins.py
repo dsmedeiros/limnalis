@@ -2475,6 +2475,23 @@ def execute_transport_chain(
     all_provenance: list[str] = [plan.id]
     overall_status: str = "transported"
 
+    if not plan.hops:
+        diags.append({
+            "severity": "error",
+            "code": "transport_chain_empty_plan",
+            "plan_id": plan.id,
+            "message": "Transport chain plan must contain at least one hop",
+        })
+        chain_result = TransportChainResult(
+            plan_id=plan.id,
+            status="blocked",
+            per_hop=[],
+            metadata={"transport_trace": _build_transport_trace([], precondition_outcomes).model_dump()},
+            provenance=all_provenance,
+            diagnostics=list(diags),
+        )
+        return chain_result, machine_state, diags
+
     for hop in plan.hops:
         bridge = bridges.get(hop.bridge_id)
         if bridge is None:
@@ -3771,6 +3788,8 @@ def execute_adequacy_with_basis(
                 "subject": assessment.id,
                 "message": f"method_conflict_warning: score divergence {score_divergence} exceeds tolerance {tolerance}",
             })
+            adequate = False
+            failure_kind = "method_conflict"
     else:
         adequate = False
         failure_kind = "policy_failure"

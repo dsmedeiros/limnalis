@@ -206,6 +206,19 @@ class TestTransportChain:
         assert result.per_hop[0].status == "pattern_only"
         assert result.status == "pattern_only"
 
+    def test_transport_chain_empty_plan_is_blocked(self):
+        """Empty transport plan should be rejected with blocked status and diagnostic."""
+        plan = TransportPlan(id="plan_empty", hops=[])
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {"__per_claim_aggregates__": {}}
+
+        result, _, diags = execute_transport_chain(plan, {}, step_ctx, ms, services)
+
+        assert result.status == "blocked"
+        assert result.per_hop == []
+        assert any(d.get("code") == "transport_chain_empty_plan" for d in diags)
+
     def test_transport_chain_first_hop_preconditions_use_target_claim(self):
         """First-hop precondition should bind to the transported claim, not arbitrary dict order."""
         bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
