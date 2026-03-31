@@ -2967,10 +2967,6 @@ from ..models.conformance import SummaryRequest, SummaryResult
 # ---------------------------------------------------------------------------
 
 _SUMMARY_SEVERITY_ORDER: dict[str, int] = {"F": 0, "B": 1, "N": 2, "T": 3}
-_SUMMARY_SEVERITY_RANK_TO_TRUTH: dict[int, str] = {
-    v: k for k, v in _SUMMARY_SEVERITY_ORDER.items()
-}
-
 
 def _summary_worst_truth(truths: list[str]) -> str:
     """Return the worst truth value using severity ordering F > B > N > T."""
@@ -3368,7 +3364,6 @@ def run_summaries(
 # primitives, PrimitiveSet, or runner phases.
 # ===================================================================
 
-from typing import Protocol as _TypingProtocol, runtime_checkable as _runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -3376,8 +3371,8 @@ from typing import Protocol as _TypingProtocol, runtime_checkable as _runtime_ch
 # ---------------------------------------------------------------------------
 
 
-@_runtime_checkable
-class EvidenceInferencePolicyProtocol(_TypingProtocol):
+@runtime_checkable
+class EvidenceInferencePolicyProtocol(TypingProtocol):
     """Protocol for evidence inference policies.
 
     Implementations receive declared evidence and relations, then produce
@@ -3729,8 +3724,13 @@ def execute_adequacy_with_basis(
         adequate = effective_score >= assessment.threshold
         if not adequate:
             failure_kind = "threshold"
-        elif score_divergence is not None and score_divergence > tolerance:
-            failure_kind = "method_conflict"
+        if adequate and score_divergence is not None and score_divergence > tolerance:
+            diags.append({
+                "severity": "warning",
+                "code": "method_conflict_warning",
+                "subject": assessment.id,
+                "message": f"method_conflict_warning: score divergence {score_divergence} exceeds tolerance {tolerance}",
+            })
     else:
         adequate = False
         failure_kind = "policy_failure"

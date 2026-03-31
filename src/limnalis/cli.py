@@ -1485,7 +1485,8 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
     )
 
     try:
-        summary_result = execute_summary(request, eval_result, policies[policy_id])
+        eval_dict = eval_result.model_dump() if hasattr(eval_result, "model_dump") else eval_result
+        summary_result = execute_summary(request, eval_dict, {}, policies)
     except Exception as exc:
         return _emit_error(f"summary execution failed: {type(exc).__name__}: {exc}")
 
