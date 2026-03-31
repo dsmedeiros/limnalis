@@ -404,6 +404,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--scope",
         type=str,
         default="bundle",
+        choices=["claim_collection", "block", "bundle", "session"],
         help="Summary scope (default: bundle)",
     )
     summarize_cmd.add_argument(
