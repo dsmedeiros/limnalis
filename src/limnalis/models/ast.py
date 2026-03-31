@@ -20,6 +20,18 @@ EvidenceRelationKind = Literal["corroborates", "conflicts", "depends_on", "dupli
 AnchorSubtype = Literal["idealization", "placeholder", "proxy", "aggregate"]
 AnchorStatus = Literal["active", "inactive", "counterfactual"]
 Stratum = Literal["local", "systemic", "meta"]
+
+# --- Milestone 6B Literal types ---
+SummaryScope = Literal["claim_collection", "block", "bundle", "session"]
+SummaryPolicyKind = Literal[
+    "passthrough_normative",
+    "severity_max",
+    "majority_vote",
+    "evidence_weighted",
+    "adjudicated_summary",
+    "custom",
+]
+EvidenceInferenceKind = Literal["conflicts", "corroborates", "depends_on", "duplicate_of"]
 ClaimKind = Literal[
     "atomic",
     "causal",
@@ -635,6 +647,96 @@ for _model in [
     _model.model_rebuild(_types_namespace=_types_namespace)
 
 
+# ---------------------------------------------------------------------------
+# Milestone 6B: Transport Model Extensions
+# ---------------------------------------------------------------------------
+
+
+class TransportHop(LimnalisModel):
+    """Represents one hop in a chained transport."""
+
+    bridge_id: str
+    src_frame: str
+    dst_frame: str
+    status: str
+    loss: list[str]
+    gain: list[str]
+    risk: list[str]
+    provenance: list[str]
+
+
+class TransportPlan(LimnalisModel):
+    """Abstraction over one or more bridges for chained transport."""
+
+    id: str
+    hops: list[TransportHop]
+    failure_mode: Literal["fail_fast", "best_effort"] = "fail_fast"
+
+
+class DegradationPolicyNode(LimnalisModel):
+    """Configurable degradation override."""
+
+    id: str
+    kind: Literal["default", "custom"]
+    binding: str | None = None
+    preserve_fields: list[str] = Field(default_factory=list)
+    max_loss: float | None = None
+
+
+class DestinationCompletionPolicy(LimnalisModel):
+    """Explicit destination-completion logic."""
+
+    id: str
+    strategy: Literal["none", "infer_defaults", "require_explicit", "binding"]
+    binding: str | None = None
+    defaults: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6B: Summary Policy Models
+# ---------------------------------------------------------------------------
+
+
+class SummaryPolicyNode(LimnalisModel):
+    """Summary policy definition (AST node)."""
+
+    id: str
+    kind: SummaryPolicyKind
+    scope: SummaryScope
+    binding: str | None = None
+    normative: bool = False
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6B: Evidence Inference Models
+# ---------------------------------------------------------------------------
+
+
+class InferredEvidenceRelation(LimnalisModel):
+    """An inferred (not declared) evidence relation."""
+
+    id: str
+    lhs: str
+    rhs: str
+    kind: EvidenceInferenceKind
+    confidence: float | None = None
+    method: str
+    provenance: list[str] = Field(default_factory=list)
+    declared: bool = False
+
+
+class EvidenceInferencePolicyNode(LimnalisModel):
+    """Evidence inference policy definition (AST node)."""
+
+    id: str
+    kind: Literal["none", "similarity", "transitivity", "custom"]
+    binding: str | None = None
+    threshold: float = 0.5
+    infer_kinds: list[EvidenceInferenceKind] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
 __all__ = [
     "AdequacyAssessmentNode",
     "AnchorNode",
@@ -652,9 +754,12 @@ __all__ = [
     "ClaimNode",
     "CriterionSpecNode",
     "DeclarationExprNode",
+    "DegradationPolicyNode",
+    "DestinationCompletionPolicy",
     "DynamicExprNode",
     "EmergenceExprNode",
     "EvaluatorNode",
+    "EvidenceInferencePolicyNode",
     "EvidenceNode",
     "EvidenceRelationNode",
     "ExprNode",
@@ -663,6 +768,7 @@ __all__ = [
     "FrameNode",
     "FrameOrPatternNode",
     "FramePatternNode",
+    "InferredEvidenceRelation",
     "JointAdequacyNode",
     "JudgedExprNode",
     "ListTermNode",
@@ -673,10 +779,13 @@ __all__ = [
     "PredicateExprNode",
     "ResolutionPolicyNode",
     "StringTermNode",
+    "SummaryPolicyNode",
     "SymbolTermNode",
     "TermNode",
     "TimeCtxNode",
+    "TransportHop",
     "TransportNode",
+    "TransportPlan",
     "UnboundRefTermNode",
     "UriTermNode",
 ]

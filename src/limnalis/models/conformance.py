@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from .base import LimnalisModel
 
@@ -103,3 +103,86 @@ class ExpectedResult(LimnalisModel):
         if not value:
             raise ValueError("sessions must not be empty")
         return value
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6B: Summary runtime types
+# ---------------------------------------------------------------------------
+
+SummaryScope = Literal["claim_collection", "block", "bundle", "session"]
+
+
+class SummaryRequest(BaseModel):
+    """Runtime request for a summary evaluation."""
+
+    policy_id: str
+    scope: SummaryScope
+    target_ids: list[str] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class SummaryResult(BaseModel):
+    """Runtime result of a summary evaluation."""
+
+    policy_id: str
+    scope: SummaryScope
+    normative: bool = False
+    summary_truth: str | None = None
+    summary_support: float | None = None
+    detail: dict[str, Any] = Field(default_factory=dict)
+    provenance: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6B: Transport trace runtime type
+# ---------------------------------------------------------------------------
+
+
+class TransportTrace(BaseModel):
+    """Richer transport trace/proof record."""
+
+    hops: list[dict[str, Any]] = Field(default_factory=list)
+    precondition_outcomes: dict[str, bool] = Field(default_factory=dict)
+    semantic_requirements: list[dict[str, Any]] = Field(default_factory=list)
+    mapping_steps: list[str] = Field(default_factory=list)
+    per_hop_evals: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    total_loss: list[str] = Field(default_factory=list)
+    total_gain: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6B: Adequacy execution runtime types
+# ---------------------------------------------------------------------------
+
+
+class BasisResolutionEntry(BaseModel):
+    """One resolved basis item."""
+
+    basis_id: str
+    resolved: bool
+    truth: str | None = None
+    source: Literal["claim", "evidence", "anchor", "external"]
+    provenance: list[str] = Field(default_factory=list)
+
+
+class AdequacyExecutionTrace(BaseModel):
+    """Richer adequacy execution trace."""
+
+    assessment_id: str
+    method: str
+    basis_resolution: list[BasisResolutionEntry] = Field(default_factory=list)
+    computed_score: float | None = None
+    declared_score: float | None = None
+    score_divergence: float | None = None
+    threshold: float | None = None
+    adequate: bool | None = None
+    failure_kind: Literal[
+        "threshold",
+        "method_conflict",
+        "basis_failure",
+        "policy_failure",
+        "circular_basis",
+    ] | None = None
+    provenance: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
