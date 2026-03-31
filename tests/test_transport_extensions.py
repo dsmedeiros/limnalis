@@ -332,6 +332,47 @@ class TestTransportChain:
         trace = TransportTrace.model_validate(result.metadata["transport_trace"])
         assert trace.precondition_outcomes == {"br1": False, "br1#1": True}
 
+    def test_transport_chain_does_not_short_circuit_hop_on_failed_precheck(self, monkeypatch):
+        """A failed chain-level precheck should still execute transport for per-query handling."""
+        bridge = _bridge(id="br1", mode="preserve", preconditions=["decisive_truth"])
+        plan = TransportPlan(id="plan_no_short", hops=[_hop("br1")])
+        bridges = {"br1": bridge}
+        step_ctx = _step_ctx()
+        ms = _machine_state()
+        services: dict = {"__per_claim_aggregates__": {"c1": EvalNode(truth="F", reason="seed")}}
+
+        called = {"execute_transport": False}
+        original_check = builtins_mod._check_preconditions
+        original_execute = builtins_mod.execute_transport
+
+        def fake_check_preconditions(_bridge, _src):
+            return False
+
+        def fake_execute_transport(bridge, step_ctx, machine_state, services):
+            called["execute_transport"] = True
+            return (
+                TransportResult(
+                    status="transported",
+                    srcAggregate=EvalNode(truth="F", reason="src"),
+                    dstAggregate=EvalNode(truth="T", reason="dst"),
+                    metadata={},
+                    provenance=[bridge.id],
+                ),
+                machine_state,
+                [],
+            )
+
+        monkeypatch.setattr(builtins_mod, "_check_preconditions", fake_check_preconditions)
+        monkeypatch.setattr(builtins_mod, "execute_transport", fake_execute_transport)
+        try:
+            result, _, _ = execute_transport_chain(plan, bridges, step_ctx, ms, services)
+        finally:
+            monkeypatch.setattr(builtins_mod, "_check_preconditions", original_check)
+            monkeypatch.setattr(builtins_mod, "execute_transport", original_execute)
+
+        assert called["execute_transport"] is True
+        assert result.per_hop[0].status == "transported"
+
 
 # ===================================================================
 # Test: degradation policy

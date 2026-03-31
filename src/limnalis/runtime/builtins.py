@@ -2568,30 +2568,6 @@ def execute_transport_chain(
         precondition_key = hop.bridge_id if precondition_idx == 0 else f"{hop.bridge_id}#{precondition_idx}"
         precondition_outcomes[precondition_key] = precondition_ok
 
-        if not precondition_ok:
-            hop_result = TransportResult(
-                status="blocked",
-                srcAggregate=precondition_src,
-                dstAggregate=EvalNode(
-                    truth="N",
-                    reason="transport_precondition",
-                    provenance=[hop.bridge_id],
-                ),
-                metadata={
-                    "preserve": bridge.preserve,
-                    "lose": bridge.lose,
-                    "gain": bridge.gain,
-                    "risk": bridge.risk,
-                },
-                provenance=[hop.bridge_id, bridge.via],
-            )
-            hop_results.append((hop, hop_result))
-            all_provenance.extend(hop_result.provenance)
-            overall_status = "blocked"
-            if plan.failure_mode == "fail_fast":
-                break
-            continue
-
         # Execute the bridge transport
         try:
             hop_services = dict(services)
