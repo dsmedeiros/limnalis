@@ -1,33 +1,33 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 5 (Extension SDK): COMPLETE
+Milestone 6A: Interoperability, exchange formats, and LinkML/export pipeline for Limnalis v0.2.2
 
 ## Build Candidate
 {pending — ready for tagging}
 
-## Task Status — Milestone 5 Extension SDK (complete)
-
-| Group | Tasks | Status |
-|-------|-------|--------|
-| G1 | Extension SDK protocols + public API modules (A, H) | DONE |
-| G2 | Plugin registry and loading system (B) | DONE |
-| G3 | Fixture plugin pack (C) | DONE |
-| G4 | Grid example plugin pack (D) | DONE |
-| G5 | JWT/auth example plugin pack (E) | DONE |
-| G6 | Downstream consumer examples (F) | DONE |
-| G7 | Extension author docs/cookbook (G) | DONE |
-| G8 | Integration tests (I) | DONE |
-| G9 | CLI plugin commands + interop (B-CLI, J) | DONE |
+## Task Status
+| Task | Description | Status | Depends |
+|------|-------------|--------|---------|
+| T1 | Interop module + envelope models + public API types | completed | aa89b24 |
+| T2 | Export/import functions + envelope serialization | completed | 9c249bd |
+| T3 | Exchange package format | completed | f0f294b |
+| T4 | LinkML projection pipeline | completed | 02dfb17 |
+| T5 | CLI export/package/project commands + versioning | completed | b85e872 |
+| T6 | Envelope + round-trip + package + determinism tests | completed | 0660432 |
+| T7 | CLI + LinkML projection tests | completed | 94d4b22 |
+| T8 | Downstream consumer examples | completed | c5fbbf2 |
+| T9 | Interoperability documentation | completed | d9e778f |
+| T10 | Optional JSON-LD/RDF note | completed | d9e778f |
 
 ## Active Delegation
-None — all delegations complete.
+{none — red team cycle complete, all findings resolved}
 
-## Reviews
-- m5-extension-sdk: PASS (3 LOW non-blocking advisories)
+## Pending Reviews
+{none — all tasks reviewed PASS}
 
-## Test Results
-439 tests passing (up from 350), 16/16 conformance PASS
+## Invariants Touched
+MODEL-001, MODEL-002, SCHEMA-001, NORM-001
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->
