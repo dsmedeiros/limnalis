@@ -107,6 +107,7 @@ def format_diagnostics(
         ``"plain"`` -- one diagnostic per line.
         ``"grouped"`` -- diagnostics grouped by severity with headers.
         ``"json"`` -- deterministic JSON array.
+        ``"sarif"`` -- SARIF 2.1.0 JSON output.
     color:
         Emit ANSI colour escapes for severity labels.
     show_hints:
@@ -117,6 +118,10 @@ def format_diagnostics(
 
     if mode == "json":
         return _format_json(typed)
+    if mode == "sarif":
+        from .sarif import diagnostics_to_sarif
+
+        return json.dumps(diagnostics_to_sarif(typed), indent=2, ensure_ascii=False)
     if mode == "grouped":
         return _format_grouped(typed, color=color, show_hints=show_hints)
     return _format_plain(typed, color=color, show_hints=show_hints)
