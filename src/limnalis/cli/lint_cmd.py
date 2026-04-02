@@ -36,6 +36,15 @@ def _lint_file(path: Path) -> tuple[Any, list[dict]]:
 
     try:
         result = normalize_surface_file(path, validate_schema=False)
+    except FileNotFoundError:
+        diagnostics.append({
+            "severity": "error",
+            "phase": "load",
+            "code": "file_not_found",
+            "subject": str(path),
+            "message": f"File not found: {path}",
+        })
+        return None, diagnostics
     except (UnexpectedInput, NormalizationError) as exc:
         diagnostics.append({
             "severity": "error",
@@ -170,7 +179,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     lint_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
     lint_cmd.add_argument(
         "--format",
-        choices=["plain", "json", "grouped"],
+        choices=["plain", "json", "grouped", "sarif"],
         default="grouped",
         help="Output format (default: grouped)",
     )
@@ -187,7 +196,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     analyze_cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
     analyze_cmd.add_argument(
         "--format",
-        choices=["plain", "json", "grouped"],
+        choices=["plain", "json", "grouped", "sarif"],
         default="grouped",
         help="Output format (default: grouped)",
     )

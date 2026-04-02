@@ -45,15 +45,26 @@ _GENERATORS: dict[str, dict[str, object]] = {
 def _sanitize_identifier(identifier: str) -> str:
     """Sanitize an identifier for use as a filename and Python identifier.
 
-    Strips path separators to prevent directory traversal and replaces
-    hyphens/spaces with underscores so plugin-pack names produce valid Python.
+    Strips path separators to prevent directory traversal, replaces
+    hyphens/spaces with underscores, and removes all characters that are
+    not valid in Python identifiers (letters, digits, underscores).
+    Leading digits get an underscore prefix.
     """
+    import re
+
     # Strip path separators and parent-directory references
     name = Path(identifier).name
     if not name:
         name = "untitled"
-    # Replace characters that are invalid in Python identifiers
-    name = name.replace("-", "_").replace(" ", "_")
+    # Replace common separators with underscores
+    name = name.replace("-", "_").replace(" ", "_").replace(".", "_")
+    # Remove all characters that are not valid in Python identifiers
+    name = re.sub(r"[^a-zA-Z0-9_]", "", name)
+    # Ensure it doesn't start with a digit
+    if not name or name[0].isdigit():
+        name = "_" + name
+    if not name:
+        name = "untitled"
     return name
 
 

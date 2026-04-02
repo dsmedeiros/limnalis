@@ -198,8 +198,9 @@ def render_mermaid(
     """
     lines: list[str] = []
     if title:
+        safe_title = title.replace("\n", " ").replace("\r", "")
         lines.append(f"---")
-        lines.append(f"title: {title}")
+        lines.append(f"title: {safe_title}")
         lines.append(f"---")
     lines.append(f"flowchart {direction}")
 
@@ -209,13 +210,13 @@ def render_mermaid(
     for node in sorted_nodes:
         mid = _mermaid_id(node.id)
         left, right = _SHAPE_MAP.get(node.kind, ("[", "]"))
-        safe_label = node.label.replace('"', "'")
+        safe_label = node.label.replace('"', "'").replace("\n", " ").replace("\r", "")
         lines.append(f"    {mid}{left}\"{safe_label}\"{right}")
 
     for edge in sorted_edges:
         src = _mermaid_id(edge.source)
         tgt = _mermaid_id(edge.target)
-        safe_label = edge.label.replace('"', "'")
+        safe_label = edge.label.replace('"', "'").replace("\n", " ").replace("\r", "")
         lines.append(f"    {src} -->|\"{safe_label}\"| {tgt}")
 
     return "\n".join(lines) + "\n"
