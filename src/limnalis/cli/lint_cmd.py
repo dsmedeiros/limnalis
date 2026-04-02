@@ -83,7 +83,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
 
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
-    use_color = not getattr(args, "no_color", False)
+    use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
     if typed:
         output = format_diagnostics(typed, mode=args.format, color=use_color)
         print(output)
@@ -102,7 +102,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
-    use_color = not getattr(args, "no_color", False)
+    use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
     if typed:
         output = format_diagnostics(typed, mode=args.format, color=use_color)
         print(output)
@@ -118,7 +118,7 @@ def _cmd_symbols(args: argparse.Namespace) -> int:
     if bundle is None:
         typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
         if typed:
-            use_color = not getattr(args, "no_color", False)
+            use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
             output = format_diagnostics(typed, mode="plain", color=use_color)
             print(output, file=sys.stderr)
         return 1

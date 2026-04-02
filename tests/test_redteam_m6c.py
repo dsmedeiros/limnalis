@@ -490,15 +490,11 @@ class TestFormatEdgeCases:
         assert result.returncode != 0
 
     def test_lint_sarif_format_accepted(self) -> None:
-        """SARIF is a valid lint format via the diagnostic formatter."""
-        # NOTE: The argparse choices are plain/json/grouped. SARIF is NOT listed.
-        # This test verifies whether that's intentional or an oversight.
+        """SARIF is a valid lint format (registered in argparse choices)."""
         result = _cli("lint", "--format", "sarif", str(_MINIMAL))
-        # If sarif is not in choices, argparse rejects it — that's fine.
-        # If it IS accepted, output must be valid SARIF.
-        if result.returncode == 0 and result.stdout.strip():
-            sarif = json.loads(result.stdout)
-            assert sarif["version"] == "2.1.0"
+        assert result.returncode == 0, f"lint --format sarif failed: {result.stderr}"
+        sarif = json.loads(result.stdout)
+        assert sarif["version"] == "2.1.0"
 
 
 # ===========================================================================

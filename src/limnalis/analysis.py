@@ -41,25 +41,27 @@ def analyze_structure(bundle: BundleNode) -> list[dict]:
     diagnostics: list[dict] = []
 
     # 1. Unreferenced evaluators — evaluators not referenced by the resolution
-    #    policy's members or order lists.
+    #    policy's members or order lists.  When neither members nor order is
+    #    set the policy implicitly includes all evaluators, so skip the check.
     rp = bundle.resolutionPolicy
-    referenced_ids: set[str] = set()
-    if rp.members:
-        referenced_ids.update(rp.members)
-    if rp.order:
-        referenced_ids.update(rp.order)
-    for ev in bundle.evaluators:
-        if ev.id not in referenced_ids:
-            diagnostics.append({
-                "severity": "warning",
-                "phase": "analysis",
-                "code": "unreferenced_evaluator",
-                "subject": ev.id,
-                "message": (
-                    f"Evaluator '{ev.id}' is not referenced by the "
-                    f"resolution policy"
-                ),
-            })
+    if rp.members or rp.order:
+        referenced_ids: set[str] = set()
+        if rp.members:
+            referenced_ids.update(rp.members)
+        if rp.order:
+            referenced_ids.update(rp.order)
+        for ev in bundle.evaluators:
+            if ev.id not in referenced_ids:
+                diagnostics.append({
+                    "severity": "warning",
+                    "phase": "analysis",
+                    "code": "unreferenced_evaluator",
+                    "subject": ev.id,
+                    "message": (
+                        f"Evaluator '{ev.id}' is not referenced by the "
+                        f"resolution policy"
+                    ),
+                })
 
     # 2. Empty claim blocks — blocks with zero claims.
     for cb in bundle.claimBlocks:

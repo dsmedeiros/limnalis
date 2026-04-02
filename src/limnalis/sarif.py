@@ -49,6 +49,7 @@ def diagnostics_to_sarif(
     *,
     tool_name: str = "limnalis",
     tool_version: str | None = None,
+    source_file: str | None = None,
 ) -> dict[str, Any]:
     """Convert diagnostics to a SARIF 2.1.0 JSON-compatible dict.
 
@@ -60,6 +61,12 @@ def diagnostics_to_sarif(
         Name of the reporting tool.
     tool_version:
         Version string.  Defaults to ``limnalis.version.PACKAGE_VERSION``.
+    source_file:
+        Path to the source file that produced these diagnostics.  When
+        provided, each SARIF result includes an ``artifactLocation`` so
+        that consumers (VS Code SARIF viewer, GitHub code scanning) can
+        map results back to the originating file.  Without this, only
+        ``region`` (line/column) data is emitted.
     """
     if tool_version is None:
         from .version import PACKAGE_VERSION
@@ -89,10 +96,13 @@ def diagnostics_to_sarif(
         }
 
         region = _build_region(diag)
+        phys_loc: dict[str, Any] = {}
+        if source_file is not None:
+            phys_loc["artifactLocation"] = {"uri": source_file}
         if region is not None:
-            result["locations"] = [
-                {"physicalLocation": {"region": region}}
-            ]
+            phys_loc["region"] = region
+        if phys_loc:
+            result["locations"] = [{"physicalLocation": phys_loc}]
 
         if properties:
             result["properties"] = properties
