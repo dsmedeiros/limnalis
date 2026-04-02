@@ -41,6 +41,7 @@ Full registry: `.armature/invariants/registry.yaml`
 | Normalizer changes | `src/limnalis/agents.md`, NORM-* invariants |
 | AST model changes | `src/limnalis/models/agents.md`, MODEL-* invariants |
 | Runtime/execution changes | `src/limnalis/runtime/agents.md` |
+| Interop/export changes | `src/limnalis/interop/agents.md`, MODEL-* invariants |
 | Schema changes | `schemas/`, SCHEMA-* invariants |
 | Test changes | `tests/agents.md` |
 | Governance changes | `.armature/ARMATURE.md` |
