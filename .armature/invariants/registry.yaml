@@ -57,6 +57,11 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - .armature/agents.md
+      - agents.md
+      - src/limnalis/agents.md
+      - src/limnalis/interop/agents.md
+      - src/limnalis/models/agents.md
     exceptions: []
 
   SCHEMA-002:
@@ -74,6 +79,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - .armature/agents.md
+      - agents.md
     exceptions: []
 
   SCHEMA-003:
@@ -89,6 +96,7 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
     exceptions: []
 
   SCHEMA-004:
@@ -106,6 +114,7 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
     exceptions: []
 
   # --- Grammar & Parser ---
@@ -124,6 +133,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   PARSER-002:
@@ -141,6 +152,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   PARSER-003:
@@ -158,6 +171,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   # --- AST Models ---
@@ -177,6 +192,9 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/interop/agents.md
+      - src/limnalis/models/agents.md
     exceptions: []
 
   MODEL-002:
@@ -194,6 +212,9 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/interop/agents.md
+      - src/limnalis/models/agents.md
     exceptions: []
 
   MODEL-003:
@@ -211,6 +232,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/models/agents.md
     exceptions: []
 
   # --- Normalization ---
@@ -229,6 +252,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   NORM-002:
@@ -246,6 +271,8 @@ invariants:
         - src/limnalis/normalizer.py
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   NORM-003:
@@ -263,6 +290,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
     exceptions: []
 
   # --- Fixture Corpus ---
@@ -281,6 +310,9 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - src/limnalis/agents.md
+      - tests/agents.md
     exceptions: []
 
   FIXTURE-002:
@@ -297,6 +329,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - tests/agents.md
     exceptions: []
 
   FIXTURE-003:
@@ -313,6 +347,8 @@ invariants:
       runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+      - agents.md
+      - tests/agents.md
     exceptions: []
 
   # --- Runtime Execution ---

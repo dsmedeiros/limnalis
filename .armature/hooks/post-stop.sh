@@ -31,7 +31,7 @@ if [ -f "${REPO_ROOT}/CLAUDE.md" ]; then
       echo "FAIL: CLAUDE.md references ${ref} but file does not exist"
       EXIT_CODE=1
     fi
-  done < <(grep -oP '`[^`]*agents\.md`' "${REPO_ROOT}/CLAUDE.md" | tr -d '`' | sort -u)
+  done < <(grep -oE '`[^`]*agents\.md`' "${REPO_ROOT}/CLAUDE.md" | tr -d '`' | sort -u)
 fi
 
 # 2. Check that the invariant registry is valid YAML (if python is available)
