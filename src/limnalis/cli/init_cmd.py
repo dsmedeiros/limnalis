@@ -42,9 +42,25 @@ _GENERATORS: dict[str, dict[str, object]] = {
 }
 
 
+def _sanitize_identifier(identifier: str) -> str:
+    """Sanitize an identifier for use as a filename and Python identifier.
+
+    Strips path separators to prevent directory traversal and replaces
+    hyphens/spaces with underscores so plugin-pack names produce valid Python.
+    """
+    # Strip path separators and parent-directory references
+    name = Path(identifier).name
+    if not name:
+        name = "untitled"
+    # Replace characters that are invalid in Python identifiers
+    name = name.replace("-", "_").replace(" ", "_")
+    return name
+
+
 def _run_init(args: argparse.Namespace) -> int:
     kind: str = args.init_kind
-    identifier: str = args.identifier
+    raw_identifier: str = args.identifier
+    identifier = _sanitize_identifier(raw_identifier)
     gen = _GENERATORS[kind]
     content: str = gen["fn"](identifier)  # type: ignore[operator]
 
@@ -71,7 +87,10 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
     init_parser = subparsers.add_parser(
         "init",
         help="Generate authoring scaffolds (bundles, plugin packs, conformance cases)",
-        description="Generate authoring scaffolds for Limnalis development.",
+        description=(
+            "Generate authoring scaffolds for Limnalis development.\n\n"
+            "Example: limnalis init bundle my-bundle --dry-run"
+        ),
     )
     init_parser.add_argument(
         "init_kind",

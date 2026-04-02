@@ -21,16 +21,34 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     vis = sub.add_parser(
         "visualize",
         help="Render bundle structure graphs",
-        description="Build and render structure graphs from a normalized .lmn bundle.",
+        description=(
+            "Build and render structure graphs from a normalized .lmn bundle.\n\n"
+            "Example: limnalis visualize frame-graph examples/minimal_bundle.lmn"
+        ),
     )
     vis_sub = vis.add_subparsers(dest="visualize_command", required=True)
 
-    for name, help_text in [
-        ("frame-graph", "Render frame-to-frame bridge graph"),
-        ("evaluator-graph", "Render evaluator-to-claim-block graph"),
-        ("evidence-graph", "Render evidence relation graph"),
+    for name, help_text, desc in [
+        (
+            "frame-graph",
+            "Render frame-to-frame bridge graph",
+            "Build and render a frame-to-frame bridge graph.\n\n"
+            "Example: limnalis visualize frame-graph examples/minimal_bundle.lmn",
+        ),
+        (
+            "evaluator-graph",
+            "Render evaluator-to-claim-block graph",
+            "Build and render an evaluator-to-claim-block graph.\n\n"
+            "Example: limnalis visualize evaluator-graph examples/minimal_bundle.lmn",
+        ),
+        (
+            "evidence-graph",
+            "Render evidence relation graph",
+            "Build and render an evidence relation graph.\n\n"
+            "Example: limnalis visualize evidence-graph examples/minimal_bundle.lmn",
+        ),
     ]:
-        cmd = vis_sub.add_parser(name, help=help_text)
+        cmd = vis_sub.add_parser(name, help=help_text, description=desc)
         cmd.add_argument("path", type=Path, help="Path to a .lmn surface source file")
         cmd.add_argument(
             "--format",

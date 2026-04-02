@@ -154,7 +154,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:  # type: ignore[
     doctor = sub.add_parser(
         "doctor",
         help="Run environment sanity checks",
-        description="Check that the Limnalis toolchain is correctly installed and configured.",
+        description=(
+            "Check that the Limnalis toolchain is correctly installed and configured.\n\n"
+            "Example: limnalis doctor --json"
+        ),
     )
     doctor.add_argument(
         "--json",

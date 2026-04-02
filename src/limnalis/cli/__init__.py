@@ -38,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", action="version", version=f"limnalis {PACKAGE_VERSION}"
     )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable ANSI color output",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # Register all existing commands

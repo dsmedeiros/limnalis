@@ -340,7 +340,10 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
     inspect_parser = subparsers.add_parser(
         "inspect",
         help="Inspect bundle structure, traces, and evaluation state",
-        description="Structural inspection subcommands for .lmn bundles.",
+        description=(
+            "Structural inspection subcommands for .lmn bundles.\n\n"
+            "Example: limnalis inspect ast examples/minimal_bundle.lmn --json"
+        ),
     )
     inspect_sub = inspect_parser.add_subparsers(dest="inspect_command", required=True)
 

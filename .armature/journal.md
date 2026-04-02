@@ -279,3 +279,32 @@ New files added: 11 (.armature/agents.md, 3 templates, .claude/agents/agents.md,
 Schema migrations: config.yaml (added armature-version, changeset-budget); registry.yaml (migrated to structured enforced-by with ci/startup/runtime, added name/status/superseded-by/description/exceptions fields)
 Invariant migrations: Added SPEC-001, SPEC-002 governance invariants from canonical Armature spec
 Validation: PASS
+
+### 2026-04-02 — Milestone 6C: Tooling, UX, Editor Support, Diagnostics, DX
+
+**Event:** Implemented M6C in 3 waves (11 tasks, 3 waves, 4+6+1 parallelization).
+
+**Wave 1 (foundation):**
+- T1: Diagnostic formatter with plain/grouped/json modes, ANSI color, remediation hints
+- T2: VS Code extension scaffold with TextMate grammar, snippets, language config
+- T3: CLI module restructuring — cli.py monolith → cli/ package with extensible registration
+- T9: Documentation — getting started, evaluation guide, 4 cookbook recipes, reading guide
+
+**Wave 2 (features):**
+- T4: Inspect commands (ast, normalized, trace, machine-state, license)
+- T5: Lint/analyze/symbols/explain commands with structural analysis
+- T6: Mermaid graph export (frame-graph, evaluator-graph, evidence-graph)
+- T7: Doctor command — 7-point environment sanity check
+- T8: Template generation (limnalis init bundle/plugin-pack/conformance-case)
+- T11: SARIF 2.1.0 export for IDE diagnostics integration
+
+**Wave 3 (integration):**
+- T10: CLI flag consistency audit, --no-color propagation, help text snapshot tests
+
+**Reviews:** 2 red team reviews (Wave 1: PASS_WITH_ADVISORIES, Wave 2+3: PASS_WITH_ADVISORIES). All findings fixed.
+- Wave 1 fixes: Diagnostic.from_dict() None handling, doc CLI flag accuracy, editor comment note
+- Wave 2+3 fixes: Path traversal in init_cmd, hyphenated plugin-pack name sanitization
+
+**Tests:** 833 passed (up from 670 baseline), 163 new tests added, 0 failures.
+**Invariants touched:** None — tooling-only milestone, no core semantic changes.
+**Approved by:** Orchestrator (both red team cycles PASS)
