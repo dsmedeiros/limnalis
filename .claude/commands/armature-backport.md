@@ -83,6 +83,8 @@ For each framework-generic file (both listed and discovered):
 2. Read the project's current version (if it exists)
 3. Classify as: identical, modified, new (exists in canonical but not in project), or removed (exists in project but deleted in canonical)
 
+**Write the complete classified file list as a scratch manifest** (e.g., in a todo list or temporary note). Step 4 must iterate this manifest — not reconstruct the list from memory.
+
 Present a summary to the human:
 - Files that will be updated (with brief description of what changed)
 - New files that will be added
@@ -101,9 +103,10 @@ Should I proceed, or do you want to merge these manually?"
 ### Step 4: Apply Updates
 
 With human confirmation:
-1. Copy each modified/new framework-generic file from the canonical source to the project
+1. Copy each modified/new framework-generic file from the canonical source to the project. **Iterate the discovery manifest from Step 2** — do not reconstruct the file list from memory. This includes pre-existing files that need overwriting (e.g., `.claude/agents/reviewer.md`), not just new files.
 2. Create any new directories needed (e.g., `escalations/`, `session/logs/`)
 3. Do NOT touch any project-specific file
+4. **Post-copy verification:** After all copies complete, diff every framework-generic file in the manifest against the canonical version. Report any remaining divergence before proceeding to schema migration. This catches files that were accidentally skipped during the copy loop.
 
 ### Step 5: Schema Migration — Config
 
@@ -149,7 +152,8 @@ New framework-generic files (especially scoped `agents.md` files like `.armature
    - If found in the canonical registry, create a corresponding entry in the project registry using the canonical definition
    - If not found anywhere, flag it for human review
 5. Also check the reverse: registry entries not referenced by any agents.md file (orphaned invariants)
-6. Update `invariants.md` to include any new invariant categories
+6. **Rebuild `referenced-in` fields:** For every registry entry, mechanically scan all `agents.md` files for the invariant ID and compare against the entry's `referenced-in` array. Add any missing paths. This is especially important after Step 6 registry migration, where `referenced-in` values may have been carried over verbatim from the old schema without recomputation.
+7. Update `invariants.md` to include any new invariant categories
 
 ### Step 8: Update Version
 
@@ -164,9 +168,12 @@ If validation fails:
 - These are likely due to new cross-reference requirements introduced by the updated spec
 - Help the human resolve each failure
 
+**Hook output coverage check:** Do not rely solely on the exit code. Count the number of PASS/FAIL/SKIP lines in the hook output and compare against the expected number of checks (routing table resolution, registry YAML validation, uncommitted change detection, ADR reference resolution). If any expected check is missing from the output, report it as "CHECK MISSING — likely silently failed" and investigate. On non-Linux platforms, grep the hook source for platform-dependent constructs (`grep -P`, Bash-specific syntax) and flag any that may cause silent failures.
+
 **Additional verification:**
 - Confirm all invariant IDs in agents.md files resolve to registry entries (Step 7 should have caught this, but verify mechanically)
 - Confirm config.yaml has all fields required by the updated ARMATURE.md spec
+- **Routing table completeness:** List all `agents.md` files in the project. For each one, verify it appears in the CLAUDE.md routing table. Report any `agents.md` files that exist but have no routing table entry. These may be pre-existing gaps rather than backport regressions, but should be resolved while governance is being audited.
 
 ### Step 10: Log
 
