@@ -1,6 +1,6 @@
 # Armature Governance Journal
 
-This is an append-only log of governance-relevant events. It is gitignored and survives code-level rollbacks, providing institutional memory across sessions.
+This is an append-only log of governance-relevant events. It is committed to version control and provides institutional memory across sessions.
 
 **Do not edit or delete entries.** Only append new entries below.
 
@@ -270,3 +270,12 @@ This is an append-only log of governance-relevant events. It is gitignored and s
 **Re-review verdict:** ALL 5 findings FIXED. 653 tests passing. No new issues introduced.
 
 **Approved by:** Orchestrator (red team cycle 2 PASS)
+
+### 2026-04-02 — backport
+Armature framework updated from (unversioned) to 1.0.0.
+Source: /c/Users/Administrator/source/repos/armature (canonical Armature repo)
+Files updated: 7 (.gitignore, ARMATURE.md, post-stop.sh, orchestrator.md, reviewer.md, reviewer-redteam.md, planner.md)
+New files added: 11 (.armature/agents.md, 3 templates, .claude/agents/agents.md, .claude/commands/agents.md, armature-backport.md, armature-extend.md, armature-init.md, armature-update.md, checkpoint.md)
+Schema migrations: config.yaml (added armature-version, changeset-budget); registry.yaml (migrated to structured enforced-by with ci/startup/runtime, added name/status/superseded-by/description/exceptions fields)
+Invariant migrations: Added SPEC-001, SPEC-002 governance invariants from canonical Armature spec
+Validation: PASS

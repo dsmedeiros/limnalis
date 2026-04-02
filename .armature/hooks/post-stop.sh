@@ -13,6 +13,14 @@ ARMATURE_DIR="${REPO_ROOT}/.armature"
 REGISTRY="${ARMATURE_DIR}/invariants/registry.yaml"
 EXIT_CODE=0
 
+# Resolve python command (python3 preferred, fall back to python)
+PYTHON=""
+if command -v python3 &>/dev/null; then
+  PYTHON="python3"
+elif command -v python &>/dev/null; then
+  PYTHON="python"
+fi
+
 echo "=== Armature Post-Stop Validation ==="
 
 # 1. Check that all agents.md files referenced in CLAUDE.md exist
@@ -26,10 +34,10 @@ if [ -f "${REPO_ROOT}/CLAUDE.md" ]; then
   done < <(grep -oP '`[^`]*agents\.md`' "${REPO_ROOT}/CLAUDE.md" | tr -d '`' | sort -u)
 fi
 
-# 2. Check that the invariant registry is valid YAML (if yq or python is available)
+# 2. Check that the invariant registry is valid YAML (if python is available)
 if [ -f "$REGISTRY" ]; then
-  if command -v python3 &>/dev/null; then
-    python3 -c "
+  if [ -n "$PYTHON" ]; then
+    $PYTHON -c "
 import yaml, sys
 try:
     with open('${REGISTRY}') as f:
@@ -40,7 +48,7 @@ except Exception as e:
     sys.exit(1)
 " || EXIT_CODE=1
   else
-    echo "SKIP: No python3 available to validate registry YAML"
+    echo "SKIP: No python available to validate registry YAML"
   fi
 fi
 
@@ -53,8 +61,8 @@ if [ -n "$GOVERNANCE_FILES" ]; then
 fi
 
 # 4. Check that no agents.md frontmatter references non-existent ADRs
-if command -v python3 &>/dev/null; then
-  python3 -c "
+if [ -n "$PYTHON" ]; then
+  $PYTHON -c "
 import os, re, sys, glob
 
 repo_root = '${REPO_ROOT}'
@@ -71,7 +79,7 @@ for agents_file in glob.glob(os.path.join(repo_root, '**', 'agents.md'), recursi
             adrs = re.findall(r'ADR-(\d+)', frontmatter)
             for adr_num in adrs:
                 # Look for any ADR file matching this number
-                adr_pattern = os.path.join(repo_root, 'docs', 'adr', f'{adr_num}*')
+                adr_pattern = os.path.join(repo_root, 'docs', 'adr', f'ADR-{adr_num}*')
                 if not glob.glob(adr_pattern):
                     rel_path = os.path.relpath(agents_file, repo_root)
                     print(f'FAIL: {rel_path} references ADR-{adr_num} but no matching ADR file found')

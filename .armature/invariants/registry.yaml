@@ -3,208 +3,385 @@
 # Each entry maps to an enforcement mechanism and is referenced by governance files.
 
 invariants:
+  # --- Specification Governance ---
+  SPEC-001:
+    name: "Specification section contiguity"
+    severity: critical
+    status: active
+    superseded-by: null
+    description: "ARMATURE.md section numbering must be contiguous to prevent broken cross-references."
+    defined-in: .armature/ARMATURE.md
+    enforced-by:
+      ci:
+        - .armature/hooks/post-stop.sh
+      startup: []
+      runtime: []
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - .armature/agents.md
+    exceptions: []
+
+  SPEC-002:
+    name: "Specification internal references"
+    severity: critical
+    status: active
+    superseded-by: null
+    description: "All internal section references in ARMATURE.md must resolve to prevent dead links."
+    defined-in: .armature/ARMATURE.md
+    enforced-by:
+      ci:
+        - .armature/hooks/post-stop.sh
+      startup: []
+      runtime: []
+    referenced-in:
+      - .armature/invariants/invariants.md
+      - .armature/agents.md
+      - .claude/commands/agents.md
+      - .claude/agents/agents.md
+    exceptions: []
+
   # --- Schema Governance ---
   SCHEMA-001:
-    rule: "Every normalized AST must validate against the vendored limnalis_ast_schema before acceptance."
+    name: "AST Schema Validation Required"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Every normalized AST must validate against the vendored limnalis_ast_schema before acceptance."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/schema.py
-      - tests/test_schema_validation.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_schema_validation.py
+        - .github/workflows/ci.yml
+      startup:
+        - src/limnalis/schema.py
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   SCHEMA-002:
-    rule: "Vendored schemas must be version-pinned with version string in filename."
+    name: "Schema Version Pinning"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Vendored schemas must be version-pinned with version string in filename."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/schema.py
-      - tests/test_packaging_resources.py
+      ci:
+        - tests/test_packaging_resources.py
+      startup:
+        - src/limnalis/schema.py
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   SCHEMA-003:
-    rule: "Schema changes require version bump in pyproject.toml and updated filenames in schemas/."
+    name: "Schema Change Version Bump"
     severity: critical
-    defined-in: .armature/invariants/invariants.md
-    enforced-by: []  # Process invariant, enforced by review
-    referenced-in:
-      - .armature/invariants/invariants.md
-
-  SCHEMA-004:
-    rule: "Fixture corpus must validate against limnalis_fixture_corpus_schema."
-    severity: high
+    status: active
+    superseded-by: null
+    description: "Schema changes require version bump in pyproject.toml and updated filenames in schemas/."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_schema_validation.py
-      - .github/workflows/ci.yml
+      ci: []
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
+
+  SCHEMA-004:
+    name: "Fixture Corpus Schema Validation"
+    severity: high
+    status: active
+    superseded-by: null
+    description: "Fixture corpus must validate against limnalis_fixture_corpus_schema."
+    defined-in: .armature/invariants/invariants.md
+    enforced-by:
+      ci:
+        - tests/test_schema_validation.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
+    referenced-in:
+      - .armature/invariants/invariants.md
+    exceptions: []
 
   # --- Grammar & Parser ---
   PARSER-001:
-    rule: "The Lark grammar must accept all valid Limnalis surface syntax. Parser is permissive; normalizer enforces constraints."
+    name: "Permissive Parser Acceptance"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "The Lark grammar must accept all valid Limnalis surface syntax. Parser is permissive; normalizer enforces constraints."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_parser.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_parser.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   PARSER-002:
-    rule: "grammar/limnalis.lark is the single source of truth for surface syntax. No inline grammar definitions."
+    name: "Single Grammar Source"
     severity: high
+    status: active
+    superseded-by: null
+    description: "grammar/limnalis.lark is the single source of truth for surface syntax. No inline grammar definitions."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/parser.py
-      - tests/test_packaging_resources.py
+      ci:
+        - tests/test_packaging_resources.py
+      startup:
+        - src/limnalis/parser.py
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   PARSER-003:
-    rule: "Grammar changes must not silently alter parse tree structure for existing valid inputs."
+    name: "Grammar Stability"
     severity: high
+    status: active
+    superseded-by: null
+    description: "Grammar changes must not silently alter parse tree structure for existing valid inputs."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_parser.py
-      - tests/test_normalizer.py
+      ci:
+        - tests/test_parser.py
+        - tests/test_normalizer.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   # --- AST Models ---
   MODEL-001:
-    rule: "All AST node types must be Pydantic BaseModel subclasses inheriting from LimnalisModel."
+    name: "LimnalisModel Inheritance"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "All AST node types must be Pydantic BaseModel subclasses inheriting from LimnalisModel."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/models/base.py
-      - src/limnalis/models/ast.py
-      - tests/test_ast_models.py
+      ci:
+        - tests/test_ast_models.py
+      startup:
+        - src/limnalis/models/base.py
+        - src/limnalis/models/ast.py
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   MODEL-002:
-    rule: "All AST models must use extra='forbid'. Unknown fields must cause validation errors."
+    name: "Forbid Extra Fields"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "All AST models must use extra='forbid'. Unknown fields must cause validation errors."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/models/base.py
-      - tests/test_ast_models.py
+      ci:
+        - tests/test_ast_models.py
+      startup:
+        - src/limnalis/models/base.py
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   MODEL-003:
-    rule: "Pydantic model definitions must remain consistent with vendored JSON Schema."
+    name: "Pydantic-Schema Consistency"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Pydantic model definitions must remain consistent with vendored JSON Schema."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_schema_validation.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_schema_validation.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   # --- Normalization ---
   NORM-001:
-    rule: "Normalizer must be deterministic — identical parse trees must produce identical canonical AST output."
+    name: "Normalizer Determinism"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Normalizer must be deterministic — identical parse trees must produce identical canonical AST output."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_normalizer.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_normalizer.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   NORM-002:
-    rule: "Every non-trivial normalization decision must produce a structured diagnostic."
+    name: "Diagnostic Coverage"
     severity: high
+    status: active
+    superseded-by: null
+    description: "Every non-trivial normalization decision must produce a structured diagnostic."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/normalizer.py
-      - tests/test_normalizer.py
+      ci:
+        - tests/test_normalizer.py
+      startup: []
+      runtime:
+        - src/limnalis/normalizer.py
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   NORM-003:
-    rule: "Normalizer must produce canonical AST output. One input, one output. No optional formatting."
+    name: "Canonical Output"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Normalizer must produce canonical AST output. One input, one output. No optional formatting."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_normalizer.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_normalizer.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   # --- Fixture Corpus ---
   FIXTURE-001:
-    rule: "Fixture corpus expected outputs are the conformance authority. Normalizer must match exactly."
+    name: "Fixture Conformance Authority"
     severity: critical
+    status: active
+    superseded-by: null
+    description: "Fixture corpus expected outputs are the conformance authority. Normalizer must match exactly."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_normalizer.py
-      - .github/workflows/ci.yml
+      ci:
+        - tests/test_normalizer.py
+        - .github/workflows/ci.yml
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   FIXTURE-002:
-    rule: "Fixture corpus version must match schema version and project version."
+    name: "Fixture Version Alignment"
     severity: high
+    status: active
+    superseded-by: null
+    description: "Fixture corpus version must match schema version and project version."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_packaging_resources.py
+      ci:
+        - tests/test_packaging_resources.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   FIXTURE-003:
-    rule: "JSON fixture files must be equivalent representations of their YAML counterparts."
+    name: "JSON-YAML Equivalence"
     severity: high
+    status: active
+    superseded-by: null
+    description: "JSON fixture files must be equivalent representations of their YAML counterparts."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_loader.py
+      ci:
+        - tests/test_loader.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
+    exceptions: []
 
   # --- Runtime Execution ---
   RUNTIME-001:
-    rule: "The step runner must execute all 13 phases in strict ascending order (1-13). Phase ordering must not be altered without spec change."
+    name: "Phase Ordering"
     severity: high
+    status: active
+    superseded-by: null
+    description: "The step runner must execute all 13 phases in strict ascending order (1-13). Phase ordering must not be altered without spec change."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_runtime_runner.py
+      ci:
+        - tests/test_runtime_runner.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
       - src/limnalis/runtime/agents.md
+    exceptions: []
 
   RUNTIME-002:
-    rule: "All primitive operations must follow the uniform shape: op(inputs, step_ctx, machine_state, services) -> (output, machine_state, diagnostics) where practical."
+    name: "Uniform Primitive Shape"
     severity: high
+    status: active
+    superseded-by: null
+    description: "All primitive operations must follow the uniform shape: op(inputs, step_ctx, machine_state, services) -> (output, machine_state, diagnostics) where practical."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - src/limnalis/runtime/primitives.py
-      - tests/test_runtime_primitives.py
+      ci:
+        - tests/test_runtime_primitives.py
+      startup: []
+      runtime:
+        - src/limnalis/runtime/primitives.py
     referenced-in:
       - .armature/invariants/invariants.md
       - src/limnalis/runtime/agents.md
+    exceptions: []
 
   RUNTIME-003:
-    rule: "Non-evaluable NoteExpr claims must bypass eval_expr and support synthesis phases. The runner must not attempt to evaluate them."
+    name: "NoteExpr Bypass"
     severity: high
+    status: active
+    superseded-by: null
+    description: "Non-evaluable NoteExpr claims must bypass eval_expr and support synthesis phases. The runner must not attempt to evaluate them."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_runtime_runner.py
-      - tests/test_runtime_primitives.py
+      ci:
+        - tests/test_runtime_runner.py
+        - tests/test_runtime_primitives.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
       - src/limnalis/runtime/agents.md
+    exceptions: []
 
   RUNTIME-004:
-    rule: "PrimitiveSet must accept injected implementations for all 13 primitives. Stubbed primitives must raise NotImplementedError, not return silently."
+    name: "PrimitiveSet Injection"
     severity: standard
+    status: active
+    superseded-by: null
+    description: "PrimitiveSet must accept injected implementations for all 13 primitives. Stubbed primitives must raise NotImplementedError, not return silently."
     defined-in: .armature/invariants/invariants.md
     enforced-by:
-      - tests/test_runtime_runner.py
+      ci:
+        - tests/test_runtime_runner.py
+      startup: []
+      runtime: []
     referenced-in:
       - .armature/invariants/invariants.md
       - src/limnalis/runtime/agents.md
+    exceptions: []
