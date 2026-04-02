@@ -1,0 +1,93 @@
+{
+  "bundle": {
+    "prefix": "bundle",
+    "description": "Full bundle scaffold with frame, evaluator, and local claims",
+    "body": [
+      "bundle ${1:bundle_name} {",
+      "  frame {",
+      "    system ${2:System};",
+      "    namespace ${3:Namespace};",
+      "    scale ${4:nominal};",
+      "    task ${5:observation};",
+      "    regime ${6:nominal};",
+      "  }",
+      "",
+      "  evaluator ${7:ev0} {",
+      "    kind ${8:model};",
+      "    binding ${9:test://eval/v1};",
+      "  }",
+      "",
+      "  local {",
+      "    ${10:c1}: ${11:predicate}(${12:args});",
+      "  }",
+      "}"
+    ]
+  },
+  "evaluator": {
+    "prefix": "evaluator",
+    "description": "Evaluator block with kind and binding",
+    "body": [
+      "evaluator ${1:ev_name} {",
+      "  kind ${2|model,human,institution|};",
+      "  binding ${3:test://eval/v1};",
+      "  ${4:role ${5|primary,auxiliary,audit,adversarial|};}",
+      "}"
+    ]
+  },
+  "claims-local": {
+    "prefix": "claims-local",
+    "description": "Local claim block with one claim",
+    "body": [
+      "local {",
+      "  ${1:c1}: ${2:predicate}(${3:args})${4: refs [${5:evidence}]};",
+      "}"
+    ]
+  },
+  "bridge": {
+    "prefix": "bridge",
+    "description": "Bridge block with from/to frames",
+    "body": [
+      "bridge ${1:b_name} {",
+      "  from @{system=${2:SourceSystem}, namespace=${3:SourceNS}};",
+      "  to @{system=${4:TargetSystem}, namespace=${5:TargetNS}};",
+      "  via ${6:test://bridge/handler};",
+      "  preserve [${7:evidence_ids}];",
+      "  lose [${8:}];",
+      "  gain [${9:}];",
+      "  risk [${10:}];",
+      "  transport {",
+      "    mode ${11|remap_recompute,degrade,embed,lift|};",
+      "    preconditions [${12:test://pre/check}];",
+      "  }",
+      "}"
+    ]
+  },
+  "anchor": {
+    "prefix": "anchor",
+    "description": "Anchor with adequacy assessment",
+    "body": [
+      "anchor ${1:a_name} {",
+      "  term symbol ${2:term_symbol};",
+      "  subtype ${3|idealization,placeholder,proxy|};",
+      "  status ${4|active,inactive|};",
+      "",
+      "  adequacy {",
+      "    id ${5:aa_name};",
+      "    task ${6:review};",
+      "    producer ${7:ev0};",
+      "    score ${8:0.85};",
+      "    threshold ${9:0.70};",
+      "    method ${10:test://method/check};",
+      "    basis [${11:evidence_ids}];",
+      "  }",
+      "}"
+    ]
+  },
+  "frame": {
+    "prefix": "frame",
+    "description": "Frame shorthand statement",
+    "body": [
+      "frame @${1:System}:${2:Namespace}::${3:nominal};"
+    ]
+  }
+}

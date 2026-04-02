@@ -1,3 +1,10 @@
+"""Existing CLI commands — moved from the former cli.py monolith.
+
+This module contains:
+- ``register_commands(subparsers)`` — adds all current subcommand parsers
+- ``dispatch(args, parser)`` — routes parsed args to the correct handler
+- All ``_cmd_*`` / ``_run_*`` handler functions
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,38 +14,20 @@ from pathlib import Path
 
 from lark import UnexpectedInput
 
-from .version import PACKAGE_VERSION, get_version_info
-from .loader import load_ast_bundle, load_fixture_corpus, normalize_surface_file
-from .normalizer import NormalizationError
-from .schema import SchemaValidationError, load_json_or_yaml, load_schema
+from ..loader import load_ast_bundle, load_fixture_corpus, normalize_surface_file
+from ..normalizer import NormalizationError
+from ..schema import SchemaValidationError, load_json_or_yaml, load_schema
+from ..version import get_version_info
+from . import _error
 
 
 # ---------------------------------------------------------------------------
-# Error helpers
+# Subparser registration
 # ---------------------------------------------------------------------------
 
 
-def _error(message: str, *, detail: str | None = None) -> None:
-    """Print an error message to stderr."""
-    print(f"error: {message}", file=sys.stderr)
-    if detail:
-        print(detail, file=sys.stderr)
-
-
-# ---------------------------------------------------------------------------
-# Parser construction
-# ---------------------------------------------------------------------------
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="limnalis",
-        description="Limnalis surface-syntax toolchain: parse, normalize, validate, and evaluate .lmn files.",
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"limnalis {PACKAGE_VERSION}"
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def register_commands(sub: argparse._SubParsersAction) -> None:  # noqa: C901
+    """Register every existing CLI subcommand on *sub*."""
 
     sub.add_parser(
         "version",
@@ -431,66 +420,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="List the IDs of all built-in summary policies.",
     )
 
-    return parser
-
 
 # ---------------------------------------------------------------------------
-# Allowlist loading
+# Command dispatch
 # ---------------------------------------------------------------------------
 
 
-def _load_allowlist(path: Path | None) -> dict[str, str]:
-    """Load a deviation allowlist from a JSON/YAML file.
-
-    Returns a dict mapping case_id -> reason.
-    Raises on file/parse errors so command handlers can return exit codes.
-    """
-    if path is None:
-        return {}
-    raw = load_json_or_yaml(path)
-
-    if isinstance(raw, dict):
-        # Accept both {case_id: reason} and {"deviations": [{id, reason}]}
-        deviations = raw.get("deviations")
-        if isinstance(deviations, list):
-            return {
-                entry["id"]: entry.get("reason", "")
-                for entry in deviations
-                if isinstance(entry, dict) and "id" in entry
-            }
-        return {k: str(v) for k, v in raw.items()}
-    elif isinstance(raw, list):
-        # List of dicts with "id" keys
-        if raw and isinstance(raw[0], dict):
-            return {
-                entry["id"]: entry.get("reason", "")
-                for entry in raw
-                if isinstance(entry, dict) and "id" in entry
-            }
-        # Plain list of strings — treat each as a case ID
-        if raw and isinstance(raw[0], str):
-            return {str(entry): "listed in allowlist" for entry in raw if isinstance(entry, str)}
-        # Empty list is fine
-        if not raw:
-            return {}
-
-    print(f"warning: unrecognized allowlist format in {path}", file=sys.stderr)
-    return {}
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if args.command == "version":
-        print(json.dumps(get_version_info(), indent=2))
-        return 0
-
+def dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Route parsed *args* to the appropriate command handler."""
     if args.command == "parse":
         return _cmd_parse(args)
 
@@ -556,13 +493,77 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Allowlist loading
+# ---------------------------------------------------------------------------
+
+
+def _load_allowlist(path: Path | None) -> dict[str, str]:
+    """Load a deviation allowlist from a JSON/YAML file.
+
+    Returns a dict mapping case_id -> reason.
+    Raises on file/parse errors so command handlers can return exit codes.
+    """
+    if path is None:
+        return {}
+    raw = load_json_or_yaml(path)
+
+    if isinstance(raw, dict):
+        # Accept both {case_id: reason} and {"deviations": [{id, reason}]}
+        deviations = raw.get("deviations")
+        if isinstance(deviations, list):
+            return {
+                entry["id"]: entry.get("reason", "")
+                for entry in deviations
+                if isinstance(entry, dict) and "id" in entry
+            }
+        return {k: str(v) for k, v in raw.items()}
+    elif isinstance(raw, list):
+        # List of dicts with "id" keys
+        if raw and isinstance(raw[0], dict):
+            return {
+                entry["id"]: entry.get("reason", "")
+                for entry in raw
+                if isinstance(entry, dict) and "id" in entry
+            }
+        # Plain list of strings — treat each as a case ID
+        if raw and isinstance(raw[0], str):
+            return {str(entry): "listed in allowlist" for entry in raw if isinstance(entry, str)}
+        # Empty list is fine
+        if not raw:
+            return {}
+
+    print(f"warning: unrecognized allowlist format in {path}", file=sys.stderr)
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_data_file(path: Path) -> dict:
+    """Load a JSON or YAML file and return its contents as a dict."""
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    suffix = path.suffix.lower()
+    if suffix in (".yaml", ".yml"):
+        result = yaml.safe_load(text)
+    else:
+        result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON/YAML object, got {type(result).__name__}")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Command: parse
 # ---------------------------------------------------------------------------
 
 
 def _cmd_parse(args: argparse.Namespace) -> int:
     """Parse a .lmn file and print the raw parse tree."""
-    from .parser import LimnalisParser
+    from ..parser import LimnalisParser
 
     try:
         tree = LimnalisParser().parse_file(args.path)
@@ -733,8 +734,8 @@ def _run_surface_pipeline(path: Path, *, emit_payload: bool, json_output: bool =
 
 def _run_evaluate(args: argparse.Namespace) -> int:
     """Run the evaluate pipeline: parse -> normalize -> evaluate -> JSON output."""
-    from .runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
-    from .runtime.runner import run_bundle
+    from ..runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
+    from ..runtime.runner import run_bundle
 
     json_output = getattr(args, "json_output", False)
 
@@ -793,9 +794,9 @@ def _run_evaluate(args: argparse.Namespace) -> int:
 
 
 def _run_conformance(args: argparse.Namespace) -> int:
-    from .conformance.compare import compare_case
-    from .conformance.fixtures import load_corpus_from_default
-    from .conformance.runner import run_case
+    from ..conformance.compare import compare_case
+    from ..conformance.fixtures import load_corpus_from_default
+    from ..conformance.runner import run_case
 
     try:
         corpus = load_corpus_from_default()
@@ -877,8 +878,8 @@ def _run_conformance(args: argparse.Namespace) -> int:
 
 def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
     """Run conformance cases and report pass/fail."""
-    from .conformance.compare import compare_case
-    from .conformance.runner import run_case, validate_result_schema
+    from ..conformance.compare import compare_case
+    from ..conformance.runner import run_case, validate_result_schema
 
     strict = getattr(args, "strict", False)
     allowlist_path = getattr(args, "allowlist", None)
@@ -967,8 +968,8 @@ def _run_conformance_run(args: argparse.Namespace, corpus: object) -> int:
 
 def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
     """Generate a conformance report in JSON or Markdown format."""
-    from .conformance.compare import compare_case
-    from .conformance.runner import run_case, validate_result_schema
+    from ..conformance.compare import compare_case
+    from ..conformance.runner import run_case, validate_result_schema
 
     strict = getattr(args, "strict", False)
     allowlist_path = getattr(args, "allowlist", None)
@@ -1147,32 +1148,12 @@ def _run_conformance_report(args: argparse.Namespace, corpus: object) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _load_data_file(path: Path) -> dict:
-    """Load a JSON or YAML file and return its contents as a dict."""
-    import yaml
-
-    text = path.read_text(encoding="utf-8")
-    suffix = path.suffix.lower()
-    if suffix in (".yaml", ".yml"):
-        result = yaml.safe_load(text)
-    else:
-        result = json.loads(text)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON/YAML object, got {type(result).__name__}")
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Export command handlers
 # ---------------------------------------------------------------------------
 
 
 def _cmd_export_ast(args: argparse.Namespace) -> int:
-    from .interop import export_ast
+    from ..interop import export_ast
 
     try:
         output = export_ast(args.path, output_format=args.format)
@@ -1184,7 +1165,7 @@ def _cmd_export_ast(args: argparse.Namespace) -> int:
 
 
 def _cmd_export_result(args: argparse.Namespace) -> int:
-    from .interop import export_result
+    from ..interop import export_result
 
     try:
         data = _load_data_file(args.path)
@@ -1197,7 +1178,7 @@ def _cmd_export_result(args: argparse.Namespace) -> int:
 
 
 def _cmd_export_conformance(args: argparse.Namespace) -> int:
-    from .interop import export_conformance
+    from ..interop import export_conformance
 
     try:
         data = _load_data_file(args.path)
@@ -1217,7 +1198,7 @@ def _cmd_export_conformance(args: argparse.Namespace) -> int:
 
 
 def _cmd_package_create(args: argparse.Namespace) -> int:
-    from .interop import create_package
+    from ..interop import create_package
 
     try:
         metadata = create_package(
@@ -1245,7 +1226,7 @@ def _cmd_package_create(args: argparse.Namespace) -> int:
 
 
 def _cmd_package_inspect(args: argparse.Namespace) -> int:
-    from .interop import inspect_package
+    from ..interop import inspect_package
 
     try:
         metadata = inspect_package(args.path)
@@ -1257,7 +1238,7 @@ def _cmd_package_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_package_validate(args: argparse.Namespace) -> int:
-    from .interop import validate_package
+    from ..interop import validate_package
 
     try:
         issues = validate_package(args.path)
@@ -1273,7 +1254,7 @@ def _cmd_package_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_package_extract(args: argparse.Namespace) -> int:
-    from .interop import extract_package
+    from ..interop import extract_package
 
     try:
         result_path = extract_package(args.path, args.output_dir)
@@ -1290,7 +1271,7 @@ def _cmd_package_extract(args: argparse.Namespace) -> int:
 
 
 def _cmd_project_linkml(args: argparse.Namespace) -> int:
-    from .interop import project_linkml_schema
+    from ..interop import project_linkml_schema
 
     try:
         if args.output is None:
@@ -1433,10 +1414,10 @@ def _cmd_plugins_show(args: argparse.Namespace) -> int:
 
 def _cmd_summarize(args: argparse.Namespace) -> int:
     """Parse, normalize, evaluate, then run a summary policy."""
-    from .runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
-    from .runtime.runner import run_bundle
-    from .runtime import get_builtin_summary_policies, execute_summary
-    from .models.conformance import SummaryRequest
+    from ..runtime.models import EvaluationEnvironment, SessionConfig, StepConfig
+    from ..runtime.runner import run_bundle
+    from ..runtime import get_builtin_summary_policies, execute_summary
+    from ..models.conformance import SummaryRequest
 
     json_output = getattr(args, "json_output", False)
 
@@ -1540,7 +1521,7 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
 
 def _cmd_list_summary_policies() -> int:
     """List available built-in summary policies."""
-    from .runtime import get_builtin_summary_policies
+    from ..runtime import get_builtin_summary_policies
 
     policies = get_builtin_summary_policies()
     for policy_id in sorted(policies.keys()):

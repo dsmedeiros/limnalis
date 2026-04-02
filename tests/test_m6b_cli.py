@@ -50,7 +50,7 @@ class TestSummarizeCommand:
 
     def test_summarize_flattens_bundle_result_for_policy(self, monkeypatch) -> None:
         """Summary execution receives step-level aggregates, not the bundle envelope."""
-        import limnalis.cli as cli_mod
+        import limnalis.cli._existing as cli_mod
         import limnalis.runtime as runtime_mod
         import limnalis.runtime.runner as runner_mod
 
@@ -89,7 +89,7 @@ class TestSummarizeCommand:
 
     def test_summarize_populates_block_target_ids_from_eval_payload(self, monkeypatch) -> None:
         """Block scope without explicit target IDs should auto-select available blocks."""
-        import limnalis.cli as cli_mod
+        import limnalis.cli._existing as cli_mod
         import limnalis.runtime as runtime_mod
         import limnalis.runtime.runner as runner_mod
 
