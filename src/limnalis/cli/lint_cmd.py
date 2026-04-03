@@ -120,13 +120,23 @@ def _cmd_symbols(args: argparse.Namespace) -> int:
     """Handler for ``limnalis symbols``."""
     bundle, diagnostics = _lint_file(args.path)
 
+    typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
+    has_errors = any(d.severity == "error" for d in typed)
+
     if bundle is None:
-        typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
         if typed:
             use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
             output = format_diagnostics(typed, mode="plain", color=use_color)
             print(output, file=sys.stderr)
         return 1
+
+    # Report errors to stderr even when a bundle was produced (e.g. schema
+    # validation errors).  Exit 1 so CI/automation does not treat invalid
+    # input as success.
+    if has_errors:
+        use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
+        output = format_diagnostics(typed, mode="plain", color=use_color)
+        print(output, file=sys.stderr)
 
     symbols = extract_symbols(bundle)
 
@@ -149,7 +159,7 @@ def _cmd_symbols(args: argparse.Namespace) -> int:
                 for sym_id in ids:
                     print(f"  {sym_id}")
 
-    return 0
+    return 1 if has_errors else 0
 
 
 def _cmd_explain(args: argparse.Namespace) -> int:

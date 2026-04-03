@@ -388,6 +388,16 @@ class TestMermaidInjection:
         mermaid_ids = list(id_map.values())
         assert len(set(mermaid_ids)) == 3, f"Collision detected: {id_map}"
 
+    def test_mermaid_id_secondary_collision(self) -> None:
+        """Suffixed IDs must not collide with raw IDs that sanitise to the suffix."""
+        from limnalis.graph import _build_mermaid_id_map
+
+        # a_b gets "a_b", a-b would get "a_b_1", but a_b_1 also sanitises
+        # to "a_b_1" — all three must be distinct.
+        id_map = _build_mermaid_id_map(["a_b", "a-b", "a_b_1"])
+        mermaid_ids = list(id_map.values())
+        assert len(set(mermaid_ids)) == 3, f"Secondary collision: {id_map}"
+
     def test_render_with_special_label(self) -> None:
         """Labels with quotes should have them escaped."""
         from limnalis.graph import GraphEdge, GraphNode, render_mermaid

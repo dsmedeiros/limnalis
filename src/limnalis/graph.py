@@ -185,19 +185,23 @@ def _build_mermaid_id_map(ids: list[str]) -> dict[str, str]:
 
     Distinct raw IDs like ``a-b`` and ``a_b`` would both sanitise to
     ``a_b``.  This function detects such collisions and appends a
-    numeric suffix to disambiguate.
+    numeric suffix to disambiguate.  It tracks *emitted* IDs (not just
+    base candidates) so that suffixed IDs like ``a_b_1`` cannot collide
+    with a raw ID that also sanitises to ``a_b_1``.
     """
     sanitised: dict[str, str] = {}  # raw -> mermaid id
-    seen: dict[str, int] = {}  # mermaid id -> count
+    emitted: set[str] = set()  # all final mermaid ids assigned so far
 
     for raw in ids:
         candidate = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw)
-        count = seen.get(candidate, 0)
-        if count > 0:
-            unique = f"{candidate}_{count}"
-        else:
+        if candidate not in emitted:
             unique = candidate
-        seen[candidate] = count + 1
+        else:
+            counter = 1
+            while f"{candidate}_{counter}" in emitted:
+                counter += 1
+            unique = f"{candidate}_{counter}"
+        emitted.add(unique)
         sanitised[raw] = unique
 
     return sanitised
