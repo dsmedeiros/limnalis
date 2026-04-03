@@ -67,13 +67,13 @@ def conformance_case_template(case_id: str) -> str:
         "id": case_id,
         "name": f"{case_id} test case",
         "source": f"bundle {case_id}_bundle {{ frame @{case_id}:default::nominal; "
-        f"evaluator ev0 {{ kind model; binding test://eval/default; }}; "
+        f"evaluator ev0 {{ kind model; binding test://eval/default; }} "
         f"local {{ c1: p; }} }}",
         "expected": {
             "sessions": [
                 {
-                    "session_id": "default",
-                    "steps": [{"step_id": "step0"}],
+                    "id": "default",
+                    "steps": [{"id": "step0"}],
                 }
             ]
         },

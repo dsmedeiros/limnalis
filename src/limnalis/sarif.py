@@ -73,10 +73,15 @@ def diagnostics_to_sarif(
 
         tool_version = PACKAGE_VERSION
 
-    typed = [_coerce(d) for d in diagnostics]
+    typed = sorted(
+        [_coerce(d) for d in diagnostics],
+        key=lambda d: (d.code, d.message),
+    )
 
-    # Build results and collect unique rule IDs
-    rule_ids: dict[str, str] = {}  # code -> first message seen
+    # Build results and collect unique rule IDs.
+    # Diagnostics are pre-sorted by (code, message) so the first message
+    # seen for each code is deterministic regardless of input order.
+    rule_ids: dict[str, str] = {}  # code -> first message (deterministic)
     results: list[dict[str, Any]] = []
 
     for diag in typed:
