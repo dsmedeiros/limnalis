@@ -204,6 +204,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         default="grouped",
         help="Output format (default: grouped)",
     )
+    lint_cmd.add_argument(
+        "--no-color", action="store_true", default=False,
+        help="Disable ANSI color output",
+    )
 
     # analyze
     analyze_cmd = sub.add_parser(
@@ -220,6 +224,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         choices=["plain", "json", "grouped", "sarif"],
         default="grouped",
         help="Output format (default: grouped)",
+    )
+    analyze_cmd.add_argument(
+        "--no-color", action="store_true", default=False,
+        help="Disable ANSI color output",
     )
 
     # symbols
@@ -238,6 +246,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         default=False,
         help="Output as machine-readable JSON",
+    )
+    symbols_cmd.add_argument(
+        "--no-color", action="store_true", default=False,
+        help="Disable ANSI color output",
     )
 
     # explain
