@@ -36,13 +36,13 @@ def _lint_file(path: Path) -> tuple[Any, list[dict]]:
 
     try:
         result = normalize_surface_file(path, validate_schema=False)
-    except FileNotFoundError:
+    except OSError as exc:
         diagnostics.append({
             "severity": "error",
             "phase": "load",
-            "code": "file_not_found",
+            "code": "file_error",
             "subject": str(path),
-            "message": f"File not found: {path}",
+            "message": str(exc),
         })
         return None, diagnostics
     except (UnexpectedInput, NormalizationError) as exc:
@@ -77,6 +77,15 @@ def _lint_file(path: Path) -> tuple[Any, list[dict]]:
 # ---------------------------------------------------------------------------
 
 
+def _emit_diagnostics(
+    typed: list[Diagnostic], *, fmt: str, use_color: bool
+) -> None:
+    """Print diagnostics, always emitting for structured formats."""
+    if typed or fmt in ("json", "sarif"):
+        output = format_diagnostics(typed, mode=fmt, color=use_color)
+        print(output)
+
+
 def _cmd_lint(args: argparse.Namespace) -> int:
     """Handler for ``limnalis lint``."""
     _bundle, diagnostics = _lint_file(args.path)
@@ -84,9 +93,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
     use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
-    if typed:
-        output = format_diagnostics(typed, mode=args.format, color=use_color)
-        print(output)
+    _emit_diagnostics(typed, fmt=args.format, use_color=use_color)
 
     has_errors = any(d.severity == "error" for d in typed)
     return 1 if has_errors else 0
@@ -103,9 +110,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
     use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
-    if typed:
-        output = format_diagnostics(typed, mode=args.format, color=use_color)
-        print(output)
+    _emit_diagnostics(typed, fmt=args.format, use_color=use_color)
 
     has_errors = any(d.severity == "error" for d in typed)
     return 1 if has_errors else 0
