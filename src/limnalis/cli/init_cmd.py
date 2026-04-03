@@ -83,6 +83,14 @@ def _run_init(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = identifier + gen["ext"]  # type: ignore[operator]
     out_path = out_dir / filename
+
+    if out_path.exists() and not getattr(args, "force", False):
+        print(
+            f"error: {out_path} already exists (use --force to overwrite)",
+            file=sys.stderr,
+        )
+        return 1
+
     out_path.write_text(content, encoding="utf-8")
     print(str(out_path))
     return 0
@@ -124,5 +132,11 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         default=False,
         help="Print to stdout instead of writing a file",
+    )
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing files",
     )
     init_parser.set_defaults(func=_run_init)
