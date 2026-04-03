@@ -111,9 +111,18 @@ def build_evaluator_graph(
             id=cb_id, label=f"{cb.id} ({cb.stratum})", kind="claim_block"
         )
 
-    # Determine which evaluators to connect
+    # Determine which evaluators to connect.  Use the field that matches
+    # the policy kind so the graph reflects actual evaluation behaviour:
+    # - priority_order  -> rp.order
+    # - paraconsistent_union / adjudicated -> rp.members
+    # - single / implicit -> all evaluators (fallback)
     rp = bundle.resolutionPolicy
-    member_ids: list[str] | None = rp.members if rp.members else (rp.order if rp.order else None)
+    if rp.kind == "priority_order" and rp.order:
+        member_ids: list[str] | None = rp.order
+    elif rp.members:
+        member_ids = rp.members
+    else:
+        member_ids = None
 
     ev_ids_to_connect: list[str]
     if member_ids is not None:

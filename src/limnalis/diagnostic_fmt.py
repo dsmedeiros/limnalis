@@ -95,6 +95,7 @@ def format_diagnostics(
     mode: str = "plain",
     color: bool = False,
     show_hints: bool = True,
+    source_file: str | None = None,
 ) -> str:
     """Format a list of diagnostics for human or machine consumption.
 
@@ -112,6 +113,10 @@ def format_diagnostics(
         Emit ANSI colour escapes for severity labels.
     show_hints:
         Append remediation hints for known diagnostic codes.
+    source_file:
+        Path to the source file that produced these diagnostics.  Passed
+        through to SARIF output as ``artifactLocation.uri`` so that IDE
+        consumers can map findings back to the originating file.
     """
     typed: list[Diagnostic] = [_coerce(d) for d in diagnostics]
     typed.sort(key=_sort_key)
@@ -121,7 +126,11 @@ def format_diagnostics(
     if mode == "sarif":
         from .sarif import diagnostics_to_sarif
 
-        return json.dumps(diagnostics_to_sarif(typed), indent=2, ensure_ascii=False)
+        return json.dumps(
+            diagnostics_to_sarif(typed, source_file=source_file),
+            indent=2,
+            ensure_ascii=False,
+        )
     if mode == "grouped":
         return _format_grouped(typed, color=color, show_hints=show_hints)
     return _format_plain(typed, color=color, show_hints=show_hints)

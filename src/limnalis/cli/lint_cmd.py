@@ -78,11 +78,17 @@ def _lint_file(path: Path) -> tuple[Any, list[dict]]:
 
 
 def _emit_diagnostics(
-    typed: list[Diagnostic], *, fmt: str, use_color: bool
+    typed: list[Diagnostic],
+    *,
+    fmt: str,
+    use_color: bool,
+    source_file: str | None = None,
 ) -> None:
     """Print diagnostics, always emitting for structured formats."""
     if typed or fmt in ("json", "sarif"):
-        output = format_diagnostics(typed, mode=fmt, color=use_color)
+        output = format_diagnostics(
+            typed, mode=fmt, color=use_color, source_file=source_file,
+        )
         print(output)
 
 
@@ -93,7 +99,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
     use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
-    _emit_diagnostics(typed, fmt=args.format, use_color=use_color)
+    _emit_diagnostics(typed, fmt=args.format, use_color=use_color, source_file=str(args.path))
 
     has_errors = any(d.severity == "error" for d in typed)
     return 1 if has_errors else 0
@@ -110,7 +116,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     typed = [Diagnostic.from_dict(d) if isinstance(d, dict) else d for d in diagnostics]
 
     use_color = not getattr(args, "no_color", False) and sys.stdout.isatty()
-    _emit_diagnostics(typed, fmt=args.format, use_color=use_color)
+    _emit_diagnostics(typed, fmt=args.format, use_color=use_color, source_file=str(args.path))
 
     has_errors = any(d.severity == "error" for d in typed)
     return 1 if has_errors else 0
