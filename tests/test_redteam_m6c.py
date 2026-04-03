@@ -188,9 +188,9 @@ class TestInitUnicodeNames:
     def test_empty_name(self) -> None:
         """Empty string identifier must not crash."""
         result = _cli("init", "bundle", "", "--dry-run")
-        # Should either produce 'untitled' or fail gracefully
-        assert result.returncode == 0 or result.returncode != 0
-        # Must not produce a traceback
+        # Empty name sanitizes to "untitled" and succeeds
+        assert result.returncode == 0, f"Empty name should succeed: {result.stderr}"
+        assert "untitled" in result.stdout, "Empty name should produce 'untitled' scaffold"
         assert "Traceback" not in result.stderr
 
 
