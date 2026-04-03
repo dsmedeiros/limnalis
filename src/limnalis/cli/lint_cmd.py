@@ -205,7 +205,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         help="Output format (default: grouped)",
     )
     lint_cmd.add_argument(
-        "--no-color", action="store_true", default=False,
+        "--no-color", action="store_true", default=argparse.SUPPRESS,
         help="Disable ANSI color output",
     )
 
@@ -226,7 +226,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         help="Output format (default: grouped)",
     )
     analyze_cmd.add_argument(
-        "--no-color", action="store_true", default=False,
+        "--no-color", action="store_true", default=argparse.SUPPRESS,
         help="Disable ANSI color output",
     )
 
@@ -248,7 +248,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         help="Output as machine-readable JSON",
     )
     symbols_cmd.add_argument(
-        "--no-color", action="store_true", default=False,
+        "--no-color", action="store_true", default=argparse.SUPPRESS,
         help="Disable ANSI color output",
     )
 
