@@ -1,0 +1,36 @@
+{
+  "name": "limnalis-language",
+  "displayName": "Limnalis Language Support",
+  "description": "Syntax highlighting and snippets for Limnalis surface syntax (.lmn files)",
+  "version": "0.1.0",
+  "publisher": "limnalis",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "limnalis",
+        "aliases": ["Limnalis", "limnalis"],
+        "extensions": [".lmn"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "limnalis",
+        "scopeName": "source.limnalis",
+        "path": "./syntaxes/limnalis.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "limnalis",
+        "path": "./snippets/limnalis.json"
+      }
+    ]
+  }
+}
