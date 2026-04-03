@@ -30,6 +30,12 @@ def _check_pydantic_version() -> CheckResult:
     try:
         import pydantic
 
+        major = int(pydantic.VERSION.split(".")[0])
+        if major < 2:
+            return CheckResult(
+                "Pydantic version", "FAIL",
+                f"{pydantic.VERSION} (requires >= 2.0)",
+            )
         return CheckResult("Pydantic version", "PASS", pydantic.VERSION)
     except Exception as exc:
         return CheckResult("Pydantic version", "FAIL", str(exc))

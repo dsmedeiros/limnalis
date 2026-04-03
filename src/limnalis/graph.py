@@ -180,9 +180,27 @@ _SHAPE_MAP = {
 }
 
 
-def _mermaid_id(raw: str) -> str:
-    """Sanitise an ID for Mermaid (alphanumeric + underscores only)."""
-    return "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw)
+def _build_mermaid_id_map(ids: list[str]) -> dict[str, str]:
+    """Build a collision-safe mapping from raw IDs to Mermaid-safe IDs.
+
+    Distinct raw IDs like ``a-b`` and ``a_b`` would both sanitise to
+    ``a_b``.  This function detects such collisions and appends a
+    numeric suffix to disambiguate.
+    """
+    sanitised: dict[str, str] = {}  # raw -> mermaid id
+    seen: dict[str, int] = {}  # mermaid id -> count
+
+    for raw in ids:
+        candidate = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw)
+        count = seen.get(candidate, 0)
+        if count > 0:
+            unique = f"{candidate}_{count}"
+        else:
+            unique = candidate
+        seen[candidate] = count + 1
+        sanitised[raw] = unique
+
+    return sanitised
 
 
 def render_mermaid(
@@ -207,15 +225,24 @@ def render_mermaid(
     sorted_nodes = sorted(nodes, key=lambda n: n.id)
     sorted_edges = sorted(edges, key=lambda e: (e.source, e.target, e.label))
 
+    # Build collision-safe ID map from all raw IDs (nodes + edge endpoints)
+    all_raw_ids = [n.id for n in sorted_nodes]
+    for e in sorted_edges:
+        if e.source not in all_raw_ids:
+            all_raw_ids.append(e.source)
+        if e.target not in all_raw_ids:
+            all_raw_ids.append(e.target)
+    id_map = _build_mermaid_id_map(all_raw_ids)
+
     for node in sorted_nodes:
-        mid = _mermaid_id(node.id)
+        mid = id_map[node.id]
         left, right = _SHAPE_MAP.get(node.kind, ("[", "]"))
         safe_label = node.label.replace('"', "'").replace("`", "'").replace("\n", " ").replace("\r", "")
         lines.append(f"    {mid}{left}\"{safe_label}\"{right}")
 
     for edge in sorted_edges:
-        src = _mermaid_id(edge.source)
-        tgt = _mermaid_id(edge.target)
+        src = id_map[edge.source]
+        tgt = id_map[edge.target]
         safe_label = edge.label.replace('"', "'").replace("`", "'").replace("\n", " ").replace("\r", "")
         lines.append(f"    {src} -->|\"{safe_label}\"| {tgt}")
 

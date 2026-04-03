@@ -369,15 +369,24 @@ class TestMermaidInjection:
     """Verify that IDs containing Mermaid special chars are sanitized."""
 
     def test_sanitize_mermaid_id(self) -> None:
-        from limnalis.graph import _mermaid_id
+        from limnalis.graph import _build_mermaid_id_map
 
         dangerous = '-->|"hello"|[node]'
-        safe = _mermaid_id(dangerous)
+        id_map = _build_mermaid_id_map([dangerous])
+        safe = id_map[dangerous]
         assert "-->" not in safe
         assert "|" not in safe
         assert "[" not in safe
         assert "]" not in safe
         assert '"' not in safe
+
+    def test_mermaid_id_collision_safety(self) -> None:
+        """Distinct raw IDs that sanitise identically must get unique Mermaid IDs."""
+        from limnalis.graph import _build_mermaid_id_map
+
+        id_map = _build_mermaid_id_map(["a-b", "a_b", "a.b"])
+        mermaid_ids = list(id_map.values())
+        assert len(set(mermaid_ids)) == 3, f"Collision detected: {id_map}"
 
     def test_render_with_special_label(self) -> None:
         """Labels with quotes should have them escaped."""
