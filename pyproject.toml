@@ -8,12 +8,13 @@ version = "0.2.2rc1"
 description = "Limnalis v0.2.2 reference implementation — parser, normalizer, evaluator, and conformance harness"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary / internal draft" }
+license = { text = "MIT" }
 authors = [
   { name = "OpenAI scaffold for Dave" }
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -52,6 +53,7 @@ include = [
   "/schemas",
   "/fixtures",
   "/grammar",
+  "/LICENSE",
   "/README.md",
   "/docs",
 ]
