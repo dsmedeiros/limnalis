@@ -45,3 +45,4 @@ Milestone 6C: Tooling, UX, editor support, diagnostics, and developer experience
 - SARIF (T11) uses lightweight builder, no external dependency
 - Template names sanitized: hyphens→underscores, path traversal prevented (red team fix)
 - Upstream v0.2.2 consolidated spec vendored into spec/ (reviewer PASS); three spec-vs-impl gaps logged in journal: B∧N=F truth table, claim_subset, shared_state=false
+- v0.2.2 recovery package vendored (reconstructed spec + recovered EBNF expression grammar + v0.2.2 matrix md); reviewer PASS_WITH_ADVISORIES; grammar-vs-implementation validation sweep delegated

@@ -320,3 +320,11 @@ Validation: PASS
 - Spec §16.6.3 `shared_state=false` fixed-baseline re-initialization is normative but unimplemented (zero `shared_state` references in src/); corpus exercises only the `shared_state: true` default.
 **Note:** The expression grammar (Appendix A.8) still defers to the v0.2 specification, which remains un-vendored and unlocated.
 **Approved by:** Orchestrator (reviewer PASS; artifact provided by human)
+
+## 2026-08-23 — v0.2.2 recovery package vendored (reconstructed spec; expression grammar recovered)
+
+**Event:** Spec artifacts added (human-provided recovery package)
+**Change:** Vendored four artifacts into `spec/`: `Limnalis-v0.2.2-reconstructed.md`/`.pdf` (reconstruction of the lost original v0.2.2 specification), `Limnalis-v0.2.2-recovery-notes.md` (provenance and confidence notes), and `limnalis_conformance_matrix_v0.2.2.md` (conformance matrix with canonical .lmn sources for all 16 cases). `spec/README.md` updated with explicit reconstruction provenance and reader precedence: canonical consolidated spec > reconstruction > v0.2.1 edition. All four copies sha256-verified byte-identical to the provided package.
+**Significance:** The reconstruction supplies the complete EBNF expression grammar and the full v0.2 declaration grammar that Appendix A.8/A.5 of both the v0.2.1 and consolidated v0.2.2 specs defer to — closing the previously broken link in the normative chain, with reconstructed provenance (recovery notes rate grammar/AST confidence high; exact prose medium/low). The package's three schemas and two corpus files were byte-identical to the repo's vendored copies, independently corroborating the reconstruction's provenance; they were not re-vendored.
+**Reviews:** Reviewer PASS_WITH_ADVISORIES (`.armature/reviews/spec-recovery-vendoring.md`) — one non-blocking advisory on a subtitle phrase internal to the byte-copied reconstruction; no required changes.
+**Approved by:** Orchestrator (reviewer verdict received; artifacts provided by human)
