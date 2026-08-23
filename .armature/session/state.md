@@ -44,3 +44,4 @@ Milestone 6C: Tooling, UX, editor support, diagnostics, and developer experience
 - Visualization (T6) uses Mermaid-only; DOT deferred
 - SARIF (T11) uses lightweight builder, no external dependency
 - Template names sanitized: hyphens→underscores, path traversal prevented (red team fix)
+- Upstream v0.2.2 consolidated spec vendored into spec/ (reviewer PASS); three spec-vs-impl gaps logged in journal: B∧N=F truth table, claim_subset, shared_state=false

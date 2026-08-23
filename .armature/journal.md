@@ -308,3 +308,15 @@ Validation: PASS
 **Tests:** 833 passed (up from 670 baseline), 163 new tests added, 0 failures.
 **Invariants touched:** None — tooling-only milestone, no core semantic changes.
 **Approved by:** Orchestrator (both red team cycles PASS)
+
+## 2026-08-23 — Upstream v0.2.2 consolidated specification vendored
+
+**Event:** Spec artifact added (human-provided)
+**Change:** Added `spec/Limnalis-v0.2.2.md` — the canonical Limnalis v0.2.2 consolidated specification with reader's guide, provided by the human — and updated `spec/README.md` to index it as the current normative reference (v0.2.1 PDF + conformance matrix retained as prior edition). Byte-identity to the provided source verified via sha256 (ae43c998…). Implemented via implementer delegation; reviewer verdict PASS (`.armature/reviews/spec-vendoring-v022.md`).
+**Resolves:** ADR-002's previously dangling citation of "the Limnalis v0.2.2 spec" — the 13-primitive execution model, session/step semantics, and normative phase order now have a vendored normative source.
+**Spec-vs-implementation gaps identified during this assessment (logged, not yet remediated):**
+- Spec §4 mandates B∧N=F with explicit rationale; `runtime/builtins.py` `_truth_min` linearization computes N. Masked in conformance by the fixture evaluator keying on claim ids (corpus A3 never exercises the AND table on mixed B/N inputs).
+- Spec §16.2 `EvaluationStep.claim_subset` is normative but unimplemented (zero references in src/tests). Only implementation ever written was on abandoned PR #7. Spec §17.4 itself flags the missing corpus coverage.
+- Spec §16.6.3 `shared_state=false` fixed-baseline re-initialization is normative but unimplemented (zero `shared_state` references in src/); corpus exercises only the `shared_state: true` default.
+**Note:** The expression grammar (Appendix A.8) still defers to the v0.2 specification, which remains un-vendored and unlocated.
+**Approved by:** Orchestrator (reviewer PASS; artifact provided by human)
