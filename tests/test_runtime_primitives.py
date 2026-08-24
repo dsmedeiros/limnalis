@@ -353,21 +353,28 @@ def _decl_expr(truth: str) -> DeclarationExprNode:
     return DeclarationExprNode(term=SymbolTermNode(value="x"), declaredAs=truth)
 
 
-def _eval_logical(op: str, *truths: str) -> str:
-    """Evaluate a LogicalExpr over declared-truth leaves; return the result truth.
+def _eval_logical_full(op: str, *args) -> tuple[TruthCore, list]:
+    """Evaluate a LogicalExpr end-to-end; return (TruthCore, diagnostics).
 
-    Drives the public eval_expr primitive end-to-end. DeclarationExpr leaves
-    need no evaluator bindings, so services={} exercises the pure connective
-    algebra of spec §4.
+    Drives the public eval_expr primitive. Each arg is either a truth letter
+    (wrapped in a DeclarationExpr leaf, which needs no evaluator bindings —
+    services={} exercises the pure connective algebra of spec §4) or an
+    already-built expression node.
     """
+    leaves = [_decl_expr(a) if isinstance(a, str) else a for a in args]
     claim = ClaimNode(
         id="c_conn",
         kind="logical",
-        expr=LogicalExprNode(op=op, args=[_decl_expr(t) for t in truths]),
+        expr=LogicalExprNode(op=op, args=leaves),
     )
     step_ctx = StepContext(effective_frame=_frame())
-    core, _, _ = eval_expr(claim, "ev1", step_ctx, MachineState(), services={})
-    return core.truth
+    core, _, diags = eval_expr(claim, "ev1", step_ctx, MachineState(), services={})
+    return core, diags
+
+
+def _eval_logical(op: str, *truths: str) -> str:
+    """Evaluate a LogicalExpr over declared-truth leaves; return the result truth."""
+    return _eval_logical_full(op, *truths)[0].truth
 
 
 class TestEvalLogicalConnectives:
@@ -450,6 +457,166 @@ class TestEvalLogicalConnectives:
         = (0,1) = F; or(F,N,B) = (0∨0∨1, 1∧0∧1) = (1,0) = T."""
         assert _eval_logical("and", "T", "B", "N") == "F"
         assert _eval_logical("or", "F", "N", "B") == "T"
+
+    def test_nary_iff_folds_left_associatively(self):
+        """iff(T,F,F) = iff(iff(T,F),F) = iff(F,F) = T — never F.
+
+        Hand computation (spec §4, X↔Y=(X→Y)∧(Y→X)):
+        iff(T,F): T→F = ¬T∨F = F∨F = F; F→T = ¬F∨T = T∨T = T; F∧T = F.
+        iff(F,F): F→F = ¬F∨F = T∨F = T; symmetric; T∧T = T. Result T.
+
+        This is the m7 red-team CRITICAL-1 discriminator
+        (.armature/reviews/m7-redteam.md): BOTH associativity readings give
+        T (right: iff(T, iff(F,F)) = iff(T,T) = T), while the truncating
+        evaluator that indexed args[0]/args[1] returned iff(T,F) = F —
+        an answer wrong under EVERY associativity convention. IMPLIES/IFF
+        are non-associative, so n-ary nodes fold LEFT-ASSOCIATIVELY
+        pairwise, matching the normalizer's reading of EBNF A.9
+        `IffExpr ::= ImplExpr { IffOp ImplExpr }` (line 1235).
+        """
+        assert _eval_logical("iff", "T", "F", "F") == "T"
+        # The truncated (binary-prefix) value differs — proof the tail counts.
+        assert _eval_logical("iff", "T", "F") == "F"
+        assert _eval_logical("iff", "T", "F", "F") != _eval_logical("iff", "T", "F")
+
+    def test_nary_implies_folds_left_associatively(self):
+        """implies(T,B,N) = implies(implies(T,B),N) = implies(B,N) = T.
+
+        Hand computation (spec §4, X→Y=¬X∨Y on pairs T=(1,0), F=(0,1),
+        B=(1,1), N=(0,0)):
+        implies(T,B) = ¬T∨B = F∨B = (0∨1, 1∧1) = (1,1) = B.
+        implies(B,N) = ¬B∨N = B∨N = (1∨0, 1∧0) = (1,0) = T. Result T.
+
+        The truncating evaluator returned implies(T,B) = B for this input
+        (m7 red-team CRITICAL-1 repro table), so the values differ where the
+        tail is discarded.
+        """
+        assert _eval_logical("implies", "T", "B", "N") == "T"
+        assert _eval_logical("implies", "T", "B") == "B"
+        assert _eval_logical("implies", "T", "B", "N") != _eval_logical("implies", "T", "B")
+
+    def test_nary_implies_left_not_right_associative(self):
+        """implies(F,T,F) = implies(implies(F,T),F) = implies(T,F) = F.
+
+        Hand computation: implies(F,T) = ¬F∨T = T∨T = T; implies(T,F) =
+        ¬T∨F = F∨F = F. The RIGHT-associative reading gives
+        implies(F, implies(T,F)) = implies(F,F) = ¬F∨F = T∨F = T, and the
+        truncated value implies(F,T) is also T — so F is reachable ONLY via
+        the left-associative fold. Pins the associativity choice at the
+        truth level (m7 red-team CRITICAL-1: "settle and document the
+        associativity reading").
+        """
+        assert _eval_logical("implies", "F", "T", "F") == "F"
+
+    def test_four_operand_implies_chain(self):
+        """implies(T,B,N,F) = implies(implies(implies(T,B),N),F) = F.
+
+        Hand computation: implies(T,B) = B (see above); implies(B,N) = T;
+        implies(T,F) = F. The truncated value (implies(T,B) = B) differs.
+        """
+        assert _eval_logical("implies", "T", "B", "N", "F") == "F"
+
+    def test_nary_iff_matches_explicit_left_nesting(self):
+        """A flat n-ary iff/implies node evaluates exactly like the
+        explicitly left-nested binary tree the normalizer now emits — the
+        defense-in-depth contract for hand-built ASTs (the AST model and
+        vendored schema still admit args > 2)."""
+        for op, letters in (
+            ("iff", ("T", "F", "F")),
+            ("iff", ("B", "N", "T")),
+            ("implies", ("T", "B", "N")),
+            ("implies", ("F", "T", "F")),
+            ("implies", ("N", "F", "B")),
+        ):
+            flat, _ = _eval_logical_full(op, *letters)
+            nested_node = _decl_expr(letters[0])
+            args_rest = letters[1:]
+            inner = LogicalExprNode(op=op, args=[nested_node, _decl_expr(args_rest[0])])
+            for letter in args_rest[1:]:
+                inner = LogicalExprNode(op=op, args=[inner, _decl_expr(letter)])
+            nested, _ = _eval_logical_full(op, *inner.args)
+            assert flat.truth == nested.truth, (op, letters)
+
+
+class TestLogicalCompositionReasons:
+    """Reason derivation for composed B/N results (spec §16.6.6, §8.5).
+
+    §8.5: "B and N always require reason codes." §16.6.6: "If logical
+    composition yields B or N: if one child reason uniquely determines the
+    outcome, inherit it; otherwise use logical_composition and record
+    contributing child reasons in diagnostics." Reasonless composed B/N was
+    m7 red-team HIGH-3 (.armature/reviews/m7-redteam.md). DeclarationExpr
+    leaves carry reason declared_as_<X>; NoteExpr leaves carry note_expr —
+    two distinct reason sources for the mixed-reason case.
+    """
+
+    def test_unique_determining_reason_is_inherited_for_B(self):
+        """and(T, B): the lone B child determines the composed B, so its
+        reason is inherited."""
+        core, diags = _eval_logical_full("and", "T", "B")
+        assert (core.truth, core.reason) == ("B", "declared_as_B")
+        assert not any(d.get("code") == "logical_composition" for d in diags)
+
+    def test_unique_determining_reason_is_inherited_for_N(self):
+        """or(F, N): the lone N child determines the composed N (§4:
+        F∨N = (0∨0, 1∧0) = (0,0) = N)."""
+        core, _ = _eval_logical_full("or", "F", "N")
+        assert (core.truth, core.reason) == ("N", "declared_as_N")
+
+    def test_not_inherits_operand_reason(self):
+        """not(B) = B and not(N) = N (fixed points) inherit the operand's
+        reason."""
+        core, _ = _eval_logical_full("not", "B")
+        assert (core.truth, core.reason) == ("B", "declared_as_B")
+        core, _ = _eval_logical_full("not", "N")
+        assert (core.truth, core.reason) == ("N", "declared_as_N")
+
+    def test_implies_composed_B_inherits_reason(self):
+        """implies(T, B) = ¬T∨B = F∨B = B inherits the B child's reason."""
+        core, _ = _eval_logical_full("implies", "T", "B")
+        assert (core.truth, core.reason) == ("B", "declared_as_B")
+
+    def test_nondetermining_child_reason_is_not_inherited(self):
+        """and(NoteExpr, F) = F: the composed truth is classical, so no
+        reason is required or derived (F reasons are optional annotations,
+        §8.5) even though a child carries note_expr."""
+        core, _ = _eval_logical_full("and", NoteExprNode(text="x"), "F")
+        assert (core.truth, core.reason) == ("F", None)
+
+    def test_mixed_determining_reasons_yield_logical_composition(self):
+        """and(NoteExpr, N-declaration) = N with two distinct determining
+        child reasons (note_expr, declared_as_N) -> logical_composition,
+        plus an info diagnostic recording the contributing child reasons
+        (§16.6.6)."""
+        core, diags = _eval_logical_full("and", NoteExprNode(text="x"), "N")
+        assert (core.truth, core.reason) == ("N", "logical_composition")
+        comp = [d for d in diags if d.get("code") == "logical_composition"]
+        assert len(comp) == 1
+        assert comp[0]["severity"] == "info"
+        assert comp[0]["subject"] == "c_conn"
+        assert "declared_as_N" in comp[0]["message"]
+        assert "note_expr" in comp[0]["message"]
+
+    def test_composed_bn_never_reasonless(self):
+        """Sweep: every composed B/N result carries a non-None reason
+        (§8.5 "B and N always require reason codes"; m7 red-team HIGH-3)."""
+        letters = ("T", "F", "B", "N")
+        for op in ("and", "or", "implies", "iff"):
+            for a in letters:
+                for b in letters:
+                    core, _ = _eval_logical_full(op, a, b)
+                    if core.truth in ("B", "N"):
+                        assert core.reason is not None, (op, a, b)
+        for a in letters:
+            core, _ = _eval_logical_full("not", a)
+            if core.truth in ("B", "N"):
+                assert core.reason is not None, ("not", a)
+
+    def test_classical_composed_results_carry_no_reason(self):
+        """Composed T results stay reasonless: reason codes are required
+        only for B/N (§8.5)."""
+        core, _ = _eval_logical_full("or", "B", "N")  # B∨N = T (§4)
+        assert (core.truth, core.reason) == ("T", None)
 
 
 # ===================================================================
@@ -950,6 +1117,116 @@ class TestFoldBlock:
         # per-evaluator blocks also N
         assert per_ev_blocks["ev1"].truth == "N"
         assert per_ev_blocks["ev1"].reason == "empty_block"
+
+    def test_block_fold_N_inherits_unique_claim_reason(self):
+        """A per-evaluator block fold of {N[missing_binding], N[missing_binding]}
+        carries the inherited missing_binding reason — §8.5 requires every
+        B/N to carry a reason code, and the fold is Limnalis conjunction so
+        the §16.6.6 derivation applies (m7 red-team HIGH-3: the C4 ev_zf
+        fold previously left reason=None)."""
+        c1, c2 = _pred_claim(id="c1"), _pred_claim(id="c2", name="Q")
+        block = _block([c1, c2])
+        policy = _policy_single("ev1")
+        classifications = {
+            "c1": ClaimClassification(claim_id="c1", evaluable=True, expr_kind="PredicateExpr"),
+            "c2": ClaimClassification(claim_id="c2", evaluable=True, expr_kind="PredicateExpr"),
+        }
+        per_claim_per_ev = {
+            "c1": {"ev1": EvalNode(truth="N", reason="missing_binding", provenance=["ev1"])},
+            "c2": {"ev1": EvalNode(truth="N", reason="missing_binding", provenance=["ev1"])},
+        }
+        per_ev_blocks, aggregate = fold_block(
+            block, {}, per_claim_per_ev, classifications, policy,
+        )
+        assert (per_ev_blocks["ev1"].truth, per_ev_blocks["ev1"].reason) == (
+            "N", "missing_binding",
+        )
+        # single policy copies the evaluator's block node -> aggregate too.
+        assert (aggregate.truth, aggregate.reason) == ("N", "missing_binding")
+
+    def test_block_fold_B_inherits_unique_claim_reason(self):
+        """Fold {T, B[source_conflict]} -> B: the B claim determines the
+        fold, so its reason is inherited."""
+        c1, c2 = _pred_claim(id="c1"), _pred_claim(id="c2", name="Q")
+        block = _block([c1, c2])
+        policy = _policy_single("ev1")
+        classifications = {
+            "c1": ClaimClassification(claim_id="c1", evaluable=True, expr_kind="PredicateExpr"),
+            "c2": ClaimClassification(claim_id="c2", evaluable=True, expr_kind="PredicateExpr"),
+        }
+        per_claim_per_ev = {
+            "c1": {"ev1": EvalNode(truth="T", provenance=["ev1"])},
+            "c2": {"ev1": EvalNode(truth="B", reason="source_conflict", provenance=["ev1"])},
+        }
+        per_ev_blocks, _ = fold_block(
+            block, {}, per_claim_per_ev, classifications, policy,
+        )
+        assert (per_ev_blocks["ev1"].truth, per_ev_blocks["ev1"].reason) == (
+            "B", "source_conflict",
+        )
+
+    def test_block_fold_mixed_determining_reasons_yield_logical_composition(self):
+        """Fold {N[undefined_term], N[missing_binding]} -> N with two
+        distinct determining reasons -> logical_composition (§16.6.6;
+        fold_block has no diagnostics channel, so only the reason code is
+        carried — the contributing reasons stay on the claim results)."""
+        c1, c2 = _pred_claim(id="c1"), _pred_claim(id="c2", name="Q")
+        block = _block([c1, c2])
+        policy = _policy_single("ev1")
+        classifications = {
+            "c1": ClaimClassification(claim_id="c1", evaluable=True, expr_kind="PredicateExpr"),
+            "c2": ClaimClassification(claim_id="c2", evaluable=True, expr_kind="PredicateExpr"),
+        }
+        per_claim_per_ev = {
+            "c1": {"ev1": EvalNode(truth="N", reason="undefined_term", provenance=["ev1"])},
+            "c2": {"ev1": EvalNode(truth="N", reason="missing_binding", provenance=["ev1"])},
+        }
+        per_ev_blocks, _ = fold_block(
+            block, {}, per_claim_per_ev, classifications, policy,
+        )
+        assert (per_ev_blocks["ev1"].truth, per_ev_blocks["ev1"].reason) == (
+            "N", "logical_composition",
+        )
+
+    def test_block_fold_F_carries_no_forced_reason(self):
+        """Fold {B, N} -> F (the B-and-N-present rule): classical results
+        need no reason (§8.5 F reasons are optional), so none is derived."""
+        c1, c2 = _pred_claim(id="c1"), _pred_claim(id="c2", name="Q")
+        block = _block([c1, c2])
+        policy = _policy_single("ev1")
+        classifications = {
+            "c1": ClaimClassification(claim_id="c1", evaluable=True, expr_kind="PredicateExpr"),
+            "c2": ClaimClassification(claim_id="c2", evaluable=True, expr_kind="PredicateExpr"),
+        }
+        per_claim_per_ev = {
+            "c1": {"ev1": EvalNode(truth="B", reason="source_conflict", provenance=["ev1"])},
+            "c2": {"ev1": EvalNode(truth="N", reason="undefined_term", provenance=["ev1"])},
+        }
+        per_ev_blocks, _ = fold_block(
+            block, {}, per_claim_per_ev, classifications, policy,
+        )
+        assert (per_ev_blocks["ev1"].truth, per_ev_blocks["ev1"].reason) == ("F", None)
+
+    def test_block_fold_evaluator_with_no_results_gets_empty_block_reason(self):
+        """An evaluator that produced no claim results in an evaluable block
+        folds to N[empty_block] — never a reasonless N (§8.5)."""
+        c1 = _pred_claim(id="c1")
+        block = _block([c1])
+        policy = _policy_union("ev1", "ev2")
+        classifications = {
+            "c1": ClaimClassification(claim_id="c1", evaluable=True, expr_kind="PredicateExpr"),
+        }
+        # ev2 appears for another claim structure but has no result for c1.
+        per_claim_per_ev = {
+            "c1": {"ev1": EvalNode(truth="T", provenance=["ev1"])},
+            "c_other": {"ev2": EvalNode(truth="T", provenance=["ev2"])},
+        }
+        per_ev_blocks, _ = fold_block(
+            block, {}, per_claim_per_ev, classifications, policy,
+        )
+        assert (per_ev_blocks["ev2"].truth, per_ev_blocks["ev2"].reason) == (
+            "N", "empty_block",
+        )
 
     def test_adjudicated_block_aggregation_with_inapplicable_support(self):
         """Adjudicated block aggregation uses synthetic EvalNodes with inapplicable support."""
@@ -1677,6 +1954,94 @@ class TestEvaluateAdequacySet:
 
         assert results["per_assessment"]["aa1"].truth == "T"
         assert results["per_assessment"]["aa1"].adequate is True
+
+    def test_score_declared_N_with_resolved_method_is_not_yet_applicable(self):
+        """Declared score "N" + RESOLVED method -> N[not_yet_applicable]
+        with a warning (not error) diagnostic.
+
+        Spec §9.2: "If score = N, result is N[not_yet_applicable]"; §16.6.4:
+        "Score=N → N[not_yet_applicable]". The method resolves — the fixture
+        returns the non-numeric sentinel "N" on purpose — so the vendored
+        `unresolved_method -> N[missing_binding]` decision does not apply
+        (m7 red-team MEDIUM-1: the C2 aa_core shape)."""
+        aa = _assessment(id="aa1", method="tbd", score="N", threshold=0.5)
+        anc = _anchor(id="anc1", adequacy=[aa])
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {
+            "__bundle__": bundle,
+            "adequacy_handlers": {"tbd": lambda assessment: "N"},
+        }
+
+        results, _, diags = evaluate_adequacy_set(["anc1"], step_ctx, MachineState(), services)
+
+        result = results["per_assessment"]["aa1"]
+        assert result.truth == "N"
+        assert result.reason == "not_yet_applicable"
+        assert result.adequate is False
+        assert result.score is None
+        nya = [d for d in diags if d.get("code") == "adequacy_score_not_yet_applicable"]
+        assert nya and nya[0]["severity"] == "warning" and nya[0]["subject"] == "aa1"
+        assert not any(d.get("code") == "adequacy_method_binding_missing" for d in diags)
+        # Single assessment -> the anchor:task rollup inherits the reason.
+        assert results["per_anchor_task"]["anc1:predict"].reason == "not_yet_applicable"
+
+    def test_method_computed_N_sentinel_is_not_yet_applicable(self):
+        """Score omitted + resolved method computing the "N" sentinel ->
+        N[not_yet_applicable] (§16.6.4 "determine or compute score ...
+        Score=N → N[not_yet_applicable]")."""
+        aa = _assessment(id="aa1", method="tbd", score=None, threshold=0.5)
+        anc = _anchor(id="anc1", adequacy=[aa])
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {
+            "__bundle__": bundle,
+            "adequacy_handlers": {"tbd": lambda assessment: "N"},
+        }
+
+        results, _, diags = evaluate_adequacy_set(["anc1"], step_ctx, MachineState(), services)
+
+        assert results["per_assessment"]["aa1"].truth == "N"
+        assert results["per_assessment"]["aa1"].reason == "not_yet_applicable"
+        assert any(d.get("code") == "adequacy_score_not_yet_applicable" for d in diags)
+
+    def test_score_declared_N_without_method_handler_keeps_missing_binding(self):
+        """Declared score "N" with an UNRESOLVED method stays
+        N[missing_binding] + error diagnostic: §9.2 resolves the method
+        first ("If method is unresolved → N[missing_binding]"), matching the
+        vendored ast_decision `unresolved_method -> N[missing_binding]`."""
+        aa = _assessment(id="aa1", method="unregistered", score="N", threshold=0.5)
+        anc = _anchor(id="anc1", adequacy=[aa])
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {"__bundle__": bundle}
+
+        results, _, diags = evaluate_adequacy_set(["anc1"], step_ctx, MachineState(), services)
+
+        assert results["per_assessment"]["aa1"].truth == "N"
+        assert results["per_assessment"]["aa1"].reason == "missing_binding"
+        errs = [d for d in diags if d.get("code") == "adequacy_method_binding_missing"]
+        assert errs and errs[0]["severity"] == "error"
+        assert not any(d.get("code") == "adequacy_score_not_yet_applicable" for d in diags)
+
+    def test_score_declared_N_with_numeric_method_result_uses_computed_score(self):
+        """Declared score "N" + resolved method computing a NUMBER keeps the
+        recompute path: the computed score is compared to the threshold
+        (pre-existing behavior, §9.2 "an executable adequacy method ... may
+        recompute or verify")."""
+        aa = _assessment(id="aa1", method="calc", score="N", threshold=0.5)
+        anc = _anchor(id="anc1", adequacy=[aa])
+        bundle = self._make_bundle_with_anchors([anc])
+        step_ctx = StepContext(effective_frame=_frame())
+        services: dict = {
+            "__bundle__": bundle,
+            "adequacy_handlers": {"calc": lambda assessment: 0.8},
+        }
+
+        results, _, _ = evaluate_adequacy_set(["anc1"], step_ctx, MachineState(), services)
+
+        assert results["per_assessment"]["aa1"].truth == "T"
+        assert results["per_assessment"]["aa1"].score == 0.8
 
     def test_multiple_assessments_paraconsistent_union(self):
         """Multiple same-task assessments under paraconsistent_union policy."""

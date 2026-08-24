@@ -38,6 +38,13 @@ class CaseRunResult:
     # Internal runner diagnostics (e.g. schema-model divergence warnings) that
     # should not be compared against fixture expectations.
     internal_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    # Which evaluation path served the case (m7 red-team HIGH-1 probe):
+    # "live" when the live extension fixture pack supplied real primitives,
+    # "echo" when the claim-id-keyed fixture expectation maps were used,
+    # None when the case never reached evaluation (parse/normalize failure or
+    # a fail-closed live-gate error). Tests assert every extension case runs
+    # "live" so a mistyped URI fails the suite, not just the tampered case.
+    eval_path: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -716,6 +723,12 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
 
     Parses the fixture source into a BundleNode, builds fixture-backed
     eval_expr bindings from expected results, and runs the evaluator.
+
+    Evaluation path selection is fail-closed (m7 red-team HIGH-1): full
+    live-pack coverage runs live, zero coverage echoes claim-id-keyed
+    expectations, and partial coverage — or an undeclared evaluator URI under
+    a live corpus — returns a loud ``CaseRunResult.error``. The chosen path
+    is recorded in ``CaseRunResult.eval_path`` ("live"/"echo").
     """
     pre_run_diags: list[dict[str, Any]] = []
 
@@ -816,12 +829,63 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # this returns None and the claim-id-keyed fixture primitives above stay
     # in effect. (Local import: conformance.runner loads via the package
     # __init__, which plugins.fixtures imports from.)
-    from ..plugins.fixtures import build_live_fixture_services
+    #
+    # The gate is FAIL-CLOSED (m7 red-team HIGH-1) — no silent live→echo
+    # fallback:
+    # - PARTIAL live-pack coverage (some evaluator URIs live, some not) is an
+    #   authoring error: build_live_fixture_services raises, and the case is
+    #   returned as a loud CaseRunResult.error, which compare_case reports as
+    #   an unconditional failure.
+    # - Under a LIVE corpus (a corpus whose fixture manifest declares
+    #   live-pack evaluator URIs — the extension corpus), a zero-coverage
+    #   bundle may fall back to the echo path only if every evaluator URI is
+    #   declared by that manifest; an undeclared URI (e.g. a one-character
+    #   typo of a live URI) is a loud error instead of a self-fulfilling echo.
+    # - Vendored corpora declare no live-pack URIs, so their zero-coverage
+    #   bundles keep the echo path exactly as before.
+    from ..plugins.fixtures import (
+        LiveFixturePackCoverageError,
+        build_live_fixture_services,
+        live_fixture_evaluator_uris,
+    )
 
-    live_services = build_live_fixture_services(bundle)
+    eval_path = "echo"
+    try:
+        live_services = build_live_fixture_services(bundle)
+    except LiveFixturePackCoverageError as exc:
+        return CaseRunResult(
+            case_id=case.id,
+            bundle=bundle,
+            error=f"Live fixture pack coverage error: {exc}",
+        )
     if live_services is not None:
+        eval_path = "live"
         primitives = PrimitiveSet()
         services.update(live_services)
+    elif corpus is not None:
+        declared_bindings = set(corpus.bindings_by_id)
+        if declared_bindings & live_fixture_evaluator_uris():
+            unknown_uris = sorted({
+                binding if isinstance(binding, str) else repr(binding)
+                for binding in (
+                    getattr(evaluator, "binding", None)
+                    for evaluator in (getattr(bundle, "evaluators", None) or [])
+                )
+                if not (isinstance(binding, str) and binding in declared_bindings)
+            })
+            if unknown_uris:
+                return CaseRunResult(
+                    case_id=case.id,
+                    bundle=bundle,
+                    error=(
+                        "Live fixture pack coverage error: evaluator binding "
+                        f"URI(s) {unknown_uris} are neither live-pack URIs nor "
+                        "bindings declared by this corpus's fixture manifest; "
+                        "refusing the claim-id echo fallback for a live corpus "
+                        "(m7 red-team HIGH-1 — a mistyped URI must fail "
+                        "loudly, not echo its own expectations)"
+                    ),
+                )
 
     # Fixture adequacy handlers for method-computed assessments used in corpus
     # cases (e.g., A12 aa2 / aa_circular). Merged via setdefault so live-pack
@@ -888,6 +952,7 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
             case_id=case.id,
             bundle=bundle,
             error=f"Runner error: {exc}",
+            eval_path=eval_path,
         )
 
     # Inject diagnostics that can't be produced organically
@@ -905,4 +970,5 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
         # Store schema-fallback warnings as internal diagnostics so they
         # are available for debugging but do not pollute conformance comparison.
         internal_diagnostics=pre_run_diags,
+        eval_path=eval_path,
     )

@@ -876,11 +876,30 @@ def run_bundle(
     services: dict[str, Any] | None = None,
     adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> BundleResult:
-    """Execute all sessions against a bundle sequentially."""
+    """Execute all sessions against a bundle sequentially.
+
+    Fixed-baseline cache scoping (spec §16.6.3; m7 red-team HIGH-2): every
+    ``run_bundle`` call installs a FRESH ``services["__baseline_value_cache__"]``,
+    replacing whatever a reused ``services`` dict carried from an earlier
+    run, so cached fixed-baseline values never leak across evaluation runs
+    (§16.6.3 scopes the cache to the sessions of one evaluation run and its
+    keys carry no run identity). A caller that explicitly wants one cache to
+    survive across ``run_bundle`` invocations opts in by passing a dict under
+    ``services["__shared_baseline_cache__"]``: that same dict is installed
+    (and mutated in place) as each run's cache.
+    """
     if primitives is None:
         primitives = PrimitiveSet()
     if services is None:
         services = {}
+
+    # Run-scoped fixed-baseline cache (§16.6.3; m7 red-team HIGH-2). The
+    # explicit __shared_baseline_cache__ dict is the only way a cache
+    # survives across run_bundle calls.
+    shared_cache = services.get("__shared_baseline_cache__")
+    services["__baseline_value_cache__"] = (
+        shared_cache if isinstance(shared_cache, dict) else {}
+    )
 
     session_results: list[SessionResult] = []
     diags: Diagnostics = []

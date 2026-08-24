@@ -1,10 +1,10 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskmaster/docs/milestone-7-remediation-track-c.md`. (M6C completed; see journal.)
+Milestone 7 COMPLETE: spec-conformance remediation + Track C paradox corpus. PRD: `.taskmaster/docs/milestone-7-remediation-track-c.md`. All acceptance criteria met; red team PASS_WITH_ADVISORIES after one remediation cycle.
 
 ## Build Candidate
-{M6C ready for tagging; M7 in progress}
+{M7 ready for tagging — 1094 tests, extension corpus 11/11 live-path, vendored 16/16 echo-path byte-unchanged}
 
 ## Task Status
 | Task | Description | Status | Commit |
@@ -19,7 +19,7 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 | T7 | Paradox gallery doc | completed — reviewer PASS_WITH_ADVISORIES (ckpt 3; required 2-cell fix applied) | wave-3 |
 
 ## Active Delegation
-RED TEAM FAIL — remediation cycle 1/3. IMPL-α delegated (CRITICAL-1 n-ary implies/iff truncation, HIGH-2 cache scoping, HIGH-3 reason derivation, score=N vocabulary, pipe shielding; normalizer+runtime+extension-pins scope). IMPL-β queued after α (HIGH-1 fail-closed live gate, comparator MEDIUMs; conformance/plugins scope). Red team re-review after both.
+{none — M7 complete. Open advisory backlog for a future milestone: NEW-4 + MEDIUM-7 (aggregation-layer reason gaps), then NEW-1/2/3 (comparator/guard hardening); plus the standing docs-remediation milestone and the not_yet_applicable/no_adequacy_result vocabulary alignment.}
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).

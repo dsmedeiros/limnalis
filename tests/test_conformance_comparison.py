@@ -410,3 +410,398 @@ class TestF1FrameCompletion:
 
         assert len(a1_unresolved) == 0, "A1 (with frame completion) should have no unresolved"
         assert len(a2_unresolved) >= 1, "A2 (without frame completion) should have unresolved"
+
+
+# ---------------------------------------------------------------------------
+# m7 red-team MEDIUM-2 (remediation cycle 1): claimIds comparison
+# ---------------------------------------------------------------------------
+
+
+class TestClaimIdsComparisonUnit:
+    """_compare_block compares claimIds pins ORDER-SENSITIVELY against
+    BlockResult.claims (previously the pins were never read)."""
+
+    @staticmethod
+    def _step_with_block(claims: list[str]) -> StepResult:
+        from limnalis.runtime.models import BlockResult
+
+        return StepResult(
+            step_id="step0",
+            per_block_aggregates={"local#1": EvalNode(truth="T")},
+            block_results=[
+                BlockResult(
+                    block_id="local#1",
+                    aggregate=EvalNode(truth="T"),
+                    claims=claims,
+                )
+            ],
+        )
+
+    def _mismatches_for(self, pinned: list[str], actual: list[str]):
+        from limnalis.conformance.compare import _compare_block
+
+        step_result = self._step_with_block(actual)
+        mismatches: list[FieldMismatch] = []
+        _compare_block(
+            "steps[0].blocks.local",
+            {"claimIds": pinned},
+            step_result,
+            "local",  # stratum name resolves to local#1
+            mismatches,
+        )
+        return mismatches
+
+    def test_matching_claim_ids_pass(self):
+        assert self._mismatches_for(["c1", "c2"], ["c1", "c2"]) == []
+
+    def test_wrong_membership_flagged(self):
+        mismatches = self._mismatches_for(["c1", "c2"], ["c1"])
+        assert len(mismatches) == 1
+        assert mismatches[0].path == "steps[0].blocks.local.claimIds"
+        assert mismatches[0].expected == ["c1", "c2"]
+        assert mismatches[0].actual == ["c1"]
+
+    def test_wrong_order_flagged(self):
+        """The corpus convention pins the declaration order; a reordered
+        listing is a mismatch."""
+        mismatches = self._mismatches_for(["c2", "c1"], ["c1", "c2"])
+        assert len(mismatches) == 1
+        assert mismatches[0].path.endswith(".claimIds")
+
+    def test_missing_block_result_flagged(self):
+        from limnalis.conformance.compare import _compare_block
+
+        step_result = StepResult(step_id="step0")  # no block results at all
+        mismatches: list[FieldMismatch] = []
+        _compare_block(
+            "steps[0].blocks.local",
+            {"claimIds": ["c1"]},
+            step_result,
+            "local",
+            mismatches,
+        )
+        assert any(
+            m.path.endswith(".claimIds") and m.actual is None for m in mismatches
+        )
+
+    def test_unpinned_claim_ids_not_compared(self):
+        """A block expectation without claimIds pins nothing about the
+        listing (§18.2 partial matchers)."""
+        from limnalis.conformance.compare import _compare_block
+
+        step_result = self._step_with_block(["c1", "c2"])
+        mismatches: list[FieldMismatch] = []
+        _compare_block(
+            "steps[0].blocks.local",
+            {"aggregate": "T"},
+            step_result,
+            "local",
+            mismatches,
+        )
+        assert mismatches == []
+
+
+# ---------------------------------------------------------------------------
+# m7 red-team MEDIUM-2 (remediation cycle 1): step-level reverse checks
+# ---------------------------------------------------------------------------
+
+
+class TestStepLevelReverseChecksUnit:
+    """_compare_session flags actual claims/blocks/transports absent from a
+    pinned map, with the two documented exemptions (non-evaluable note
+    claims; per-bridge transport scaffolding)."""
+
+    @staticmethod
+    def _classification(claim_id: str, evaluable: bool):
+        from limnalis.runtime.models import ClaimClassification
+
+        return ClaimClassification(
+            claim_id=claim_id,
+            evaluable=evaluable,
+            expr_kind="NoteExpr" if not evaluable else "PredicateExpr",
+        )
+
+    def _compare(self, sess_exp, step_result, bridge_ids=None):
+        from limnalis.conformance.compare import _compare_session
+        from limnalis.runtime.runner import SessionResult
+
+        sess_result = SessionResult(session_id="s0", step_results=[step_result])
+        mismatches: list[FieldMismatch] = []
+        _compare_session(
+            "sessions[0]", sess_exp, sess_result, mismatches,
+            warnings=None, bridge_ids=bridge_ids,
+        )
+        return mismatches
+
+    def test_extra_evaluable_claim_flagged(self):
+        step_result = StepResult(
+            step_id="step0",
+            per_claim_aggregates={
+                "c1": EvalNode(truth="T"),
+                "c_leak": EvalNode(truth="F"),
+            },
+            per_claim_classifications={
+                "c1": self._classification("c1", True),
+                "c_leak": self._classification("c_leak", True),
+            },
+        )
+        sess_exp = {"steps": [{"claims": {"c1": {"aggregate": "T"}}}]}
+        mismatches = self._compare(sess_exp, step_result)
+        assert any(
+            m.path == "sessions[0].steps[0].claims.c_leak"
+            and m.expected == "not expected"
+            for m in mismatches
+        )
+
+    def test_note_claim_exempt(self):
+        """Non-evaluable claims are omitted from expectations by the
+        vendored convention (e.g. B1 c5) and must not be flagged."""
+        step_result = StepResult(
+            step_id="step0",
+            per_claim_aggregates={
+                "c1": EvalNode(truth="T"),
+                "n1": EvalNode(truth="N", reason="non_evaluable_note"),
+            },
+            per_claim_classifications={
+                "c1": self._classification("c1", True),
+                "n1": self._classification("n1", False),
+            },
+        )
+        sess_exp = {"steps": [{"claims": {"c1": {"aggregate": "T"}}}]}
+        assert self._compare(sess_exp, step_result) == []
+
+    def test_unclassified_extra_claim_flagged(self):
+        """A claim with no classification entry defaults to the strict side
+        of the check."""
+        step_result = StepResult(
+            step_id="step0",
+            per_claim_aggregates={
+                "c1": EvalNode(truth="T"),
+                "c_mystery": EvalNode(truth="F"),
+            },
+        )
+        sess_exp = {"steps": [{"claims": {"c1": {"aggregate": "T"}}}]}
+        mismatches = self._compare(sess_exp, step_result)
+        assert any("c_mystery" in m.path for m in mismatches)
+
+    def test_no_claims_key_no_reverse_check(self):
+        """A step expectation that pins no claims map triggers no reverse
+        check (§18.2 partial matchers)."""
+        step_result = StepResult(
+            step_id="step0",
+            per_claim_aggregates={"c1": EvalNode(truth="T")},
+        )
+        sess_exp = {"steps": [{}]}
+        assert self._compare(sess_exp, step_result) == []
+
+    def test_extra_block_flagged(self):
+        step_result = StepResult(
+            step_id="step0",
+            per_block_aggregates={
+                "local#1": EvalNode(truth="T"),
+                "meta#1": EvalNode(truth="N"),
+            },
+        )
+        sess_exp = {"steps": [{"blocks": {"local#1": {"aggregate": "T"}}}]}
+        mismatches = self._compare(sess_exp, step_result)
+        assert any(
+            m.path == "sessions[0].steps[0].blocks.meta#1"
+            and m.expected == "not expected"
+            for m in mismatches
+        )
+
+    def test_extra_transport_query_flagged_bridge_exempt(self):
+        from limnalis.runtime.models import TransportResult
+
+        step_result = StepResult(
+            step_id="step0",
+            transport_results={
+                "q1": TransportResult(status="preserved"),
+                "q_extra": TransportResult(status="preserved"),
+                "b_bridge": TransportResult(status="preserved"),
+            },
+        )
+        sess_exp = {
+            "steps": [{"transports": {"q1": {"status": "preserved"}}}]
+        }
+        mismatches = self._compare(
+            sess_exp, step_result, bridge_ids={"b_bridge"}
+        )
+        flagged = [m.path for m in mismatches]
+        assert "sessions[0].steps[0].transports.q_extra" in flagged
+        assert "sessions[0].steps[0].transports.b_bridge" not in flagged
+
+    def test_transport_reverse_check_skipped_without_bridge_ids(self):
+        """bridge_ids=None means the bundle is unavailable, so the
+        scaffolding exemption cannot be computed and the transport reverse
+        check is skipped."""
+        from limnalis.runtime.models import TransportResult
+
+        step_result = StepResult(
+            step_id="step0",
+            transport_results={
+                "q1": TransportResult(status="preserved"),
+                "q_extra": TransportResult(status="preserved"),
+            },
+        )
+        sess_exp = {
+            "steps": [{"transports": {"q1": {"status": "preserved"}}}]
+        }
+        assert self._compare(sess_exp, step_result, bridge_ids=None) == []
+
+    def test_compare_case_stub_without_bundle_attr_does_not_crash(self):
+        """compare_case tolerates stubbed run results that lack a .bundle
+        attribute (bridge_ids resolves to None -> transport reverse check
+        skipped)."""
+        from limnalis.runtime.models import TransportResult
+
+        case = SimpleNamespace(
+            id="STUB",
+            expected={
+                "sessions": [
+                    {
+                        "steps": [
+                            {"transports": {"q1": {"status": "preserved"}}}
+                        ],
+                    },
+                ],
+            },
+        )
+        run_result = SimpleNamespace(
+            case_id="STUB",
+            error=None,
+            bundle_result=BundleResult(
+                bundle_id="STUB",
+                session_results=[
+                    SessionResult(
+                        session_id="s0",
+                        step_results=[
+                            StepResult(
+                                step_id="step0",
+                                transport_results={
+                                    "q1": TransportResult(status="preserved"),
+                                    "q_extra": TransportResult(status="preserved"),
+                                },
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        comparison = compare_case(case, run_result)
+        assert comparison.passed
+
+
+# ---------------------------------------------------------------------------
+# m7 red-team comparator follow-up (remediation cycle 1): B/N reason
+# under-pin warnings
+# ---------------------------------------------------------------------------
+
+
+class TestReasonUnderPinWarningUnit:
+    """_compare_eval_snapshot surfaces a WARNING (never a mismatch) when a
+    B/N truth is pinned without a reason while the actual result carries
+    one — §8.5 makes B/N reasons mandatory on the result side, so the
+    actual is spec-correct and only the pin is under-specified."""
+
+    def _run(self, expected, actual_node):
+        from limnalis.conformance.compare import _compare_eval_snapshot
+
+        mismatches: list[FieldMismatch] = []
+        warnings: list[FieldMismatch] = []
+        _compare_eval_snapshot("p", expected, actual_node, mismatches, warnings)
+        return mismatches, warnings
+
+    def test_b_truth_without_reason_pin_warns(self):
+        mismatches, warnings = self._run(
+            {"truth": "B"}, EvalNode(truth="B", reason="source_conflict")
+        )
+        assert mismatches == []
+        assert len(warnings) == 1
+        assert warnings[0].path == "p.reason"
+        assert warnings[0].actual == "source_conflict"
+
+    def test_n_truth_without_reason_pin_warns(self):
+        mismatches, warnings = self._run(
+            {"truth": "N"}, EvalNode(truth="N", reason="undefined_term")
+        )
+        assert mismatches == []
+        assert [w.actual for w in warnings] == ["undefined_term"]
+
+    def test_pinned_reason_does_not_warn(self):
+        mismatches, warnings = self._run(
+            {"truth": "N", "reason": "undefined_term"},
+            EvalNode(truth="N", reason="undefined_term"),
+        )
+        assert mismatches == []
+        assert warnings == []
+
+    def test_t_truth_without_reason_does_not_warn(self):
+        mismatches, warnings = self._run(
+            {"truth": "T"}, EvalNode(truth="T", reason="some_annotation")
+        )
+        assert mismatches == []
+        assert warnings == []
+
+    def test_reasonless_actual_does_not_warn(self):
+        mismatches, warnings = self._run({"truth": "B"}, EvalNode(truth="B"))
+        assert mismatches == []
+        assert warnings == []
+
+    def test_warning_channel_optional(self):
+        """Callers that pass no warnings list (the pre-existing positional
+        signature) keep working; the warning is simply suppressed."""
+        from limnalis.conformance.compare import _compare_eval_snapshot
+
+        mismatches: list[FieldMismatch] = []
+        _compare_eval_snapshot(
+            "p", {"truth": "B"}, EvalNode(truth="B", reason="source_conflict"),
+            mismatches,
+        )
+        assert mismatches == []
+
+    def test_warning_never_affects_passed(self):
+        """End-to-end: a case whose only divergence is an under-pinned B/N
+        reason still passes, with the warning on the comparison report."""
+        case = SimpleNamespace(
+            id="WARN_TEST",
+            expected={
+                "sessions": [
+                    {
+                        "steps": [
+                            {
+                                "claims": {
+                                    "c1": {"aggregate": {"truth": "N"}},
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        )
+        run_result = SimpleNamespace(
+            case_id="WARN_TEST",
+            error=None,
+            bundle_result=BundleResult(
+                bundle_id="WARN_TEST",
+                session_results=[
+                    SessionResult(
+                        session_id="s0",
+                        step_results=[
+                            StepResult(
+                                step_id="step0",
+                                per_claim_aggregates={
+                                    "c1": EvalNode(
+                                        truth="N", reason="undefined_term"
+                                    ),
+                                },
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        comparison = compare_case(case, run_result)
+        assert comparison.passed
+        assert len(comparison.warnings) == 1
+        assert comparison.warnings[0].path.endswith("claims.c1.aggregate.reason")

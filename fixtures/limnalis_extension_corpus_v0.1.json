@@ -2,7 +2,7 @@
   "version": "v0.1",
   "meta": {
     "name": "Limnalis extension corpus (project-authored)",
-    "purpose": "Project-authored coverage extension closing the vendored corpus blind spots listed in spec section 17.4: logical connectives computed LIVE through sub-expression evaluation (atom-level fixture bindings, not claim-id keying), unparenthesized operator precedence per the recovered EBNF A.9, and the session semantics added in milestone 7 wave 2 (EvaluationSession.shared_state per section 16.6.3 and EvaluationStep.claim_subset per section 16.2.1), including the consolidated spec section 17.2 A11 narrative (test://baseline/by_context_v1, sessions s_shared/s_isolated) that the vendored A11 case does not pin. Cases C1..C4 are the Track C paradox-forensics gallery (liar, Schwarzschild, decoherence cat, Banach-Tarski): four bundles with deterministic live fixtures and pinned expectations, also mirrored as examples/paradox_*.lmn. TRACK LABELING CONSTRAINT: the vendored fixture-corpus schema pins ConformanceCase.track to the enum [\"A\", \"B\"], so all extension cases carry track \"A\" (the closest legal value: they are feature-focused cases in the track-A style) while their ids use the reserved \"D\" and \"C\" prefixes (D1..D6, C1..C4) to keep them unambiguously separate from the vendored A1..A14/B1..B2 cases.",
+    "purpose": "Project-authored coverage extension closing the vendored corpus blind spots listed in spec section 17.4: logical connectives computed LIVE through sub-expression evaluation (atom-level fixture bindings, not claim-id keying), unparenthesized operator precedence per the recovered EBNF A.9, and the session semantics added in milestone 7 wave 2 (EvaluationSession.shared_state per section 16.6.3 and EvaluationStep.claim_subset per section 16.2.1), including the consolidated spec section 17.2 A11 narrative (test://baseline/by_context_v1, sessions s_shared/s_isolated) that the vendored A11 case does not pin. Cases C1..C4 are the Track C paradox-forensics gallery (liar, Schwarzschild, decoherence cat, Banach-Tarski): four bundles with deterministic live fixtures and pinned expectations, also mirrored as examples/paradox_*.lmn. TRACK LABELING CONSTRAINT: the vendored fixture-corpus schema pins ConformanceCase.track to the enum [\"A\", \"B\"], so all extension cases carry track \"A\" (the closest legal value: they are feature-focused cases in the track-A style) while their ids use the reserved \"D\" and \"C\" prefixes (D1..D7, C1..C4) to keep them unambiguously separate from the vendored A1..A14/B1..B2 cases.",
     "phase_order": [
       "resolve references and policies",
       "resolve active frame and evaluator panel",
@@ -23,17 +23,22 @@
       "validation": {
         "track": "vendored schema enum [\"A\", \"B\"] — track \"D\" is not legal, so extension cases use track \"A\" with id prefix \"D\""
       },
-      "notes": "The vendored fixture-corpus schema (immutable) constrains ConformanceCase.track to the enum [\"A\", \"B\"]. Extension cases are therefore labeled track \"A\" — they are feature-pinning cases in the track-A style — and are distinguished from vendored cases by the \"D\" id prefix (D1..D6) and by this corpus file itself."
+      "notes": "The vendored fixture-corpus schema (immutable) constrains ConformanceCase.track to the enum [\"A\", \"B\"]. Extension cases are therefore labeled track \"A\" — they are feature-pinning cases in the track-A style — and are distinguished from vendored cases by the \"D\" id prefix (D1..D7) and by this corpus file itself."
+    },
+    {
+      "topic": "IMPLIES/IFF chains are left-associative binary trees",
+      "status": "settled",
+      "notes": "AND/OR are associative in the spec section 4 pair algebra, so the EBNF repetition maps to one flat n-ary LogicalExprNode (a AND b AND c -> and(a, b, c)). IMPLIES/IFF are NOT associative ((a->b)->c differs from a->(b->c) in section 4), so their chains normalize to LEFT-NESTED BINARY nodes: the EBNF repetitions read left-to-right — `ImplExpr ::= OrExpr { ImplOp OrExpr }` (reconstructed spec A.9 line 1236) and `IffExpr ::= ImplExpr { IffOp ImplExpr }` (line 1235) each extend the expression already read — so a -> b -> c is implies(implies(a, b), c) and t <=> f <=> f is iff(iff(t, f), f). The runtime evaluator folds any residual n-ary implies/iff node (still admitted by the AST model and vendored schema) left-associatively pairwise, matching this reading. Pinned end-to-end by D7; supersedes the flat-n-ary shape briefly emitted mid-milestone-7, whose evaluation silently dropped operands past the second (m7 red-team CRITICAL-1)."
     },
     {
       "topic": "Composed-claim reasons under live sub-expression evaluation",
       "status": "settled",
-      "notes": "Live LogicalExpr evaluation composes only truth values: atom-local reasons (e.g. source_conflict on b, undefined_term on n) do NOT propagate to the composed claim result. Extension expectations therefore state reasons only for leaf-level (whole-claim atomic) results. This differs from the vendored corpus, whose claim-id-keyed fixture evaluator echoes reasons for composed claims too. Under multi-evaluator paraconsistent_union with NO T/F conflict, a single unique evaluator-local reason IS inherited by the aggregate (e.g. C4 c1 aggregates to T with the zf evaluator's missing_binding reason carried as disclosure)."
+      "notes": "Live LogicalExpr composition derives reasons per spec section 16.6.6 (m7 red-team HIGH-3 remediation; supersedes the earlier decision that composed results carry no reason, which violated the section 8.5 rule that B and N always require reason codes): when the composed truth is B or N, the sub-results whose truth equals the composed truth determine it — if they carry exactly one distinct reason it is inherited (e.g. D1 c2 t AND b -> B[source_conflict], D1 c3 t AND n -> N[undefined_term], D2 c2 NOT b -> B[source_conflict]); otherwise the reason is logical_composition and the contributing child reasons are recorded in an info diagnostic. T/F composed results still carry no reason (F reasons are optional annotations per section 8.5). The same derivation applies to the per-evaluator block fold (e.g. C4 block local, ev_zf: N AND N -> N[missing_binding]), where the vendored BlockExpectation schema pins truth values only, so block-level reasons are pinned by tests/test_extension_corpus.py instead. Under multi-evaluator paraconsistent_union with NO T/F conflict, a single unique evaluator-local reason IS inherited by the aggregate (e.g. C4 c1 aggregates to T with the zf evaluator's missing_binding reason carried as disclosure)."
     },
     {
       "topic": "License reason vocabulary under live compose_license",
       "status": "settled",
-      "notes": "The live runtime pins the vendored-corpus reason vocabulary, not the consolidated spec section 16.6.4 prose: an anchor with NO adequacy record for the resolved task licenses N[no_adequacy_result] (C1 l1, C4 c2), and an assessment whose score is declared N with no numeric method result yields N[missing_binding] plus an error diagnostic adequacy_method_binding_missing (C2 aa_core, per the vendored ast_decision \"unresolved_method -> N[missing_binding]\"). The spec-sketch spelling N[not_yet_applicable] does not occur in the implementation; extension expectations pin the live values."
+      "notes": "Score-N adequacy now follows the consolidated spec: an assessment whose score is declared N (or whose RESOLVED method computes the non-numeric sentinel \"N\") yields N[not_yet_applicable] — the first implementation of the spec section 9.2/16.6.4 code — plus a warning-severity diagnostic adequacy_score_not_yet_applicable (C2 aa_core; m7 red-team MEDIUM-1 remediation, superseding the earlier N[missing_binding]+error pin whose cited vendored ast_decision \"unresolved_method -> N[missing_binding]\" covers only unresolved methods and is preserved: a method with no registered handler and no score still yields N[missing_binding] with the error diagnostic). One divergence from the section 16.6.4 prose REMAINS pinned: an anchor with NO adequacy record for the resolved task licenses N[no_adequacy_result] (C1 l1, C4 c2) — a reason code outside the section 8.5 taxonomy — where the spec sketch assigns N[not_yet_applicable] to the no-record case too."
     },
     {
       "topic": "Assumption records have no surface-grammar form",
@@ -78,7 +83,8 @@
         "D2",
         "D3",
         "D4",
-        "D6"
+        "D6",
+        "D7"
       ]
     },
     {
@@ -179,7 +185,7 @@
       "id": "test://paradox/method/qg_tbd_v1",
       "type": "adequacy_method",
       "behavior": {
-        "description": "Registered adequacy method that declares its score not yet computable (returns the non-numeric sentinel \"N\"). The runtime pins the assessment as N[missing_binding] and emits an error diagnostic adequacy_method_binding_missing — the missing-ness IS the verdict (quantum-gravity core description is open).",
+        "description": "Registered adequacy method that declares its score not yet computable (returns the non-numeric sentinel \"N\"). The runtime pins the assessment as N[not_yet_applicable] (spec sections 9.2/16.6.4: score N from a RESOLVED method is deferral, not a binding gap) and emits a warning diagnostic adequacy_score_not_yet_applicable — the not-yet-ness IS the verdict (quantum-gravity core description is open).",
         "computes": "N"
       },
       "used_by": [
@@ -309,7 +315,7 @@
         "t, f, b, n in expression position -> zero-arity PredicateExprNode",
         "c1..c4 -> LogicalExprNode; truths computed LIVE by the spec section 4 pair algebra over atoms_v2 leaf results, not echoed from claim-id-keyed expectations",
         "expected values from the spec section 4 tables: B AND N = F (flagship), T AND B = B, T AND N = N, F OR N = N",
-        "composed results carry no reason (atom-local reasons do not propagate through live composition)"
+        "composed B/N results carry the section 16.6.6 derived reason: the unique reason of the determining sub-results (the ones sharing the composed truth) is inherited — c2 inherits source_conflict from b, c3 and c4 inherit undefined_term from n. Composed T/F results carry no reason (c1 = F; F reasons are optional annotations per section 8.5)."
       ],
       "expected": {
         "sessions": [
@@ -335,11 +341,13 @@
                     "per_evaluator": {
                       "ev0": {
                         "truth": "B",
+                        "reason": "source_conflict",
                         "support": "absent"
                       }
                     },
                     "aggregate": {
                       "truth": "B",
+                      "reason": "source_conflict",
                       "support": "absent"
                     }
                   },
@@ -347,11 +355,13 @@
                     "per_evaluator": {
                       "ev0": {
                         "truth": "N",
+                        "reason": "undefined_term",
                         "support": "absent"
                       }
                     },
                     "aggregate": {
                       "truth": "N",
+                      "reason": "undefined_term",
                       "support": "absent"
                     }
                   },
@@ -359,11 +369,13 @@
                     "per_evaluator": {
                       "ev0": {
                         "truth": "N",
+                        "reason": "undefined_term",
                         "support": "absent"
                       }
                     },
                     "aggregate": {
                       "truth": "N",
+                      "reason": "undefined_term",
                       "support": "absent"
                     }
                   }
@@ -404,6 +416,7 @@
       "normalized_ast_expectations": [
         "c1 -> LogicalExprNode(op=or); c2, c3 -> LogicalExprNode(op=not) with a single argument",
         "expected values from the spec section 4 tables: B OR N = T, NOT B = B, NOT N = N (negation swaps the pair bits; B and N are fixed points)",
+        "section 16.6.6 reason derivation: c2 (NOT b -> B) inherits source_conflict and c3 (NOT n -> N) inherits undefined_term from their single determining operand; c1 (B OR N = T) carries no reason",
         "block fold over live results T, B, N hits the B-and-N-present rule: block(local) = F"
       ],
       "expected": {
@@ -430,11 +443,13 @@
                     "per_evaluator": {
                       "ev0": {
                         "truth": "B",
+                        "reason": "source_conflict",
                         "support": "absent"
                       }
                     },
                     "aggregate": {
                       "truth": "B",
+                      "reason": "source_conflict",
                       "support": "absent"
                     }
                   },
@@ -442,11 +457,13 @@
                     "per_evaluator": {
                       "ev0": {
                         "truth": "N",
+                        "reason": "undefined_term",
                         "support": "absent"
                       }
                     },
                     "aggregate": {
                       "truth": "N",
+                      "reason": "undefined_term",
                       "support": "absent"
                     }
                   }
@@ -988,6 +1005,90 @@
     },
     {
       "track": "A",
+      "id": "D7",
+      "name": "Non-associative operator chains (left-associative)",
+      "focus": [
+        "live_logical_composition",
+        "nonassociative_chains",
+        "left_associativity",
+        "canonical_operator_spellings"
+      ],
+      "source": "bundle D7_nonassociative_chains {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: t <=> f <=> f;\n    c2: f -> t -> f;\n    c3: t -> b -> n;\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "3-operand IMPLIES/IFF chains normalize to LEFT-NESTED BINARY LogicalExprNodes per the EBNF iteration order (`IffExpr ::= ImplExpr { IffOp ImplExpr }` line 1235, `ImplExpr ::= OrExpr { ImplOp OrExpr }` line 1236, reconstructed spec A.9): c1 -> iff(iff(t, f), f); c2 -> implies(implies(f, t), f); c3 -> implies(implies(t, b), n). Never a flat 3-ary node (see the ast_decision \"IMPLIES/IFF chains are left-associative binary trees\"; m7 red-team CRITICAL-1).",
+        "c1: t <=> f <=> f = iff(iff(T, F), F) = iff(F, F) = T. The red-team discriminator: BOTH associativity readings give T, while the truncating evaluator (dropping operands past the second) computed iff(T, F) = F — so the pinned T proves no operand is dropped.",
+        "c2: f -> t -> f = implies(implies(F, T), F) = implies(T, F) = F. Pins the LEFT-associative reading specifically: right association would give implies(F, implies(T, F)) = implies(F, F) = T, and truncation would give implies(F, T) = T — only left association yields F.",
+        "c3: t -> b -> n = implies(implies(T, B), N) = implies(B, N) = (NOT B) OR N = B OR N = T (pair algebra: implies(T, B) = F OR B = B). Truncation gave B — a second dropped-operand discriminator exercising B/N atoms; the composed T carries no reason.",
+        "block(local) folds the live results T, F, T -> F"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  },
+                  "c3": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "c1",
+                      "c2",
+                      "c3"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
       "id": "C1",
       "name": "Liar paradox forensics",
       "focus": [
@@ -1101,7 +1202,7 @@
       "normalized_ast_expectations": [
         "c1 licensed under the frame task (prediction): aa_pred attests 0.99 >= 0.95 with a registered, agreeing method -> anchor:prediction adequacy T -> license T",
         "c2 -> DynamicExprNode(op=approaches, subject=curvature): the sketched |inf:finite_time| target is not legal surface syntax (baseline refs are fixed at offset 0), so declared unboundedness is pinned as the symbol target divergence_within_finite_time, evaluated T by the live dynamic-expression handler",
-        "c3 annotated license_task=description: aa_core declares score N and its registered method qg_tbd_v1 returns the non-numeric sentinel, so the live runtime pins adequacy N[missing_binding] plus the error diagnostic adequacy_method_binding_missing (vendored ast_decision unresolved_method -> N[missing_binding]; the spec-sketch spelling not_yet_applicable does not occur) -> license N[missing_binding]",
+        "c3 annotated license_task=description: aa_core declares score N and its REGISTERED method qg_tbd_v1 returns the non-numeric sentinel, so the live runtime pins adequacy N[not_yet_applicable] (spec sections 9.2/16.6.4: score N from a resolved method is deferral, not a binding gap) plus the warning diagnostic adequacy_score_not_yet_applicable -> license N[not_yet_applicable]. The vendored ast_decision unresolved_method -> N[missing_binding] still governs methods with NO registered handler (see ast_decisions; m7 red-team MEDIUM-1 remediation).",
         "q_core: c3 requires [semiclassical_validity], bridge b_to_core loses it under mode degrade -> status degraded, dstAggregate N[transport_loss] with support partial (spec section 10.2 default degradation, computed by the builtin execute_transport)"
       ],
       "expected": {
@@ -1160,12 +1261,12 @@
                     "license": {
                       "overall": {
                         "truth": "N",
-                        "reason": "missing_binding"
+                        "reason": "not_yet_applicable"
                       },
                       "individual": {
                         "a_smooth_manifold:description": {
                           "truth": "N",
-                          "reason": "missing_binding"
+                          "reason": "not_yet_applicable"
                         }
                       }
                     }
@@ -1208,21 +1309,21 @@
           },
           "aa_core": {
             "truth": "N",
-            "reason": "missing_binding"
+            "reason": "not_yet_applicable"
           },
           "a_smooth_manifold:prediction": {
             "truth": "T"
           },
           "a_smooth_manifold:description": {
             "truth": "N",
-            "reason": "missing_binding"
+            "reason": "not_yet_applicable"
           }
         },
         "diagnostics": [
           {
-            "severity": "error",
+            "severity": "warning",
             "subject": "aa_core",
-            "code": "adequacy_method_binding_missing"
+            "code": "adequacy_score_not_yet_applicable"
           }
         ]
       }

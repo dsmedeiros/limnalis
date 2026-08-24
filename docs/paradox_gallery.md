@@ -20,7 +20,7 @@ Read through the four architectural layers, the gallery sorts as follows:
 | Case | Paradox | Layer reading | Headline verdict |
 |---|---|---|---|
 | C1 | Liar sentence | Notation-layer artifact: a sentence about its own truth predicate | `block(meta) = F` via the live `N AND B = F` fold |
-| C2 | Schwarzschild r=0 | Fiction-layer overreach: the smooth-manifold idealization pushed past its licensed task | license `N[missing_binding]`; transport `N[transport_loss]` |
+| C2 | Schwarzschild r=0 | Fiction-layer overreach: the smooth-manifold idealization pushed past its licensed task | license `N[not_yet_applicable]`; transport `N[transport_loss]` |
 | C3 | Decoherence cat | Knowledge-layer conflict: two evaluators, two verdicts, one claim | `B[evaluator_conflict]` at claim and block level |
 | C4 | Banach–Tarski | Fiction-layer overreach: a choice assumption plus a volume proxy used outside its assessed task | aggregate `T` carrying a `missing_binding` disclosure; license `N` |
 
@@ -116,28 +116,30 @@ extrapolates toward the core and declares `lose [semiclassical_validity]`.
 |---|---|---|---|
 | `c1: geodesically_incomplete(…)` | `T` | absent | **T** (`a_smooth_manifold:prediction` = T) |
 | `c2: curvature --> divergence_within_finite_time` | `T` | absent | T (no anchors used) |
-| `c3: infinite_density(r_zero)` | `T` | absent | **`N[missing_binding]`** (`a_smooth_manifold:description` = N) |
+| `c3: infinite_density(r_zero)` | `T` | absent | **`N[not_yet_applicable]`** (`a_smooth_manifold:description` = N) |
 
 | Adequacy record | Result |
 |---|---|
 | `aa_pred` | `T` (0.99 ≥ 0.95, attested) |
-| `aa_core` | `N[missing_binding]` + error diagnostic `adequacy_method_binding_missing` |
+| `aa_core` | `N[not_yet_applicable]` + warning diagnostic `adequacy_score_not_yet_applicable` |
 
 | Transport query | Status | Source → Destination |
 |---|---|---|
 | `q_core` (`c3` over `b_to_core`) | `degraded` | `T` → `N[transport_loss]`, support `partial` |
 
 Block `local` folds to `T`. The one pinned diagnostic is the
-`adequacy_method_binding_missing` error on `aa_core` — the machine-readable
-statement that the core-description score cannot currently be computed.
+`adequacy_score_not_yet_applicable` warning on `aa_core` — the
+machine-readable statement that the core-description score cannot currently
+be computed. It is a warning, not an error: the method is registered and
+resolves; declaring score `N` is deferral (spec §9.2), not a broken binding.
 
 **What dissolved, what remains.** The apparent world-layer catastrophe
 ("infinite density exists") dissolves into fiction-layer accounting: the
 smooth-manifold idealization is licensed for prediction and *not* licensed for
 core description, and transporting the density claim toward the core loses the
 semantic requirement it rides on. What remains is `T` locally (the equations
-really do say this, inside the model), an unlicensed `N` where the model has no
-assessed adequacy, and `N[transport_loss]` at the destination — a precise
+really do say this, inside the model), a deferred `N` where the model has no
+computed adequacy yet, and `N[transport_loss]` at the destination — a precise
 statement of "the theory predicts, but does not describe, r = 0."
 
 ## C3 — Decoherence Cat Forensics
@@ -209,8 +211,15 @@ plus a meta note (`m1`) — see the encoding notes below for why.
 
 | Block | Per-evaluator | Aggregate |
 |---|---|---|
-| `local` | `ev_zfc: F`, `ev_zf: N` | `F` |
-| `meta` (note only) | `ev_zfc: N`, `ev_zf: N` | `N[empty_block]` |
+| `local` | `ev_zfc: F`, `ev_zf: N[missing_binding]` | `F` |
+| `meta` (note only) | `ev_zfc: N[empty_block]`, `ev_zf: N[empty_block]` | `N[empty_block]` |
+
+(`ev_zf`'s block fold `N AND N = N` carries the inherited `missing_binding`
+reason — per-evaluator block folds derive B/N reasons the same way claim
+composition does (§16.6.6 inherit-unique-else-`logical_composition`), since
+§8.5 requires every B/N to carry a reason code. The vendored corpus schema
+pins block cells as bare truth values, so these block-level reasons are
+pinned by `tests/test_extension_corpus.py` rather than the corpus file.)
 
 The adequacy store pins `aa_vol = T` for `a_volume:measure_theoretic_volume` —
 the proxy is perfectly adequate *for its own task*; the license failure on
@@ -248,8 +257,11 @@ the spec's §8.5 reason taxonomy — see the vocabulary notes below):
   holds only notes) folds to N.
 - **`N[missing_binding]`** — a referenced resolution target (criterion,
   method result, or per-evaluator predicate binding) is unavailable; in this
-  gallery it marks both the unresolvable core-description score (C2) and the
-  choiceless evaluator's non-verdict (C4).
+  gallery it marks the choiceless evaluator's non-verdict (C4).
+- **`N[not_yet_applicable]`** — an adequacy score is declared (or computed
+  by its resolved method as) the explicit `N` sentinel: the assessment is
+  deferred, not broken (§9.2/§16.6.4); in this gallery it marks the open
+  quantum-gravity core description (C2 `aa_core`).
 - **`N[no_adequacy_result]`** — license-time code: an anchor used by the claim
   has no adequacy record for the resolved license task (implementation
   vocabulary; see below).
@@ -260,16 +272,18 @@ The gallery reports what the reference implementation actually emits. Four
 points of precision, so none of the above is mistaken for native spec
 behavior:
 
-1. **License/adequacy reason vocabulary.** `no_adequacy_result` (anchor with
-   no record for the resolved task — C1 `l1`, C4 `c2`) and `missing_binding`
-   for a declared-`N`-score assessment (C2 `aa_core`) are the
-   **implementation's** reason codes. The spec's reason taxonomy (§8.5)
-   includes `not_yet_applicable`, and its assessment and licensing rules
-   (§9.2, §16.6.4) assign exactly these situations — score declared `N`, or no
-   adequacy record — to `N[not_yet_applicable]`. The implementation does not
-   emit `not_yet_applicable` anywhere (`no_adequacy_result` is not a §8.5
-   taxonomy name at all). This is a known, documented divergence — see the
-   `ast_decisions` block of `fixtures/limnalis_extension_corpus_v0.1.yaml`.
+1. **License/adequacy reason vocabulary.** A declared-`N`-score assessment
+   with a **resolved** method (C2 `aa_core`) now yields `N[not_yet_applicable]`
+   with a warning diagnostic — the spec's §9.2/§16.6.4 code, first
+   implemented in the milestone-7 red-team remediation (the earlier
+   `N[missing_binding]` + error-diagnostic behavior remains only for genuinely
+   unresolved methods, per the vendored `unresolved_method ->
+   N[missing_binding]` decision). One divergence remains: `no_adequacy_result`
+   (anchor with **no** adequacy record for the resolved task — C1 `l1`, C4
+   `c2`) is still the implementation's code where the spec sketch assigns the
+   no-record case to `N[not_yet_applicable]` too, and `no_adequacy_result` is
+   not a §8.5 taxonomy name at all. This remaining divergence is documented in
+   the `ast_decisions` block of `fixtures/limnalis_extension_corpus_v0.1.yaml`.
 2. **C4's Axiom of Choice record.** `AssumptionNode` exists in the AST model
    and schema, but the assumption declaration has no surface-grammar support
    yet — so the bundle records AC as an *active placeholder anchor* plus a

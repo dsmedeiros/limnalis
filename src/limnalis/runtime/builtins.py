@@ -537,6 +537,16 @@ def fold_block(
     2. Aggregate evaluator-local block truths under apply_resolution_policy
     3. Exclude non-evaluable claims
     4. Empty evaluable set => N[empty_block]
+
+    A per-evaluator block fold that yields B or N carries a reason per spec
+    §8.5 ("B and N always require reason codes"): the unique reason of the
+    claims whose truth determines the fold when one exists, else
+    ``logical_composition`` (see ``_derive_composition_reason``; the block
+    fold is Limnalis conjunction per §16.6.9, so the same §16.6.6 derivation
+    applies — m7 red-team HIGH-3). ``fold_block`` has no diagnostics channel
+    in its signature, so the contributing-child-reasons diagnostic of the
+    ``logical_composition`` case is not emitted here — only the reason code
+    is carried.
     """
     # Collect all evaluator ids from per-claim data
     evaluator_ids: set[str] = set()
@@ -562,22 +572,37 @@ def fold_block(
     # Step 1: per-evaluator block fold
     per_evaluator_block: dict[str, EvalNode] = {}
     for evaluator_id in evaluator_ids:
-        ev_truths: list[TruthValue] = []
+        ev_truth_reasons: list[tuple[TruthValue, str | None]] = []
         ev_provenance: set[str] = {evaluator_id, block.id}
         for claim_id in evaluable_claim_ids:
             if claim_id in per_claim_per_evaluator:
                 claim_evals = per_claim_per_evaluator[claim_id]
                 if evaluator_id in claim_evals:
-                    ev_truths.append(claim_evals[evaluator_id].truth)
+                    ev_truth_reasons.append(
+                        (claim_evals[evaluator_id].truth, claim_evals[evaluator_id].reason)
+                    )
                     ev_provenance.update(claim_evals[evaluator_id].provenance)
 
+        ev_truths = [truth for truth, _reason in ev_truth_reasons]
         if ev_truths:
             block_truth = _fold_block_truth(ev_truths)
         else:
             block_truth = "N"
 
+        # §8.5: B/N block folds always carry a reason. An evaluator with no
+        # claim results in this block folds like an empty evaluable set.
+        block_reason: str | None = None
+        if block_truth in ("B", "N"):
+            if ev_truth_reasons:
+                block_reason, _composition_diag = _derive_composition_reason(
+                    block_truth, ev_truth_reasons, op="block_fold", subject=block.id
+                )
+            else:
+                block_reason = "empty_block"
+
         per_evaluator_block[evaluator_id] = EvalNode(
             truth=block_truth,
+            reason=block_reason,
             support="inapplicable",
             provenance=sorted(ev_provenance),
         )
@@ -758,8 +783,14 @@ def materialize_referenced_baselines(
     - ``tracked``: unaffected — not materialized by this scaffold.
 
     The cache lives in ``services["__baseline_value_cache__"]`` so it
-    survives across the per-step MachineState instances within a
-    run_session/run_bundle invocation.
+    survives across the per-step MachineState instances within one
+    evaluation run. ``run_bundle`` installs a FRESH cache dict at the start
+    of every call (m7 red-team HIGH-2 — a reused services dict must not
+    carry stale fixed-baseline values into a later run), unless the caller
+    opted into cross-run sharing via ``services["__shared_baseline_cache__"]``
+    (see the ``run_bundle`` docstring). Callers driving ``run_session`` /
+    ``run_step`` directly own the lifecycle of any cache dict they leave in
+    ``services``.
     """
     diags: Diagnostics = []
     resolver = services.get("baseline_criterion_resolver")
@@ -919,17 +950,25 @@ def _evaluate_single_assessment(
     # Determine the effective score
     effective_score = aa.score
 
-    # If score is "N" (explicitly marked as not-available), treat as None
+    # "N" is the explicit score-N sentinel (spec §9.2 / §16.6.4): the author
+    # attests the score is not yet computable. Track it separately from
+    # "no score declared" — with a RESOLVED method the two yield different
+    # reasons below (m7 red-team MEDIUM-1).
+    score_declared_n = False
     if effective_score == "N":
+        score_declared_n = True
         effective_score = None
 
-    # If no score provided, check if a method handler is available in services
-    if effective_score is None:
-        method_handler = services.get("adequacy_handlers", {}).get(aa.method)
-        if method_handler is not None:
-            computed = method_handler(aa)
-            if isinstance(computed, (int, float)):
-                effective_score = float(computed)
+    # If no numeric score is available, check for a method handler in services
+    method_handler = services.get("adequacy_handlers", {}).get(aa.method)
+    method_computed_n = False
+    if effective_score is None and method_handler is not None:
+        computed = method_handler(aa)
+        if isinstance(computed, (int, float)):
+            effective_score = float(computed)
+        elif computed == "N":
+            # The resolved method itself computed the score-N sentinel.
+            method_computed_n = True
 
     # Determine adequacy
     reason: str | None = None
@@ -938,8 +977,31 @@ def _evaluate_single_assessment(
         truth: TruthValue = "T" if adequate else "F"
         if not adequate:
             reason = "threshold_not_met"
+    elif method_handler is not None and (score_declared_n or method_computed_n):
+        # Spec §9.2: "If score = N, result is N[not_yet_applicable]"; §16.6.4:
+        # "Score=N → N[not_yet_applicable]". The method IS resolved — the
+        # score is declared (or computed as) the explicit not-yet sentinel,
+        # which is deferral, not a binding gap, so the vendored ast_decision
+        # `unresolved_method -> N[missing_binding]` does not apply here (it
+        # is preserved in the else branch below). First implementation of the
+        # spec's not_yet_applicable code (m7 red-team MEDIUM-1).
+        adequate = False
+        truth = "N"
+        reason = "not_yet_applicable"
+        diags.append({
+            "severity": "warning",
+            "code": "adequacy_score_not_yet_applicable",
+            "phase": "license",
+            "subject": aa.id,
+            "message": (
+                f"Assessment {aa.id} declares score N (not yet computable) for "
+                f"resolved method '{aa.method}'; result is N[not_yet_applicable] "
+                "per spec §9.2/§16.6.4"
+            ),
+        })
     else:
-        # No explicit score and no usable method binding -> unresolved adequacy.
+        # No explicit score and no usable method binding -> unresolved adequacy
+        # (vendored ast_decision: unresolved_method -> N[missing_binding]).
         adequate = False
         truth = "N"
         reason = "missing_binding"
@@ -1659,6 +1721,57 @@ def _truth_flip(value: TruthValue) -> TruthValue:
     return _PAIR_TO_TRUTH[(f, t)]
 
 
+def _derive_composition_reason(
+    result_truth: TruthValue,
+    children: list[tuple[TruthValue, str | None]],
+    *,
+    op: str,
+    subject: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Derive the reason for a B/N result of a logical fold (spec §16.6.6).
+
+    ``children`` are ``(truth, reason)`` pairs for the folded operands —
+    sub-expression results in ``_eval_logical_expr``, per-claim results in
+    ``fold_block``'s per-evaluator fold. The children that DETERMINE a B/N
+    outcome are exactly those whose truth equals the composed truth: in the
+    spec §4 pair algebra (and the equivalent block conjunction) a composed B
+    always requires a B operand and a composed N an N operand — the classical
+    fragment {T, F} is closed under every connective, so indeterminacy can
+    only enter through an indeterminate child.
+
+    Per §16.6.6 ("if one child reason uniquely determines the outcome,
+    inherit it; otherwise use logical_composition and record contributing
+    child reasons in diagnostics") and §8.5 ("B and N always require reason
+    codes"), returns ``(reason, diagnostic-or-None)`` where the reason is the
+    unique determining child reason when exactly one distinct one exists, and
+    ``"logical_composition"`` (plus an info diagnostic listing every
+    contributing child reason) otherwise. Never returns a None reason —
+    reasonless B/N fold results were m7 red-team HIGH-3
+    (.armature/reviews/m7-redteam.md).
+    """
+    determining = sorted({
+        reason
+        for truth, reason in children
+        if truth == result_truth and reason is not None
+    })
+    if len(determining) == 1:
+        return determining[0], None
+
+    contributing = sorted({reason for _truth, reason in children if reason is not None})
+    diag: dict[str, Any] = {
+        "severity": "info",
+        "code": "logical_composition",
+        "phase": "claim",
+        "subject": subject,
+        "message": (
+            f"'{op}' composition yielded {result_truth} with no single "
+            "determining child reason; contributing child reasons: "
+            f"[{', '.join(contributing) if contributing else 'none'}]"
+        ),
+    }
+    return "logical_composition", diag
+
+
 def _eval_logical_expr(
     expr: LogicalExprNode,
     claim: ClaimNode,
@@ -1667,9 +1780,28 @@ def _eval_logical_expr(
     machine_state: MachineState,
     services: dict[str, Any],
 ) -> tuple[TruthCore, MachineState, Diagnostics]:
-    """Evaluate a LogicalExpr by recursing into sub-expressions."""
+    """Evaluate a LogicalExpr by recursing into sub-expressions.
+
+    Connectives implement the spec §4 pair algebra. ``implies`` and ``iff``
+    are NOT associative, so when an n-ary node arrives (args > 2 — the
+    normalizer now emits left-nested binary chains, but the AST model and
+    vendored schema still admit the flat shape, e.g. from a hand-built AST)
+    the operands fold LEFT-ASSOCIATIVELY pairwise, matching the normalizer's
+    reading of the EBNF repetitions ``ImplExpr ::= OrExpr { ImplOp OrExpr }``
+    / ``IffExpr ::= ImplExpr { IffOp ImplExpr }`` (A.9 lines 1235-1236):
+    implies(a, b, c) == implies(implies(a, b), c). The previous
+    ``args[0]``/``args[1]`` indexing silently discarded every operand past
+    the second — m7 red-team CRITICAL-1 (`t <=> f <=> f` evaluated to F where
+    every associativity reading gives T).
+
+    Reason derivation per spec §16.6.6 / §8.5: a composed B or N result
+    inherits the unique determining child reason when one exists, else
+    carries ``logical_composition`` with the contributing child reasons
+    recorded in an info diagnostic (see ``_derive_composition_reason``;
+    m7 red-team HIGH-3).
+    """
     all_diags: Diagnostics = []
-    sub_truths: list[TruthValue] = []
+    sub_cores: list[TruthCore] = []
     provenance: set[str] = {evaluator_id}
 
     for sub_expr in expr.args:
@@ -1677,8 +1809,10 @@ def _eval_logical_expr(
             sub_expr, claim, evaluator_id, step_ctx, machine_state, services
         )
         all_diags.extend(sub_diags)
-        sub_truths.append(sub_core.truth)
+        sub_cores.append(sub_core)
         provenance.update(sub_core.provenance)
+
+    sub_truths: list[TruthValue] = [core.truth for core in sub_cores]
 
     if expr.op == "and":
         result_truth = _truth_and(sub_truths)
@@ -1687,19 +1821,36 @@ def _eval_logical_expr(
     elif expr.op == "not":
         result_truth = _truth_flip(sub_truths[0])
     elif expr.op == "implies":
-        # X→Y = ¬X∨Y (spec §4)
-        not_a = _truth_flip(sub_truths[0])
-        result_truth = _truth_or([not_a, sub_truths[1]])
+        # X→Y = ¬X∨Y (spec §4); n-ary chains fold left-associatively:
+        # implies(a, b, c) == implies(implies(a, b), c).
+        result_truth = sub_truths[0]
+        for nxt in sub_truths[1:]:
+            result_truth = _truth_or([_truth_flip(result_truth), nxt])
     elif expr.op == "iff":
-        # X↔Y = (X→Y)∧(Y→X) (spec §4)
-        implies_ab = _truth_or([_truth_flip(sub_truths[0]), sub_truths[1]])
-        implies_ba = _truth_or([_truth_flip(sub_truths[1]), sub_truths[0]])
-        result_truth = _truth_and([implies_ab, implies_ba])
+        # X↔Y = (X→Y)∧(Y→X) (spec §4); n-ary chains fold left-associatively:
+        # iff(a, b, c) == iff(iff(a, b), c).
+        result_truth = sub_truths[0]
+        for nxt in sub_truths[1:]:
+            forward = _truth_or([_truth_flip(result_truth), nxt])
+            backward = _truth_or([_truth_flip(nxt), result_truth])
+            result_truth = _truth_and([forward, backward])
     else:
         result_truth = "N"
 
+    reason: str | None = None
+    if result_truth in ("B", "N"):
+        reason, composition_diag = _derive_composition_reason(
+            result_truth,
+            [(core.truth, core.reason) for core in sub_cores],
+            op=expr.op,
+            subject=claim.id,
+        )
+        if composition_diag is not None:
+            composition_diag["evaluator_id"] = evaluator_id
+            all_diags.append(composition_diag)
+
     return (
-        TruthCore(truth=result_truth, provenance=sorted(provenance)),
+        TruthCore(truth=result_truth, reason=reason, provenance=sorted(provenance)),
         machine_state,
         all_diags,
     )

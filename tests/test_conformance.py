@@ -860,3 +860,26 @@ class TestDeterminism:
                         f"Evaluator key order mismatch at session {si} step {sti} "
                         f"claim {claim_id}: {keys1} vs {keys2}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Evaluation-path probe (m7 red-team HIGH-1 remediation, cycle 1)
+# ---------------------------------------------------------------------------
+
+
+class TestVendoredEvalPath:
+    """The fail-closed live gate must not perturb vendored behavior.
+
+    Every vendored case keeps the claim-id-keyed echo path — its binding
+    URIs are declared by the vendored fixture manifest and none is a
+    live-pack URI — and the chosen path is now observable through the
+    CaseRunResult.eval_path probe."""
+
+    def test_all_vendored_cases_run_on_echo_path(self, corpus):
+        for case in corpus.cases:
+            result = run_case(case, corpus)
+            assert result.error is None, f"{case.id}: {result.error}"
+            assert result.eval_path == "echo", (
+                f"vendored case {case.id} unexpectedly left the echo path "
+                f"(eval_path={result.eval_path!r})"
+            )

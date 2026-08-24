@@ -877,6 +877,81 @@ class TestSharedStateBaselineCaching:
 
         assert counter["calls"] == 2
 
+    def test_fixed_cache_does_not_survive_across_run_bundle_calls(self):
+        """m7 red-team HIGH-2 regression: a services dict reused across two
+        run_bundle invocations must NOT carry the fixed-baseline cache from
+        run A into run B — §16.6.3 scopes the cache to the sessions of one
+        evaluation run, and the cache key (session_id, baseline_id) carries
+        no run identity, so a stale entry silently returned run A's value
+        for run B's same-named session. run_bundle now installs a fresh
+        cache per call, so run B re-resolves under its own step context and
+        the claim truth flips with it."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+        t1 = TimeCtxNode(kind="point", t="2026-03-06T09:00:00Z")
+        t2 = TimeCtxNode(kind="point", t="2026-03-06T09:05:00Z")
+
+        run_a = run_bundle(
+            bundle,
+            [SessionConfig(id="s_shared", steps=[StepConfig(id="s1", time=t1)])],
+            _env(), services=services,
+        )
+        value_a = (
+            run_a.session_results[0].step_results[0]
+            .machine_state.baseline_store["bl1"].value
+        )
+        assert value_a == "bl1@2026-03-06T09:00:00Z"
+        assert counter["calls"] == 1
+
+        # Run B: SAME services dict, SAME session id, different step context.
+        run_b = run_bundle(
+            bundle,
+            [SessionConfig(id="s_shared", steps=[StepConfig(id="s1", time=t2)])],
+            _env(), services=services,
+        )
+        value_b = (
+            run_b.session_results[0].step_results[0]
+            .machine_state.baseline_store["bl1"].value
+        )
+        assert counter["calls"] == 2, "run B must re-resolve, not reuse run A's cache"
+        assert value_b == "bl1@2026-03-06T09:05:00Z"
+        assert value_b != value_a
+
+    def test_shared_baseline_cache_opt_in_survives_runs(self):
+        """The documented opt-in: a dict passed under
+        services["__shared_baseline_cache__"] is installed as the run cache
+        and survives across run_bundle calls (mutated in place), restoring
+        the old cross-run reuse for callers that explicitly want it."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+        counter = {"calls": 0}
+        shared: dict = {}
+        services = {
+            "baseline_criterion_resolver": _counting_context_resolver(counter),
+            "__shared_baseline_cache__": shared,
+        }
+        t1 = TimeCtxNode(kind="point", t="2026-03-06T09:00:00Z")
+        t2 = TimeCtxNode(kind="point", t="2026-03-06T09:05:00Z")
+
+        run_bundle(
+            bundle,
+            [SessionConfig(id="s_shared", steps=[StepConfig(id="s1", time=t1)])],
+            _env(), services=services,
+        )
+        run_b = run_bundle(
+            bundle,
+            [SessionConfig(id="s_shared", steps=[StepConfig(id="s1", time=t2)])],
+            _env(), services=services,
+        )
+
+        assert counter["calls"] == 1, "opt-in shared cache must be reused across runs"
+        value_b = (
+            run_b.session_results[0].step_results[0]
+            .machine_state.baseline_store["bl1"].value
+        )
+        assert value_b == "bl1@2026-03-06T09:00:00Z"
+        assert ("s_shared", "bl1") in shared
+
     def test_resolver_error_yields_baseline_diagnostic(self):
         """A failing criterion resolver localizes to an unresolved
         BaselineState plus a baseline-phase diagnostic."""

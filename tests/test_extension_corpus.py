@@ -42,21 +42,29 @@ from limnalis.conformance.compare import compare_case
 from limnalis.conformance.fixtures import load_corpus
 from limnalis.conformance.runner import run_case
 from limnalis.loader import normalize_surface_text
-from limnalis.models.ast import FrameNode
+from limnalis.models.ast import FrameNode, TimeCtxNode
 from limnalis.plugins.fixtures import (
     ATOMS_V2_URI,
     FixtureEvalHandlerForEvaluator,
     build_live_fixture_services,
 )
 from limnalis.runtime.builtins import eval_expr as builtin_eval_expr
-from limnalis.runtime.models import MachineState, StepContext, TruthCore
+from limnalis.runtime.models import (
+    EvaluationEnvironment,
+    MachineState,
+    SessionConfig,
+    StepConfig,
+    StepContext,
+    TruthCore,
+)
+from limnalis.runtime.runner import run_bundle
 from limnalis.schema import collect_validation_errors, fixtures_dir
 
 EXTENSION_CORPUS_YAML = fixtures_dir() / "limnalis_extension_corpus_v0.1.yaml"
 EXTENSION_CORPUS_JSON = fixtures_dir() / "limnalis_extension_corpus_v0.1.json"
 
 EXTENSION_CASE_IDS = [
-    "D1", "D2", "D3", "D4", "D5", "D6",
+    "D1", "D2", "D3", "D4", "D5", "D6", "D7",
     "C1", "C2", "C3", "C4",
 ]
 
@@ -175,6 +183,12 @@ class TestExtensionCasesConformance:
         # algebra (not echoed) in at least one extension case.
         step = result.bundle_result.session_results[0].step_results[0]
         assert step.per_claim_aggregates["c1"].truth == "F"
+        # §16.6.6 reason derivation through the live path (m7 red-team
+        # HIGH-3): composed B/N inherits the unique determining atom reason.
+        assert step.per_claim_aggregates["c2"].reason == "source_conflict"
+        assert step.per_claim_aggregates["c3"].reason == "undefined_term"
+        # Composed F stays reasonless (F reasons optional, §8.5).
+        assert step.per_claim_aggregates["c1"].reason is None
 
     def test_d2_live_disjunction_negation(self, extension_corpus):
         _run_and_compare(extension_corpus, "D2")
@@ -265,6 +279,35 @@ class TestExtensionCasesConformance:
         assert block1.aggregate.truth == "F"
         assert block2.aggregate.truth == "T"
 
+    def test_d7_nonassociative_chains(self, extension_corpus):
+        """3-operand IMPLIES/IFF chains, end-to-end through the live path
+        (m7 red-team CRITICAL-1). Trees are left-nested binary per EBNF A.9
+        lines 1235-1236; truths pin non-truncation (c1: iff(iff(T,F),F) = T,
+        where the truncating evaluator computed F) and left-associativity
+        specifically (c2: implies(implies(F,T),F) = F, where right
+        association and truncation both give T)."""
+        result = _run_and_compare(extension_corpus, "D7")
+        bundle = result.bundle
+        claims = {c.id: c for blk in bundle.claimBlocks for c in blk.claims}
+
+        # Left-nested binary tree shapes — never flat 3-ary nodes.
+        c1 = claims["c1"].expr
+        assert (c1.node, c1.op, len(c1.args)) == ("LogicalExpr", "iff", 2)
+        assert (c1.args[0].op, len(c1.args[0].args)) == ("iff", 2)
+        assert [a.name for a in c1.args[0].args] == ["t", "f"]
+        assert c1.args[1].name == "f"
+
+        c2 = claims["c2"].expr
+        assert (c2.node, c2.op, len(c2.args)) == ("LogicalExpr", "implies", 2)
+        assert (c2.args[0].op, len(c2.args[0].args)) == ("implies", 2)
+        assert [a.name for a in c2.args[0].args] == ["f", "t"]
+        assert c2.args[1].name == "f"
+
+        step = result.bundle_result.session_results[0].step_results[0]
+        assert step.per_claim_aggregates["c1"].truth == "T"
+        assert step.per_claim_aggregates["c2"].truth == "F"
+        assert step.per_claim_aggregates["c3"].truth == "T"
+
     def test_extension_results_are_deterministic(self, extension_corpus):
         """Run every extension case twice; results must be identical."""
         for case in extension_corpus.cases:
@@ -275,6 +318,70 @@ class TestExtensionCasesConformance:
                 result1.bundle_result.model_dump()
                 == result2.bundle_result.model_dump()
             ), f"non-deterministic results for {case.id}"
+
+
+# ---------------------------------------------------------------------------
+# Baseline cache scoping across run_bundle invocations (m7 red-team HIGH-2)
+# ---------------------------------------------------------------------------
+
+
+class TestBaselineCacheRunScoping:
+    """The red team's HIGH-2 repro (.armature/reviews/m7-redteam.md): a
+    services dict reused across run_bundle invocations must not leak the
+    fixed-baseline value cache from run A into run B. Uses the D5 bundle and
+    the live pack's context-sensitive test://baseline/by_context_v1 exactly
+    as the review does."""
+
+    @staticmethod
+    def _d5_run(bundle, services, time_t, regime):
+        session = SessionConfig(
+            id="s_shared",
+            shared_state=True,
+            steps=[StepConfig(
+                id="s1",
+                time=TimeCtxNode(kind="point", t=time_t),
+                frame_override={"node": "FramePattern", "facets": {"regime": regime}},
+            )],
+        )
+        result = run_bundle(bundle, [session], EvaluationEnvironment(), services=services)
+        step = result.bundle_result if hasattr(result, "bundle_result") else result
+        step = step.session_results[0].step_results[0]
+        return (
+            step.machine_state.baseline_store["b_fixed"].value,
+            step.per_claim_aggregates["c_fixed"].truth,
+        )
+
+    def test_reused_services_dict_does_not_leak_fixed_cache(self, extension_corpus):
+        """Run A (t1/nominal) fixes b_fixed=10 -> c_fixed=T. Run B reuses the
+        SAME services dict with the same session id at t2/stress: it must
+        observe b_fixed=20 -> c_fixed=F (the fresh-services control value),
+        not run A's stale 10/T."""
+        case = extension_corpus.get_case("D5")
+        bundle = normalize_surface_text(case.source, validate_schema=True).canonical_ast
+        services = build_live_fixture_services(bundle)
+        assert services is not None
+
+        value_a, truth_a = self._d5_run(
+            bundle, services, "2026-03-06T09:00:00Z", "nominal"
+        )
+        assert (value_a, truth_a) == (10, "T")
+
+        # Run B: SAME services dict, same session id, different context.
+        value_b, truth_b = self._d5_run(
+            bundle, services, "2026-03-06T09:05:00Z", "stress"
+        )
+
+        # Control: a fresh services dict for the same run-B configuration.
+        fresh = build_live_fixture_services(bundle)
+        value_ctl, truth_ctl = self._d5_run(
+            bundle, fresh, "2026-03-06T09:05:00Z", "stress"
+        )
+        assert (value_ctl, truth_ctl) == (20, "F")
+
+        assert (value_b, truth_b) == (value_ctl, truth_ctl), (
+            "reused services dict leaked the run-A fixed-baseline cache "
+            f"(got {value_b}/{truth_b}, control {value_ctl}/{truth_ctl})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -305,8 +412,9 @@ class TestParadoxCasesConformance:
 
     def test_c2_schwarzschild_forensics(self, extension_corpus):
         """Attested adequacy licenses the prediction claim; the registered
-        score-N method pins N[missing_binding]; degrade transport pins
-        N[transport_loss] via the builtin section 10.2 rules."""
+        score-N method pins N[not_yet_applicable] with a warning diagnostic
+        (spec sections 9.2/16.6.4, m7 red-team MEDIUM-1 remediation); degrade
+        transport pins N[transport_loss] via the builtin section 10.2 rules."""
         result = _run_and_compare(extension_corpus, "C2")
         step = result.bundle_result.session_results[0].step_results[0]
 
@@ -318,7 +426,16 @@ class TestParadoxCasesConformance:
 
         assert step.per_claim_licenses["c1"].overall.truth == "T"
         assert step.per_claim_licenses["c3"].overall.truth == "N"
-        assert step.per_claim_licenses["c3"].overall.reason == "missing_binding"
+        assert step.per_claim_licenses["c3"].overall.reason == "not_yet_applicable"
+
+        # The score-N diagnostic is warning severity (deferral, not a broken
+        # binding), and the old missing-binding error must be gone.
+        diags = step.diagnostics
+        nya = [d for d in diags if d.get("code") == "adequacy_score_not_yet_applicable"]
+        assert nya and nya[0]["severity"] == "warning" and nya[0]["subject"] == "aa_core"
+        assert not any(
+            d.get("code") == "adequacy_method_binding_missing" for d in diags
+        )
 
         transport = step.transport_results["q_core"]
         assert transport.status == "degraded"
@@ -381,6 +498,21 @@ class TestParadoxCasesConformance:
         # Note-only meta block folds to N[empty_block].
         meta_agg = step.per_block_aggregates["meta#1"]
         assert (meta_agg.truth, meta_agg.reason) == ("N", "empty_block")
+
+        # Per-evaluator block folds carry §8.5 reasons (m7 red-team HIGH-3).
+        # The vendored BlockExpectation schema pins block cells as bare truth
+        # strings, so these block-level reasons are pinned here instead of in
+        # the corpus file: ev_zf folds {N[missing_binding], N[missing_binding]}
+        # -> N with the unique determining reason inherited (§16.6.6), and the
+        # paraconsistent_union block aggregate {F, N[missing_binding]} -> F
+        # inherits the unique evaluator-local reason as disclosure (§16.6.8).
+        block_per_ev = step.per_block_per_evaluator["local#1"]
+        assert (block_per_ev["ev_zf"].truth, block_per_ev["ev_zf"].reason) == (
+            "N", "missing_binding",
+        )
+        assert (block_per_ev["ev_zfc"].truth, block_per_ev["ev_zfc"].reason) == ("F", None)
+        local_agg = step.per_block_aggregates["local#1"]
+        assert (local_agg.truth, local_agg.reason) == ("F", "missing_binding")
 
 
 class TestParadoxExamples:
@@ -522,3 +654,206 @@ class TestAtomLevelCanary:
             vendored_source, validate_schema=True
         ).canonical_ast
         assert build_live_fixture_services(bundle) is None
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed live gate (m7 red-team HIGH-1 remediation, cycle 1)
+# ---------------------------------------------------------------------------
+
+
+class TestLiveGateFailClosed:
+    """No silent live->echo fallback.
+
+    Safety net: every extension case must actually activate the live path
+    (CaseRunResult.eval_path == "live"), so a future URI typo in the corpus
+    file fails this suite — not just the tampered case. The red team's exact
+    HIGH-1 repros (one-character URI typo, with and without a tampered pin)
+    must produce loud failures instead of self-fulfilling passes, and a
+    bundle PARTIALLY covered by the live pack is an authoring error that
+    raises rather than echoing the uncovered evaluators."""
+
+    def test_every_extension_case_activates_live_path(self, extension_corpus):
+        for case in extension_corpus.cases:
+            result = run_case(case, extension_corpus)
+            assert result.error is None, f"{case.id}: {result.error}"
+            assert result.eval_path == "live", (
+                f"extension case {case.id} did not run on the live path "
+                f"(eval_path={result.eval_path!r}) — its pins would echo "
+                "themselves instead of being computed"
+            )
+
+    def test_typod_uri_fails_loudly_not_self_fulfilling(self, extension_corpus):
+        """m7 red-team HIGH-1 exact repro 1: a one-character typo in D1's
+        evaluator URI previously reverted the case to claim-id echo, where
+        it passed against its own pins. It must now be a loud error."""
+        case = copy.deepcopy(extension_corpus.get_case("D1"))
+        assert "test://eval/atoms_v2" in case.source
+        case.source = case.source.replace(
+            "test://eval/atoms_v2", "test://eval/atoms_v2x"
+        )
+
+        result = run_case(case, extension_corpus)
+        assert result.error is not None, (
+            "typo'd URI silently fell back to the echo path"
+        )
+        assert "atoms_v2x" in result.error
+        assert result.eval_path != "live"
+
+        comparison = compare_case(case, result)
+        assert not comparison.passed
+        assert comparison.error is not None
+
+    def test_typod_uri_with_tampered_pin_fails(self, extension_corpus):
+        """m7 red-team HIGH-1 exact repro 2: typo'd URI plus a pin that is
+        demonstrably wrong for the expression (c1 pinned F while t OR t
+        computes T). Previously passed=True with the wrong pin echoed."""
+        case = copy.deepcopy(extension_corpus.get_case("D1"))
+        assert "c1: (b AND n);" in case.source
+        case.source = (
+            case.source
+            .replace("test://eval/atoms_v2", "test://eval/atoms_v2x")
+            .replace("c1: (b AND n);", "c1: (t OR t);")
+        )
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert not comparison.passed, (
+            "tampered case with a typo'd URI still reported green"
+        )
+        assert result.error is not None
+
+    def test_partial_live_coverage_raises_authoring_error(self, extension_corpus):
+        """A bundle mixing live and non-live evaluator URIs (C3 with one
+        typo'd panel member) is an authoring error: the gate raises instead
+        of silently echoing the uncovered evaluator, and run_case converts
+        the raise into a loud per-case error."""
+        from limnalis.plugins.fixtures import LiveFixturePackCoverageError
+
+        case = copy.deepcopy(extension_corpus.get_case("C3"))
+        assert "test://paradox/eval/collapse_v1" in case.source
+        case.source = case.source.replace(
+            "test://paradox/eval/collapse_v1", "test://paradox/eval/collapse_v1x"
+        )
+
+        bundle = normalize_surface_text(
+            case.source, validate_schema=True
+        ).canonical_ast
+        with pytest.raises(LiveFixturePackCoverageError) as excinfo:
+            build_live_fixture_services(bundle)
+        assert "partially covered" in str(excinfo.value)
+        assert "collapse_v1x" in str(excinfo.value)
+
+        result = run_case(case, extension_corpus)
+        assert result.error is not None
+        assert "partially covered" in result.error
+        assert not compare_case(case, result).passed
+
+
+# ---------------------------------------------------------------------------
+# Comparator hardening (m7 red-team MEDIUM-2 remediation, cycle 1)
+# ---------------------------------------------------------------------------
+
+
+class TestComparatorHardeningEndToEnd:
+    """The corpus mechanism itself must discriminate block claim listings,
+    step-level extra results, and under-pinned B/N reasons."""
+
+    def test_tampered_claim_ids_pin_fails(self, extension_corpus):
+        """claimIds pins are compared (previously decorative): pretending
+        D6's restricted step still lists c_drop must fail."""
+        case = copy.deepcopy(extension_corpus.get_case("D6"))
+        step2 = case.expected["sessions"][0]["steps"][1]
+        assert step2["blocks"]["local"]["claimIds"] == ["c_keep"]
+        step2["blocks"]["local"]["claimIds"] = ["c_keep", "c_drop"]
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert not comparison.passed
+        assert any("claimIds" in m.path for m in comparison.mismatches)
+
+    def test_claim_ids_order_is_significant(self, extension_corpus):
+        """BlockResult.claims is declaration-ordered and the corpus pins
+        that order; a reordered pin is a mismatch."""
+        case = copy.deepcopy(extension_corpus.get_case("D1"))
+        block = case.expected["sessions"][0]["steps"][0]["blocks"]["local"]
+        assert block["claimIds"] == ["c1", "c2", "c3", "c4"]
+        block["claimIds"] = ["c4", "c3", "c2", "c1"]
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert not comparison.passed
+        assert any("claimIds" in m.path for m in comparison.mismatches)
+
+    def test_claim_subset_leak_is_detected_step_level(self, extension_corpus):
+        """Step-level reverse check (§16.2.1): drop D6's step-2 claim_subset
+        restriction so c_drop actually evaluates while the expectation still
+        omits it — the leaked claim must fail the case (previously only
+        pinned claims were compared, so the leak was invisible to the
+        corpus mechanism)."""
+        case = copy.deepcopy(extension_corpus.get_case("D6"))
+        del case.environment["sessions"][0]["steps"][1]["claim_subset"]
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert not comparison.passed
+        assert any(
+            m.path.endswith("steps[1].claims.c_drop")
+            and m.expected == "not expected"
+            for m in comparison.mismatches
+        )
+
+    def test_unpinned_executed_transport_query_is_flagged(self, extension_corpus):
+        """Transport reverse check: an executed query absent from a pinned
+        transports map is a mismatch, while the runtime's per-bridge
+        scaffolding entry (b_to_core) stays exempt."""
+        case = copy.deepcopy(extension_corpus.get_case("C2"))
+        step = case.expected["sessions"][0]["steps"][0]
+        assert "q_core" in step["transports"]
+        step["transports"] = {}
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert not comparison.passed
+        flagged = [m.path for m in comparison.mismatches if ".transports." in m.path]
+        assert any(p.endswith("transports.q_core") for p in flagged)
+        assert not any(p.endswith("transports.b_to_core") for p in flagged)
+
+    def test_note_claims_stay_exempt_from_reverse_check(self, extension_corpus):
+        """C1 (l0) and C4 (m1) omit their note claims from expected claims
+        per the vendored convention; the step-level reverse check must
+        tolerate the notes' non_evaluable_note entries in the eval maps."""
+        for case_id, note_id in (("C1", "l0"), ("C4", "m1")):
+            case = extension_corpus.get_case(case_id)
+            result = run_case(case, extension_corpus)
+            comparison = compare_case(case, result)
+            assert comparison.passed, (case_id, comparison.mismatches)
+            assert not any(
+                m.path.endswith(f"claims.{note_id}") for m in comparison.mismatches
+            )
+
+    def test_underpinned_bn_reason_warns_without_failing(self, extension_corpus):
+        """Expectations stay partial matchers (§18.2): removing the reason
+        from D1 c3's N aggregate pin keeps the case PASSING — the actual
+        reason is the spec-correct output per §8.5 — but surfaces a
+        warning-level report entry so the under-pin is visible."""
+        case = copy.deepcopy(extension_corpus.get_case("D1"))
+        agg = case.expected["sessions"][0]["steps"][0]["claims"]["c3"]["aggregate"]
+        assert agg.pop("reason") == "undefined_term"
+
+        result = run_case(case, extension_corpus)
+        comparison = compare_case(case, result)
+        assert comparison.passed, comparison.mismatches
+        assert any(
+            w.path.endswith("claims.c3.aggregate.reason")
+            and w.actual == "undefined_term"
+            for w in comparison.warnings
+        )
+
+    def test_committed_corpus_produces_zero_warnings(self, extension_corpus):
+        """The committed extension corpus is fully pinned: all 11 cases pass
+        with zero warning-level under-pin entries."""
+        for case in extension_corpus.cases:
+            result = run_case(case, extension_corpus)
+            comparison = compare_case(case, result)
+            assert comparison.passed, (case.id, comparison.mismatches)
+            assert comparison.warnings == [], (case.id, comparison.warnings)

@@ -37,6 +37,13 @@ class CaseComparison:
     skipped: bool = False
     skip_reason: str | None = None
     error: str | None = None
+    # Warning-level report entries that never affect `passed`. Expectations
+    # are partial matchers (spec §18.2), so an under-specified pin is not a
+    # failure — but some partial pins are worth surfacing to corpus authors,
+    # e.g. a B/N truth pinned without a reason while the actual result
+    # carries one (§8.5 makes B/N reasons mandatory on the RESULT side, so
+    # the actual is spec-correct and only the pin is incomplete).
+    warnings: list[FieldMismatch] = field(default_factory=list)
 
     def summary(self) -> str:
         if self.skipped:
@@ -51,6 +58,8 @@ class CaseComparison:
         lines = [self.summary()]
         for m in self.mismatches:
             lines.append(str(m))
+        for w in self.warnings:
+            lines.append(f"  [warning]{str(w)}")
         return "\n".join(lines)
 
 
@@ -64,8 +73,19 @@ def _compare_eval_snapshot(
     expected: dict[str, Any],
     actual_node: Any,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
 ) -> None:
-    """Compare an expected EvalSnapshot dict to an actual EvalNode/EvalSnapshot."""
+    """Compare an expected EvalSnapshot dict to an actual EvalNode/EvalSnapshot.
+
+    Expectations are partial matchers (spec §18.2): only pinned keys are
+    compared. One partial pin is additionally surfaced as a WARNING (never a
+    mismatch): a pinned B/N truth with no pinned reason while the actual
+    result carries one. §8.5 makes B/N reasons mandatory on the result side,
+    so the actual value is spec-correct — failing it would punish compliant
+    output — but the pin is under-specified and worth flagging to the corpus
+    author (m7 red-team MEDIUM follow-up on the reason pins being
+    load-bearing).
+    """
     if actual_node is None:
         mismatches.append(FieldMismatch(path, expected, None))
         return
@@ -84,6 +104,20 @@ def _compare_eval_snapshot(
         if act_val != exp_val:
             mismatches.append(FieldMismatch(f"{path}.{key}", exp_val, act_val))
 
+    if (
+        warnings is not None
+        and expected.get("truth") in ("B", "N")
+        and "reason" not in expected
+        and actual.get("reason") is not None
+    ):
+        warnings.append(
+            FieldMismatch(
+                f"{path}.reason",
+                "(B/N truth pinned without reason)",
+                actual.get("reason"),
+            )
+        )
+
 
 def _compare_claim(
     path: str,
@@ -91,6 +125,7 @@ def _compare_claim(
     step_result: StepResult,
     claim_id: str,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
 ) -> None:
     """Compare expected claim results to actual."""
     # per_evaluator comparison
@@ -105,6 +140,7 @@ def _compare_claim(
                     ev_exp,
                     actual_ev,
                     mismatches,
+                    warnings,
                 )
             elif isinstance(ev_exp, str):
                 # Simple truth value comparison
@@ -135,6 +171,7 @@ def _compare_claim(
                 agg_exp,
                 actual_agg,
                 mismatches,
+                warnings,
             )
         elif isinstance(agg_exp, str):
             actual_truth = actual_agg.truth if actual_agg else None
@@ -147,7 +184,9 @@ def _compare_claim(
     license_exp = claim_exp.get("license")
     if license_exp is not None:
         actual_license = step_result.per_claim_licenses.get(claim_id)
-        _compare_license(f"{path}.license", license_exp, actual_license, mismatches)
+        _compare_license(
+            f"{path}.license", license_exp, actual_license, mismatches, warnings
+        )
 
 
 def _compare_license(
@@ -155,6 +194,7 @@ def _compare_license(
     license_exp: dict[str, Any],
     actual_license: Any,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
 ) -> None:
     """Compare expected license results to actual."""
     if actual_license is None:
@@ -212,6 +252,7 @@ def _compare_license(
                 joint_exp,
                 actual_joint[0] if actual_joint else None,
                 mismatches,
+                warnings,
             )
             if len(actual_joint) > 1:
                 mismatches.append(
@@ -248,6 +289,7 @@ def _compare_license(
                     exp_entry,
                     actual_by_id.get(joint_id),
                     mismatches,
+                    warnings,
                 )
 
             if unnamed_expected:
@@ -261,6 +303,7 @@ def _compare_license(
                         exp_entry,
                         sorted_actual[idx] if idx < len(sorted_actual) else None,
                         mismatches,
+                        warnings,
                     )
 
             if len(actual_joint) != len(joint_exp):
@@ -279,6 +322,7 @@ def _compare_block(
     step_result: StepResult,
     block_id: str,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
 ) -> None:
     """Compare expected block results to actual."""
     # Find actual block result by matching block stratum name or id
@@ -312,6 +356,7 @@ def _compare_block(
                     ev_exp,
                     actual_ev,
                     mismatches,
+                    warnings,
                 )
 
         # Reverse check: flag extra evaluators in actual but not expected
@@ -333,7 +378,31 @@ def _compare_block(
                 )
         elif isinstance(agg_exp, dict):
             _compare_eval_snapshot(
-                f"{path}.aggregate", agg_exp, actual_agg, mismatches
+                f"{path}.aggregate", agg_exp, actual_agg, mismatches, warnings
+            )
+
+    # claimIds comparison (m7 red-team MEDIUM-2): when the expectation pins
+    # the block's claim listing, compare it ORDER-SENSITIVELY against
+    # BlockResult.claims. The corpus convention pins claimIds as the
+    # declaration-ordered array of ALL claims in the block (evaluable or
+    # not) — the vendored ast_decision canonical BlockResult shape declares
+    # `claimIds: [string]` as an ordered list, and D6's whole point is that
+    # claim_subset changes this listing.
+    claim_ids_exp = block_exp.get("claimIds")
+    if claim_ids_exp is not None:
+        block_result = None
+        for br in getattr(step_result, "block_results", None) or []:
+            if br.block_id == resolved_block_id:
+                block_result = br
+                break
+        actual_claim_ids = (
+            list(block_result.claims) if block_result is not None else None
+        )
+        if actual_claim_ids != list(claim_ids_exp):
+            mismatches.append(
+                FieldMismatch(
+                    f"{path}.claimIds", list(claim_ids_exp), actual_claim_ids
+                )
             )
 
 
@@ -367,6 +436,7 @@ def _compare_transport(
     transport_exp: dict[str, Any],
     actual_transport: Any,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
 ) -> None:
     """Compare expected transport results to actual."""
     if actual_transport is None:
@@ -386,13 +456,17 @@ def _compare_transport(
     src_agg_exp = transport_exp.get("sourceAggregate")
     if src_agg_exp is not None:
         actual_src = actual_transport.srcAggregate if hasattr(actual_transport, "srcAggregate") else None
-        _compare_eval_snapshot(f"{path}.sourceAggregate", src_agg_exp, actual_src, mismatches)
+        _compare_eval_snapshot(
+            f"{path}.sourceAggregate", src_agg_exp, actual_src, mismatches, warnings
+        )
 
     # dstAggregate comparison
     dst_agg_exp = transport_exp.get("dstAggregate")
     if dst_agg_exp is not None:
         actual_dst = actual_transport.dstAggregate if hasattr(actual_transport, "dstAggregate") else None
-        _compare_eval_snapshot(f"{path}.dstAggregate", dst_agg_exp, actual_dst, mismatches)
+        _compare_eval_snapshot(
+            f"{path}.dstAggregate", dst_agg_exp, actual_dst, mismatches, warnings
+        )
 
     # per_evaluator comparison
     per_ev_exp = transport_exp.get("per_evaluator")
@@ -405,6 +479,7 @@ def _compare_transport(
                 ev_exp,
                 actual_ev,
                 mismatches,
+                warnings,
             )
         extra_evs = set(actual_per_ev.keys()) - set(per_ev_exp.keys())
         for ev_id in sorted(extra_evs):
@@ -483,8 +558,24 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
         )
 
     mismatches: list[FieldMismatch] = []
+    warnings: list[FieldMismatch] = []
     bundle_result = run_result.bundle_result
     expected = case.expected
+
+    # Bundle bridge ids feed the transport reverse check's scaffolding
+    # exemption; None (bundle unavailable, e.g. stubbed run results) skips
+    # that reverse check.
+    bundle = getattr(run_result, "bundle", None)
+    bridge_ids: set[str] | None = None
+    if bundle is not None:
+        bridge_ids = {
+            bridge_id
+            for bridge_id in (
+                getattr(bridge, "id", None)
+                for bridge in (getattr(bundle, "bridges", None) or [])
+            )
+            if isinstance(bridge_id, str)
+        }
 
     # Compare sessions
     expected_sessions = expected.get("sessions", [])
@@ -507,7 +598,8 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
             sess_exp = expected_sessions[si]
             sess_result = bundle_result.session_results[si]
             _compare_session(
-                f"sessions[{si}]", sess_exp, sess_result, mismatches
+                f"sessions[{si}]", sess_exp, sess_result, mismatches,
+                warnings, bridge_ids,
             )
 
     # Compare top-level diagnostics
@@ -551,6 +643,7 @@ def compare_case(case: FixtureCase, run_result: CaseRunResult) -> CaseComparison
         case_id=case.id,
         passed=len(mismatches) == 0,
         mismatches=mismatches,
+        warnings=warnings,
     )
 
 
@@ -559,8 +652,32 @@ def _compare_session(
     sess_exp: dict[str, Any],
     sess_result: SessionResult,
     mismatches: list[FieldMismatch],
+    warnings: list[FieldMismatch] | None = None,
+    bridge_ids: set[str] | None = None,
 ) -> None:
-    """Compare a single session's expected results to actual."""
+    """Compare a single session's expected results to actual.
+
+    Both directions are checked (m7 red-team MEDIUM-2). Forward: every
+    pinned claim/block/transport is compared. Reverse: when a step
+    expectation pins a claims/blocks/transports map at all, actual entries
+    absent from that map are flagged as mismatches, mirroring the
+    extra-diagnostic convention (only meaningful extras fail) with two
+    documented exemptions:
+
+    - non-evaluable (note) claims: the vendored corpus convention omits
+      note claims from expected claims (they still surface in the eval maps
+      with reason=non_evaluable_note — e.g. vendored B1 c5), so they are the
+      "benign severity" analog and are tolerated;
+    - bridge-id transport entries: the runtime records per-bridge
+      scaffolding TransportResults alongside query results (e.g. vendored
+      A7 b_pattern/b_exec) which expectations pin by QUERY id only, so
+      actual entries keyed by a declared bundle bridge id are tolerated.
+      ``bridge_ids=None`` means the bundle is unavailable and the transport
+      reverse check is skipped (the exemption cannot be computed).
+
+    A step expectation with no claims/blocks/transports key pins nothing at
+    that level and triggers no reverse check (§18.2 partial matchers).
+    """
     steps_exp = sess_exp.get("steps", [])
     actual_step_count = len(sess_result.step_results)
     expected_step_count = len(steps_exp)
@@ -587,7 +704,37 @@ def _compare_session(
                 step_result,
                 claim_id,
                 mismatches,
+                warnings,
             )
+
+        # Reverse check: actual evaluated claims absent from a pinned claims
+        # map are mismatches (verifies §16.2.1 claim_subset absence — an
+        # excluded claim leaking back into results must fail the case).
+        if "claims" in step_exp:
+            actual_claim_ids = set(
+                getattr(step_result, "per_claim_per_evaluator", None) or {}
+            ) | set(getattr(step_result, "per_claim_aggregates", None) or {})
+            classifications = (
+                getattr(step_result, "per_claim_classifications", None) or {}
+            )
+            for claim_id in sorted(actual_claim_ids - set(claims_exp)):
+                classification = classifications.get(claim_id)
+                if (
+                    classification is not None
+                    and getattr(classification, "evaluable", True) is False
+                ):
+                    continue  # note-claim exemption (see docstring)
+                actual_entry = (
+                    (getattr(step_result, "per_claim_aggregates", None) or {}).get(claim_id)
+                    or (getattr(step_result, "per_claim_per_evaluator", None) or {}).get(claim_id)
+                )
+                mismatches.append(
+                    FieldMismatch(
+                        f"{step_path}.claims.{claim_id}",
+                        "not expected",
+                        actual_entry,
+                    )
+                )
 
         # Compare blocks
         blocks_exp = step_exp.get("blocks", {})
@@ -598,7 +745,29 @@ def _compare_session(
                 step_result,
                 block_id,
                 mismatches,
+                warnings,
             )
+
+        # Reverse check: actual blocks absent from a pinned blocks map.
+        if "blocks" in step_exp:
+            resolved_pinned_blocks = {
+                _resolve_block_id(block_id, step_result) for block_id in blocks_exp
+            }
+            actual_block_ids = set(
+                getattr(step_result, "per_block_aggregates", None) or {}
+            ) | set(getattr(step_result, "per_block_per_evaluator", None) or {})
+            for block_id in sorted(actual_block_ids - resolved_pinned_blocks):
+                actual_entry = (
+                    (getattr(step_result, "per_block_aggregates", None) or {}).get(block_id)
+                    or (getattr(step_result, "per_block_per_evaluator", None) or {}).get(block_id)
+                )
+                mismatches.append(
+                    FieldMismatch(
+                        f"{step_path}.blocks.{block_id}",
+                        "not expected",
+                        actual_entry,
+                    )
+                )
 
         # Compare transports
         transports_exp = step_exp.get("transports", {})
@@ -609,7 +778,24 @@ def _compare_session(
                 transport_exp,
                 actual_transport,
                 mismatches,
+                warnings,
             )
+
+        # Reverse check: actual transport entries absent from a pinned
+        # transports map, exempting per-bridge scaffolding entries.
+        if "transports" in step_exp and bridge_ids is not None:
+            actual_transport_ids = set(
+                getattr(step_result, "transport_results", None) or {}
+            )
+            extras = actual_transport_ids - set(transports_exp) - bridge_ids
+            for transport_id in sorted(extras):
+                mismatches.append(
+                    FieldMismatch(
+                        f"{step_path}.transports.{transport_id}",
+                        "not expected",
+                        step_result.transport_results[transport_id],
+                    )
+                )
 
 
 def _collect_all_diagnostics(bundle_result: BundleResult) -> list[dict[str, Any]]:

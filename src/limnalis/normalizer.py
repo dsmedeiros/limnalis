@@ -4,7 +4,7 @@ import ast as py_ast
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from lark import Token, Tree
 from pydantic import BaseModel, ValidationError
@@ -118,12 +118,26 @@ class Normalizer:
     # legacy spellings (not part of the spec kernel) retained for backward
     # compatibility with the vendored corpus and examples.
     # Each entry: (canonical op, word spellings, symbol spellings).
-    _LOGICAL_PRECEDENCE: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = [
+    _LOGICAL_PRECEDENCE: list[
+        tuple[Literal["iff", "implies", "or", "and"], tuple[str, ...], tuple[str, ...]]
+    ] = [
         ("iff", ("IFF",), ("<=>", "↔")),
         ("implies", ("IMPLIES",), ("->", "→")),
         ("or", ("OR",), ("∨",)),
         ("and", ("AND",), ("∧",)),
     ]
+    # Operators whose repeated occurrences must NOT flatten into one n-ary
+    # node. AND/OR are associative in the spec §4 pair algebra, so grouping
+    # cannot change their value and the EBNF repetition maps to a flat args
+    # list. IMPLIES/IFF are non-associative ((a->b)->c != a->(b->c) in §4),
+    # so their chains keep the grouping the EBNF dictates: `ImplExpr ::=
+    # OrExpr { ImplOp OrExpr }` (A.9 line 1236) and `IffExpr ::= ImplExpr
+    # { IffOp ImplExpr }` (line 1235) iterate left-to-right — each repetition
+    # extends the expression already read — so repeated operators associate
+    # LEFT and `a -> b -> c` builds implies(implies(a, b), c). Flattening
+    # these levels was m7 red-team CRITICAL-1 (.armature/reviews/m7-redteam.md):
+    # the runtime evaluated only the first two operands of the n-ary node.
+    _NON_ASSOCIATIVE_OPS = frozenset({"implies", "iff"})
     _NOT_SYMBOL = "¬"
     # Word spellings of every logical operator level (including the prefix
     # NotOp, line 1240). Used to diagnose boundary-malformed inputs such as
@@ -1182,8 +1196,16 @@ class Normalizer:
 
         # Binary levels, loosest first: the first level that splits becomes the
         # root, so IFF binds loosest and AND binds tightest of the binary ops.
-        # The EBNF's `{ Op ... }` repetition maps to a flat n-ary args list
-        # (LogicalExprNode.args), so `a AND b AND c` -> and(a, b, c).
+        # Tree shape depends on associativity (see _NON_ASSOCIATIVE_OPS):
+        # - AND/OR (associative, spec §4): the EBNF's `{ Op ... }` repetition
+        #   maps to a flat n-ary args list, so `a AND b AND c` -> and(a, b, c).
+        # - IMPLIES/IFF (non-associative): the repetitions `ImplExpr ::=
+        #   OrExpr { ImplOp OrExpr }` (A.9 line 1236) and `IffExpr ::=
+        #   ImplExpr { IffOp ImplExpr }` (line 1235) read left-to-right, so
+        #   repeated operators associate LEFT into a binary chain:
+        #   `a -> b -> c` -> implies(implies(a, b), c). Never n-ary — the
+        #   flat shape erased the grouping and the runtime silently dropped
+        #   operands past the second (m7 red-team CRITICAL-1).
         for op_name, word_ops, symbol_ops in self._LOGICAL_PRECEDENCE:
             parts = self._split_logical_level(text, word_ops, symbol_ops)
             if len(parts) > 1:
@@ -1191,10 +1213,20 @@ class Normalizer:
                     raise NormalizationError(
                         f"logical '{op_name}' expression is missing an operand in '{text}'"
                     )
+                operands = [self._parse_expr_text(part) for part in parts]
+                if op_name in self._NON_ASSOCIATIVE_OPS:
+                    chain = operands[0]
+                    for operand in operands[1:]:
+                        chain = LogicalExprNode(
+                            node="LogicalExpr",
+                            op=op_name,
+                            args=[chain, operand],
+                        )
+                    return chain
                 return LogicalExprNode(
                     node="LogicalExpr",
                     op=op_name,
-                    args=[self._parse_expr_text(part) for part in parts],
+                    args=operands,
                 )
 
         # UnaryExpr ::= [ NotOp ] CoreExpr — checked after the binary splits so
@@ -1228,8 +1260,12 @@ class Normalizer:
         { Letter | Digit | "_" | "-" }` (line 1013) admits `-` but never `>`
         or `=`, so neither marker can occur inside a valid Ident. Reference
         ids carry no such charset guarantee, so `|0:...|`/`|inf:...|`/`|∞:...|`
-        spans are additionally shielded from every top-level scan by
-        `_scan_top_level_matches` (m7-t2b review Finding 1).
+        spans are additionally shielded from every top-level scanner — the
+        operator/marker scan `_scan_top_level_matches` (m7-t2b review
+        Finding 1), plus the argument/list splitter `_split_top_level`, the
+        surface-word splitter `_split_words`, and the wrapped-group check
+        `_is_wrapped_expression` (m7 red-team MEDIUM-3) — all via the shared
+        `_pipe_span_opens` span rule.
         """
         if self._is_wrapped_expression(text):
             return self._parse_expr_text(text[1:-1].strip())
@@ -1347,6 +1383,25 @@ class Normalizer:
         parts.append(text[start:].strip())
         return parts
 
+    @staticmethod
+    def _pipe_span_opens(text: str, index: int) -> bool:
+        """True when `text[index]` is a `|` that opens a reference span.
+
+        A span opens only at a `|` immediately followed by one of the
+        reference sigils `0:`, `inf:`, or `∞:` (`BaselineRef ::= "|0:" Ident
+        "|"`, `UnboundRef ::= "|∞:" Ident "|" | "|inf:" Ident "|"`, EBNF A.9
+        lines 1279-1280) and closes at the next `|`. Shared by every
+        top-level scanner — `_scan_top_level_matches`, `_split_top_level`,
+        `_split_words`, and `_is_wrapped_expression` — so all four treat span
+        content as opaque (m7-t2b review Finding 1; extended to the last
+        three scanners for m7 red-team MEDIUM-3).
+        """
+        return text[index] == "|" and (
+            text.startswith("0:", index + 1)
+            or text.startswith("inf:", index + 1)
+            or text.startswith("∞:", index + 1)
+        )
+
     def _scan_top_level_matches(self, text: str, matcher: Any) -> list[tuple[int, int]]:
         """Return every top-level `(index, length)` match reported by `matcher`.
 
@@ -1401,11 +1456,7 @@ class Normalizer:
                     pipe_span = False
                 index += 1
                 continue
-            if char == "|" and (
-                text.startswith("0:", index + 1)
-                or text.startswith("inf:", index + 1)
-                or text.startswith("∞:", index + 1)
-            ):
+            if self._pipe_span_opens(text, index):
                 pipe_span = True
                 index += 1
                 continue
@@ -1438,9 +1489,12 @@ class Normalizer:
     def _split_words(self, text: str) -> list[str]:
         """Split expression text into top-level surface words.
 
-        Whitespace inside parentheses, brackets, braces, or string quotes does
-        not split, so a word list mirrors the parser's statement atoms for the
-        same source (e.g. `p(x) =>[obs] q(y)` -> [`p(x)`, `=>[obs]`, `q(y)`]).
+        Whitespace inside parentheses, brackets, braces, string quotes, or
+        `|...|` reference spans (see `_pipe_span_opens`; m7 red-team
+        MEDIUM-3) does not split, so a word list mirrors the parser's
+        statement atoms for the same source (e.g. `p(x) =>[obs] q(y)` ->
+        [`p(x)`, `=>[obs]`, `q(y)`], and `declare |0:x'y| as fiction` ->
+        [`declare`, `|0:x'y|`, `as`, `fiction`]).
         """
         words: list[str] = []
         start: int | None = None
@@ -1449,6 +1503,7 @@ class Normalizer:
         brace_depth = 0
         quote: str | None = None
         escape = False
+        pipe_span = False
 
         for index, char in enumerate(text):
             if quote is not None:
@@ -1458,6 +1513,18 @@ class Normalizer:
                     escape = True
                 elif char == quote:
                     quote = None
+                continue
+
+            if pipe_span:
+                if char == "|":
+                    pipe_span = False
+                if start is None:
+                    start = index
+                continue
+            if self._pipe_span_opens(text, index):
+                pipe_span = True
+                if start is None:
+                    start = index
                 continue
 
             if char in {'"', "'"}:
@@ -2000,6 +2067,13 @@ class Normalizer:
         return self._split_top_level(text, ",")
 
     def _split_top_level(self, text: str, delimiter: str) -> list[str]:
+        """Split `text` at top-level occurrences of `delimiter`.
+
+        Occurrences inside parentheses, brackets, braces, string quotes, or
+        `|...|` reference spans (see `_pipe_span_opens`) never split, so an
+        argument such as `|0:a,b|` survives `_split_args` as one part
+        (m7 red-team MEDIUM-3). Empty parts are dropped.
+        """
         parts: list[str] = []
         start = 0
         paren_depth = 0
@@ -2007,6 +2081,7 @@ class Normalizer:
         brace_depth = 0
         quote: str | None = None
         escape = False
+        pipe_span = False
         index = 0
 
         while index < len(text):
@@ -2018,6 +2093,16 @@ class Normalizer:
                     escape = True
                 elif char == quote:
                     quote = None
+                index += 1
+                continue
+
+            if pipe_span:
+                if char == "|":
+                    pipe_span = False
+                index += 1
+                continue
+            if self._pipe_span_opens(text, index):
+                pipe_span = True
                 index += 1
                 continue
 
@@ -2058,11 +2143,19 @@ class Normalizer:
         return bool(name.strip()) and " " not in name.strip()
 
     def _is_wrapped_expression(self, text: str) -> bool:
+        """True when `text` is one parenthesized group wrapping the whole text.
+
+        Parentheses and quotes inside string quotes or `|...|` reference
+        spans (see `_pipe_span_opens`) are span content and never affect the
+        balance, so `(a AND |0:x(y|)` and `(a AND |0:x'y|)` are wrapped
+        expressions (m7 red-team MEDIUM-3).
+        """
         if len(text) < 2 or text[0] != "(" or text[-1] != ")":
             return False
         depth = 0
         quote: str | None = None
         escape = False
+        pipe_span = False
         for index, char in enumerate(text):
             if quote is not None:
                 if escape:
@@ -2071,6 +2164,13 @@ class Normalizer:
                     escape = True
                 elif char == quote:
                     quote = None
+                continue
+            if pipe_span:
+                if char == "|":
+                    pipe_span = False
+                continue
+            if self._pipe_span_opens(text, index):
+                pipe_span = True
                 continue
             if char in {'"', "'"}:
                 quote = char
@@ -2081,7 +2181,7 @@ class Normalizer:
                 depth -= 1
             if depth == 0 and index != len(text) - 1:
                 return False
-        return depth == 0 and quote is None
+        return depth == 0 and quote is None and not pipe_span
 
     def _build_model(self, model_cls: Any, context: str, /, **payload: Any) -> Any:
         try:

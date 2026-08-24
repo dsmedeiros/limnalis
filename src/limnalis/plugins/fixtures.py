@@ -848,11 +848,14 @@ class JudgedCriterionEvalHandler:
 
 
 # Adequacy method callables (uri -> callable(assessment) -> float | str).
-# A non-numeric return leaves the assessment score unresolved, which the
-# runtime pins as N[missing_binding] + an adequacy_method_binding_missing
-# error diagnostic (vendored ast_decision: unresolved_method ->
-# N[missing_binding]); that missing-ness is the stated verdict for
-# qg_tbd_v1.
+# A numeric return supplies the effective score. The non-numeric sentinel
+# "N" from a RESOLVED method (like a declared `score N`) marks the score as
+# not yet computable: the runtime pins the assessment N[not_yet_applicable]
+# and emits a warning-severity adequacy_score_not_yet_applicable diagnostic
+# (spec §9.2/§16.6.4; m7 red-team MEDIUM-1 remediation). The vendored
+# ast_decision `unresolved_method -> N[missing_binding]` (+ error
+# diagnostic) now applies only to methods with NO registered handler and no
+# usable score.
 def _gw_waveforms_method(assessment: Any) -> float:
     """test://paradox/method/gw_waveforms_v1 — recomputes 0.99 (agrees with
     the attested score, which the runtime uses directly when present)."""
@@ -861,7 +864,9 @@ def _gw_waveforms_method(assessment: Any) -> float:
 
 def _qg_tbd_method(assessment: Any) -> str:
     """test://paradox/method/qg_tbd_v1 — declares the score not yet
-    computable (returns the non-numeric sentinel 'N')."""
+    computable (returns the non-numeric sentinel 'N'); the runtime pins
+    N[not_yet_applicable] with a warning diagnostic (spec §9.2/§16.6.4) —
+    the deferral IS the verdict for the open quantum-gravity core."""
     return "N"
 
 
@@ -1127,24 +1132,65 @@ def register_extension_fixture_plugins(
             )
 
 
+class LiveFixturePackCoverageError(RuntimeError):
+    """A bundle's evaluators are PARTIALLY covered by the live fixture pack.
+
+    Raised by :func:`build_live_fixture_services` when at least one bundle
+    evaluator binds to a live-pack URI and at least one does not.  Partial
+    coverage is an authoring error (m7 red-team HIGH-1): before this guard a
+    single mistyped URI silently reverted the whole bundle to the claim-id
+    echo path, where every case validates against its own pins.  The runner
+    converts this into a loud per-case failure instead of falling back.
+    """
+
+
+def live_fixture_evaluator_uris() -> frozenset[str]:
+    """The set of evaluator binding URIs the live extension pack registers.
+
+    Exposed so the conformance runner can distinguish a vendored-style echo
+    bundle (no URI in this set) from a live bundle with a mistyped URI.
+    """
+    return frozenset(_LIVE_EVALUATOR_HANDLER_FACTORIES)
+
+
 def build_live_fixture_services(bundle: Any) -> dict[str, Any] | None:
     """Build live-evaluation services for a bundle bound to the extension pack.
 
-    Returns ``None`` unless the bundle declares at least one evaluator and
-    EVERY evaluator's binding URI is in the live pack — vendored corpus
-    bundles (``test://eval/atoms_v1`` etc.) therefore never activate the
-    live path.  Otherwise returns a services dict containing
-    ``evaluator_bindings`` (registry-backed atom-level handlers) and, when
-    any bundle baseline criterion ref is in the pack,
-    ``baseline_criterion_resolver`` wired for the §16.6.3 shared_state cache
-    machinery in ``runtime.builtins.materialize_referenced_baselines``.
+    Coverage of the bundle's evaluator binding URIs by the live pack is
+    all-or-nothing (fail-closed; m7 red-team HIGH-1):
+
+    - no evaluators, or NO binding URI in the live pack: returns ``None`` —
+      vendored corpus bundles (``test://eval/atoms_v1`` etc.) therefore never
+      activate the live path and keep the claim-id-keyed echo primitives;
+    - EVERY binding URI in the live pack: returns a services dict containing
+      ``evaluator_bindings`` (registry-backed atom-level handlers) and, when
+      any bundle baseline criterion ref is in the pack,
+      ``baseline_criterion_resolver`` wired for the §16.6.3 shared_state
+      cache machinery in ``runtime.builtins.materialize_referenced_baselines``;
+    - a MIX of covered and uncovered URIs: raises
+      :class:`LiveFixturePackCoverageError` — never a silent echo fallback.
     """
     evaluators = getattr(bundle, "evaluators", None) or []
     if not evaluators:
         return None
+    covered: list[str] = []
+    uncovered: list[str] = []
     for evaluator in evaluators:
-        if getattr(evaluator, "binding", None) not in _LIVE_EVALUATOR_HANDLER_FACTORIES:
-            return None
+        binding = getattr(evaluator, "binding", None)
+        if binding in _LIVE_EVALUATOR_HANDLER_FACTORIES:
+            covered.append(binding)
+        else:
+            uncovered.append(binding if isinstance(binding, str) else repr(binding))
+    if covered and uncovered:
+        raise LiveFixturePackCoverageError(
+            "bundle evaluators are partially covered by the live fixture pack: "
+            f"live={sorted(set(covered))} not-live={sorted(set(uncovered))}; "
+            "every evaluator binding must be a live-pack URI (or none, for the "
+            "vendored echo path) — a partially covered bundle would silently "
+            "echo its own expectations for the uncovered evaluators"
+        )
+    if not covered:
+        return None
 
     registry = PluginRegistry()
     register_extension_fixture_plugins(registry, bundle)
@@ -1189,8 +1235,10 @@ __all__ = [
     "FixtureEvalHandlerForEvaluator",
     "FixtureSupportHandler",
     "JudgedCriterionEvalHandler",
+    "LiveFixturePackCoverageError",
     "build_live_fixture_services",
     "by_context_baseline_resolver",
+    "live_fixture_evaluator_uris",
     "register_extension_fixture_plugins",
     "register_fixture_plugins",
     "tarski_self_reference_criterion",

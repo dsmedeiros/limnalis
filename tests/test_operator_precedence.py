@@ -398,14 +398,24 @@ class TestEachLogicalOperatorInIsolation:
 
 
 class TestRepeatedOperatorAssociativity:
-    """Repeated same-level operators flatten into one n-ary LogicalExpr.
+    """Repeated same-level operators: flat n-ary for AND/OR, left-nested
+    binary for IMPLIES/IFF.
 
-    Documented choice: the EBNF writes each level as a repetition —
-    e.g. AndExpr ::= UnaryExpr { AndOp UnaryExpr } (line 1238) — and the
-    canonical AST's LogicalExprNode carries ``args: list[ExprNode]`` with
-    arity >= 2, so the repetition maps to a FLAT n-ary argument list
-    (matching the pre-existing AST shape used by the vendored corpus) rather
-    than a left-folded binary chain.
+    Documented choice, by operator class:
+
+    - AND/OR are ASSOCIATIVE in the spec §4 pair algebra, so grouping cannot
+      change the value: the EBNF repetition (AndExpr ::= UnaryExpr { AndOp
+      UnaryExpr }, line 1238; OrExpr, line 1237) maps to a FLAT n-ary
+      argument list (matching the pre-existing AST shape used by the
+      vendored corpus).
+    - IMPLIES/IFF are NON-ASSOCIATIVE ((a->b)->c differs from a->(b->c) in
+      §4), so a flat n-ary node would erase the grouping the EBNF dictates.
+      The repetitions ImplExpr ::= OrExpr { ImplOp OrExpr } (line 1236) and
+      IffExpr ::= ImplExpr { IffOp ImplExpr } (line 1235) read left-to-right
+      — each iteration extends the expression already read — so repeated
+      operators associate LEFT into a binary chain. Flattening these levels
+      let the evaluator silently drop every operand past the second
+      (m7 red-team CRITICAL-1, .armature/reviews/m7-redteam.md).
     """
 
     def test_and_three_operands_flatten(self):
@@ -416,14 +426,67 @@ class TestRepeatedOperatorAssociativity:
         """(a OR b OR c) -> OR(a, b, c) (line 1237 repetition)."""
         assert _shape(_meta_expr("(a OR b OR c)")) == ("OR", "a", "b", "c")
 
-    def test_implies_three_operands_flatten(self):
-        """(a IMPLIES b IMPLIES c) -> IMPLIES(a, b, c) (line 1236 repetition)."""
+    def test_implies_three_operands_left_nest(self):
+        """(a IMPLIES b IMPLIES c) -> IMPLIES(IMPLIES(a, b), c): the line
+        1236 repetition reads left-to-right, and IMPLIES is non-associative,
+        so the chain is left-nested binary — never a flat 3-ary node
+        (m7 red-team CRITICAL-1)."""
         assert _shape(_meta_expr("(a IMPLIES b IMPLIES c)")) == (
             "IMPLIES",
-            "a",
-            "b",
+            ("IMPLIES", "a", "b"),
             "c",
         )
+
+    def test_iff_three_operands_left_nest(self):
+        """(a IFF b IFF c) -> IFF(IFF(a, b), c) (line 1235 repetition,
+        left-associative)."""
+        assert _shape(_meta_expr("(a IFF b IFF c)")) == (
+            "IFF",
+            ("IFF", "a", "b"),
+            "c",
+        )
+
+    def test_canonical_arrow_chain_left_nests(self):
+        """(a -> b -> c) — the spec's canonical ImplOp spelling (line 1243)
+        — left-nests exactly like the legacy word spelling."""
+        assert _shape(_meta_expr("(a -> b -> c)")) == (
+            "IMPLIES",
+            ("IMPLIES", "a", "b"),
+            "c",
+        )
+
+    def test_canonical_iff_chain_left_nests(self):
+        """(a <=> b <=> c) — the spec's canonical IffOp spelling (line 1244)
+        — left-nests: iff(iff(a, b), c)."""
+        assert _shape(_meta_expr("(a <=> b <=> c)")) == (
+            "IFF",
+            ("IFF", "a", "b"),
+            "c",
+        )
+
+    def test_four_operand_implies_chain_is_left_ladder(self):
+        """(a -> b -> c -> d) -> implies(implies(implies(a, b), c), d): the
+        left fold extends one step per repetition."""
+        assert _shape(_meta_expr("(a -> b -> c -> d)")) == (
+            "IMPLIES",
+            ("IMPLIES", ("IMPLIES", "a", "b"), "c"),
+            "d",
+        )
+
+    def test_mixed_implies_spellings_share_a_chain(self):
+        """(a -> b IMPLIES c) -> implies(implies(a, b), c): ImplOp "->" and
+        the legacy word IMPLIES are the same operator level, so they chain
+        together left-associatively."""
+        assert _shape(_meta_expr("(a -> b IMPLIES c)")) == (
+            "IMPLIES",
+            ("IMPLIES", "a", "b"),
+            "c",
+        )
+
+    def test_two_operand_implies_unchanged(self):
+        """(a -> b) stays the plain binary implies(a, b) — the chain fold is
+        the identity for two operands."""
+        assert _shape(_meta_expr("(a -> b)")) == ("IMPLIES", "a", "b")
 
     def test_mixed_spellings_share_a_level(self):
         """(a AND b ∧ c) -> AND(a, b, c): AndOp ::= "∧" | "AND" (line 1241)
@@ -437,6 +500,16 @@ class TestRepeatedOperatorAssociativity:
             "OR",
             ("AND", "a", "b", "c"),
             "d",
+        )
+
+    def test_implies_chain_operands_keep_precedence(self):
+        """(a AND b -> c -> d OR e) -> implies(implies(and(a, b), c),
+        or(d, e)): each chain link is a full OrExpr (line 1236), and the
+        chain itself is left-nested."""
+        assert _shape(_meta_expr("(a AND b -> c -> d OR e)")) == (
+            "IMPLIES",
+            ("IMPLIES", ("AND", "a", "b"), "c"),
+            ("OR", "d", "e"),
         )
 
 

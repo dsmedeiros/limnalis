@@ -550,6 +550,86 @@ class TestReferenceSpanShielding:
         assert diagnostics == []
 
 
+class TestReferenceSpanShieldingAllScanners:
+    """`|...|` reference spans are opaque to EVERY top-level scanner, not just
+    the operator/marker scan: the argument/list splitter `_split_top_level`,
+    the surface-word splitter `_split_words`, and the wrapped-group check
+    `_is_wrapped_expression` share the `_pipe_span_opens` rule. The T2b
+    remediation shielded only `_scan_top_level_matches`, so span content
+    containing `,`, quotes, or parens still corrupted these scanners —
+    m7 red-team MEDIUM-3 (.armature/reviews/m7-redteam.md)."""
+
+    def test_comma_inside_baseline_ref_does_not_split_args(self):
+        """p(|0:a,b|, c) -> PredicateExpr(p, [BaselineRef("a,b"),
+        Symbol("c")]) — the red team's exact repro. The unshielded argument
+        splitter produced THREE args with two bogus SymbolTerms ("|0:a" and
+        "b|")."""
+        claim, diagnostics = _normalize_expr("p(|0:a,b|, c)")
+        assert _shape(claim.expr) == ("PRED", "p", ("BASELINE", "a,b"), "c")
+        assert _malformed_warnings(diagnostics) == []
+
+    def test_comma_inside_baseline_ref_does_not_split_list_items(self):
+        """p([|0:a,b|, c]) -> the list keeps two items: the same
+        `_split_top_level` path splits list items, so the span shields there
+        too."""
+        claim, _ = _normalize_expr("p([|0:a,b|, c])")
+        expr = claim.expr
+        assert expr.node == "PredicateExpr" and len(expr.args) == 1
+        list_term = expr.args[0]
+        assert list_term.node == "ListTerm" and len(list_term.items) == 2
+        assert list_term.items[0].node == "BaselineRefTerm"
+        assert list_term.items[0].id == "a,b"
+        assert list_term.items[1].node == "SymbolTerm"
+        assert list_term.items[1].value == "c"
+
+    def test_quote_inside_baseline_ref_keeps_wrapped_group(self):
+        """(a AND |0:x'y|) -> AND(a, |0:x'y|): the unshielded
+        `_is_wrapped_expression` treated the apostrophe as an unterminated
+        string quote, rejected the wrapping parens, and collapsed the whole
+        text into one atomic predicate name."""
+        claim, diagnostics = _normalize_expr("(a AND |0:x'y|)")
+        assert _shape(claim.expr) == ("AND", "a", "|0:x'y|")
+        assert _malformed_warnings(diagnostics) == []
+
+    def test_paren_inside_baseline_ref_keeps_wrapped_group(self):
+        """(a AND |0:x(y|) -> AND(a, |0:x(y|): the span's `(` is content,
+        not nesting — the unshielded check saw unbalanced parens and
+        collapsed the text into one atomic predicate."""
+        claim, _ = _normalize_expr("(a AND |0:x(y|)")
+        assert _shape(claim.expr) == ("AND", "a", "|0:x(y|")
+
+    def test_quote_inside_baseline_ref_keeps_declaration_words(self):
+        """(declare |0:x'y| as fiction) -> a DeclarationExpr with the span as
+        its term: the unshielded `_split_words` swallowed everything after
+        the apostrophe into one pseudo-word, losing the 'as' clause and
+        raising NormalizationError. (The unparenthesized spelling is rejected
+        earlier by the Lark surface grammar's charset, so the parenthesized
+        form is the normalizer-level repro.)"""
+        claim, _ = _normalize_expr("(declare |0:x'y| as fiction)")
+        assert claim.kind == "declaration"
+        assert _shape(claim.expr) == ("DECLARE", ("BASELINE", "x'y"), "fiction", None)
+
+    def test_plain_span_argument_control(self):
+        """p(|0:ab|, c) — no delimiter-shaped span content — is unchanged by
+        the extended shielding (the control case)."""
+        claim, _ = _normalize_expr("p(|0:ab|, c)")
+        assert _shape(claim.expr) == ("PRED", "p", ("BASELINE", "ab"), "c")
+
+    def test_shielded_scanner_forms_are_deterministic(self):
+        """NORM-001: two independent parse+normalize runs agree on the newly
+        shielded forms."""
+        for expr_text in (
+            "p(|0:a,b|, c)",
+            "(a AND |0:x'y|)",
+            "(a AND |0:x(y|)",
+            "(declare |0:x'y| as fiction)",
+        ):
+            claim_a, diags_a = _normalize_expr(expr_text)
+            claim_b, diags_b = _normalize_expr(expr_text)
+            assert claim_a.model_dump() == claim_b.model_dump()
+            assert diags_a == diags_b
+
+
 # ---------------------------------------------------------------------------
 # NORM-001: determinism of every newly reachable form
 # ---------------------------------------------------------------------------

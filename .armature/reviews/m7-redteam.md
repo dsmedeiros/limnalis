@@ -538,3 +538,269 @@ Criterion 3's "and friends" is where CRITICAL-1 sits: the trees are right, the *
 - **MEDIUM-7** — JudgedExpr two-stage contract (§12.1) unimplemented; C1's flagship verdict is
   produced without evaluating the inner expression. Pre-existing code, newly load-bearing.
 - **LOW-1/2/3** as listed above.
+
+---
+---
+
+# Cycle 1 Re-verdict
+
+**Reviewer:** reviewer-redteam
+**Date:** 2026-08-24
+**Scope:** uncommitted remediation working tree over HEAD `fc02fe6` (17 files, +2359/−161).
+**Standard review read first:** `.armature/reviews/m7-remediation-cycle1.md` (PASS_WITH_ADVISORIES).
+**Method:** I re-ran **my own original probes verbatim**, then replaced my cycle-0 hand-computed
+expectation tables with an *exhaustive* reference implementation written directly from spec §4,
+because I found an arithmetic error in one of my own cycle-0 IFF rows (see "Correction to my
+cycle-0 record" below). Pre-remediation baseline extracted with `git archive fc02fe6` into a
+scratchpad — no worktree left in the repo. Repo returned byte-for-byte as received.
+
+## Verdict: PASS_WITH_ADVISORIES
+
+Every blocking and high finding from my cycle-0 FAIL is genuinely closed, verified by my own
+probes rather than the implementers' tests. Five new issues surfaced — two of them blind spots
+created by the fixes themselves — but none produces a wrong computed value in any committed
+artifact, none is a regression of previously-correct behavior, and each is strictly narrower
+than the finding it descends from. The milestone is no longer blocked.
+
+## Correction to my cycle-0 record
+
+My cycle-0 probe table listed `f IFF f IFF f` as left=T / right=F. Both readings are in fact **F**
+(`(F↔F)↔F = T↔F = F`; `F↔(F↔F) = F↔T = F`). The "matches-RIGHT" label on that row was my
+arithmetic error, not evidence about the implementation. It did not affect the CRITICAL-1 finding,
+which rested on `t <=> f <=> f` (implementation gave F; both readings give T) — that one I
+re-derived and it was correct. To avoid repeating the mistake I discarded hand tables entirely
+this cycle in favour of the exhaustive harness below.
+
+## 1. Closure of my original findings
+
+### CRITICAL-1 (n-ary IMPLIES/IFF truncation) — **CLOSED**, exhaustively
+
+Rather than spot-check, I wrote an independent reference algebra straight from
+`spec/Limnalis-v0.2.2.md:611-613` and swept **all 3- and 4-operand combinations of {T,F,B,N}**
+for all four connectives, through **two independent paths**: the runtime n-ary fold
+(hand-built flat AST) and the full surface→normalizer→`eval_expr` pipeline.
+
+| op | runtime mismatches | surface mismatches | cases where left≠right | correctly discriminated |
+|---|---|---|---|---|
+| implies | **0** / 512 | **0** / 512 | 136 | **136** |
+| iff | **0** / 512 | **0** / 512 | 66 | **66** |
+| and | **0** / 512 | **0** / 512 | 0 (associative) | n/a |
+| or | **0** / 512 | **0** / 512 | 0 (associative) | n/a |
+
+The 202 left≠right cases matter: they prove the implementation genuinely **left-folds** rather
+than accidentally agreeing. Tree shapes confirmed left-nested binary for `implies`/`iff`
+(`('IMPLIES', ('IMPLIES', 'a', 'b'), 'c')`) and flat n-ary for `and`/`or` — and my exhaustive
+check independently confirms AND/OR *are* associative in this algebra, so the flat shape is sound.
+
+My original end-to-end repro now yields the right answers: `t <=> f <=> f` → **T** (was F),
+`f -> t -> f` → **F** (the left-only value; truncation and right-assoc both give T). Corpus case
+**D7** pins exactly these, and I re-derived all three D7 pins by hand independently
+(`t<=>f<=>f`=T, `f->t->f`=F, `t->b->n`=T).
+
+### HIGH-1 (silent live→echo fallback) — **CLOSED for every reachable path**, two residuals
+
+All three of my repros now fail loudly:
+
+| my repro | before | now |
+|---|---|---|
+| typo'd URI (zero coverage) | `passed=True` | `error=LiveFixturePackCoverageError…`, `passed=False` |
+| typo'd URI **+ tampered expr, wrong pin** | `passed=True`, c1=F | `error=…`, `passed=False` |
+| partial coverage (1 live + 1 non-pack) | echoed silently | `error=…partially covered…`, `passed=False` |
+
+`eval_path` independently confirmed by me: extension **11/11 `live`**, vendored **16/16 `echo`**.
+
+### HIGH-2 (baseline cache outliving its run) — **CLOSED**
+
+My exact D5 cross-run repro, re-run: Run A (t1/nominal) → `(10,'T')`; Run B (t2/stress, **same
+services dict**) → `(20,'F')`, matching the fresh-services control. Previously `(10,'T')`.
+The documented opt-in works when passed a **dict** (my first attempt passed `True` and got
+run-scoped behavior — the guard is `isinstance(shared_cache, dict)`, so a wrong type fails
+**safe**, which is the correct direction). Within-run §16.6.3 semantics unchanged and still match
+spec A11 exactly: `s_shared=[(s1,10,10),(s2,10,20)]`, `s_isolated=[(s1,10,10),(s2,20,20)]`.
+
+### HIGH-3 (reasonless B/N from composition) — **CLOSED as filed**
+
+Both sites I cited are fixed. I verified the derivation's *load-bearing premise* exhaustively —
+the docstring claims "a composed B always requires a B operand and a composed N an N operand";
+across all 4 connectives × 16 operand pairs plus NOT, **zero counterexamples**. Behaviour:
+
+| expression | result | note |
+|---|---|---|
+| `t AND b` / `NOT b` | `B[source_conflict]` | unique determining child reason inherited (§16.6.6) |
+| `t AND n` / `f OR n` | `N[undefined_term]` | inherited |
+| `b AND b2` (source_conflict vs model_conflict) | `B[logical_composition]` + info diagnostic | non-unique → §16.6.6 fallback |
+| `t AND b AND n2` → F, `b OR n` → T | no reason | correct: F/T reasons optional (§8.5) |
+
+**§8.5 sweep across all 29 cases in all three corpora: 0 reasonless B/N** in the vendored and
+extension corpora (7 remain in the untested `m6b` fixture — see NEW-4, a different code path).
+
+### MEDIUM-1 (score=N vocabulary) — **CLOSED and correctly bounded**
+
+All four quadrants tested directly against `_evaluate_single_assessment`:
+
+| method | score | result |
+|---|---|---|
+| resolved | declared `N` | `N[not_yet_applicable]` + **warning** `adequacy_score_not_yet_applicable` |
+| resolved | omitted, method returns `'N'` | `N[not_yet_applicable]` + warning |
+| **unresolved** | declared `N` | `N[missing_binding]` + error |
+| **unresolved** | omitted | `N[missing_binding]` + error |
+
+The priority order matches the settled AST decision at `spec/Limnalis-v0.2.2.md:2043-2044`
+("Unresolved method always yields N[missing_binding] regardless of score presence") ahead of
+§9.2's score=N rule. C2 now pins `N[not_yet_applicable]`; the error→warning severity change is
+right — declaring "not computed yet" is not an error.
+
+### MEDIUM-2 (comparator blindness) — **CLOSED**, with a new narrow exemption gap (NEW-1)
+
+I probed the warning/mismatch discipline directly, which is the thing that matters:
+
+| mutation | result |
+|---|---|
+| reason **omitted** from a B/N pin | warning only, `passed=True` (§18.2 partial matching — correct) |
+| reason **wrong** | **mismatch**, `passed=False` |
+| truth wrong / support wrong | **mismatch** |
+| `claimIds` reordered | **mismatch** (order-sensitive) |
+| `claimIds` missing an entry | **mismatch** |
+
+A defect cannot hide as a warning; only an under-pin can. Both corpora: **0 warnings, 0 mismatches**.
+
+### MEDIUM-3 (pipe shielding in one of four scanners) — **CLOSED**
+
+My original repro table, re-run — all four rows fixed:
+
+| input | cycle 0 | now |
+|---|---|---|
+| `p(\|0:a,b\|, c)` | 3 args, two bogus SymbolTerms | **2 args**, `BaselineRefTerm("a,b")` + `SymbolTerm("c")` |
+| `(a AND \|0:x'y\|)` | atomic PredicateExpr | `and(a, \|0:x'y\|)` |
+| `(a AND \|0:x(y\|)` | atomic PredicateExpr | `and(a, \|0:x(y\|)` |
+| `declare \|0:x'y\| as fiction` | `NormalizationError` | proper `DeclarationExpr` |
+
+`inf:`/`∞:` sigils shielded consistently too.
+
+## 2. Regression hunt
+
+I attacked each interaction the coordinator flagged, plus my own.
+
+**Left-nesting × precedence/parenthesization — clean.** For 21 mixed-operator templates I compared
+the unparenthesized form against the explicitly-parenthesized form that EBNF precedence +
+left-associativity mandates, over every assignment of {t,f,b,n} to the operands: **3600
+evaluations, 0 mismatches**, and every tree shape identical to its parenthesized twin. Covers
+cross-level chains (`a AND b -> c AND d -> e`), NOT interaction (`a -> NOT b -> c`), and
+mixed Unicode/word spellings sharing one chain (`a -> b → c -> d`).
+
+**Normalizer output regression — none.** Full normalized-AST + diagnostics dump for all 16 vendored
+corpus sources and all 9 examples, pre vs post: **0 differing keys**, 0 errors. The left-nesting and
+four-scanner shielding changes are surgically scoped. Across ~100 pathological fuzz inputs, exactly
+**3** behaviour changes, all intended (two n-ary→binary, one pipe-span structure recovery); **0
+crashes**, 0 recursion errors, before and after.
+
+**Reason derivation × §16.6.8 and pinned expectations — clean, one pre-existing residual.** Deep
+`BundleResult` dump of all 16 vendored cases, pre vs post: **exactly 22 leaf differences, every one
+a `reason` field, every one attached to a B/N truth, all at block level.** No truth, support,
+provenance, or diagnostic changed anywhere. `conformance report --format json` **byte-identical**.
+This independently reproduces the standard review's claim. `apply_resolution_policy` is untouched by
+the diff (verified by hunk-context inspection) — see NEW-4.
+
+**Comparator exemptions as blind spots — one real hole found.**
+- *Note-claim exemption: sound.* Notes genuinely do appear in the per-claim maps (C1 `l0` is in both
+  `per_claim_aggregates` and `per_claim_per_evaluator`), so the exemption is load-bearing; it keys on
+  the actual `ClaimClassification.evaluable`, and dropping the pin for an **evaluable** claim (C1 `l3`)
+  is correctly caught as a mismatch. A real evaluated claim cannot hide behind it.
+- *Bridge-id exemption: a real hole* — see NEW-1.
+
+**Manifest guard on edge corpora — two residuals (NEW-2, NEW-3).** The `m6b` mini-corpus
+(`fixtures/m6b_corpus_cases.yaml`, no `fixtures:` manifest) loads and runs fine, both cases on
+`echo`, guard provably inert — no regression there.
+
+## 3. New findings this cycle
+
+### NEW-1 (MEDIUM) — the bridge-id transport exemption hides unpinned, really-executed queries
+`compare.py` computes `extras = actual_transport_ids - set(transports_exp) - bridge_ids`. A transport
+**query** whose `id` equals a bridge id is therefore exempt — and naming a query after the bridge it
+queries is entirely natural. Repro: rename C2's query to `b_to_core` (its own bridge id) and pin
+nothing; the query executes for real (`status=degraded`, full `dstAggregate`) and the case reports
+`passed=True, mismatches=0, warnings=0`. Control with `id: q_sneaky` is correctly flagged. The
+exemption cannot distinguish scaffolding from a same-named real query. Can only hide an *unpinned*
+transport, never corrupt a pinned one. No committed case collides.
+
+### NEW-2 (MEDIUM) — the manifest guard ignores the fixture `type`, so a declared **non-evaluator** URI still falls back to echo
+The guard tests membership in `corpus.bindings_by_id` (all fixture ids) rather than the subset whose
+`type` is `evaluator_binding`. Seven extension-corpus manifest ids are baselines/criteria/methods/bridges.
+Repro: bind D1's evaluator to `test://baseline/by_context_v1`, tamper `c1` to `(t OR t)`, leave the pin
+at `F` → `passed=True`. **Mitigated:** the standing safety net
+`test_every_extension_case_activates_live_path` *does* catch this for the committed corpus (I replayed
+its logic against the mutated corpus: it fails on `D1 eval_path='echo'`). So the false green is not
+reachable in CI — but the loud-error guard itself is type-blind, and the belt is doing work the braces
+should.
+
+### NEW-3 (MEDIUM) — `run_case(case, corpus=None)` bypasses the guard entirely
+My exact original HIGH-1 repro (typo'd URI + tampered expression + wrong pin) still returns
+`passed=True, eval_path='echo'` when the corpus argument is omitted. `corpus` is an optional parameter
+of a public function; the guard's own error text asserts "a mistyped URI must fail loudly", which is
+not unconditionally true. Both real call sites pass a corpus, and the safety-net test covers the
+committed corpus, so this is defense-in-depth rather than a live gap. (The standard review noted this
+as its advisory 2; I confirm it and rate it MEDIUM rather than cosmetic, because it is my original
+finding surviving on a narrower path.)
+
+### NEW-4 (MEDIUM) — §8.5 reasonless B/N survives at the **aggregation** layer (§16.6.8)
+`apply_resolution_policy`'s `paraconsistent_union` branch inherits a reason only when the children
+carry exactly one distinct one, and sets `evaluator_conflict` only for the T/F case — so:
+
+| per-evaluator inputs | aggregate |
+|---|---|
+| N[undefined_term] + N[out_of_scope] | `N[None]` ← §8.5 violation |
+| B[source_conflict] + B[model_conflict] | `B[None]` |
+| B[source_conflict] + N[undefined_term] | `B[None]` |
+
+§16.6.8 says "inherited unique reason where possible; **otherwise the policy-specific reason**" — the
+"otherwise" half is missing. Same for the conformance runner's `_default_adjudicator`. This is
+**pre-existing and untouched** by the remediation (`apply_resolution_policy` is not in the diff), it
+was **not** part of my cycle-0 HIGH-3 (which named `_eval_logical_expr` and `fold_block`), and it has
+**zero occurrences** in the vendored and extension corpora. It accounts for all 7 hits in the
+never-tested `m6b` fixture. Sibling of HIGH-3; belongs in the same future cycle.
+
+### NEW-5 (LOW) — `__shared_baseline_cache__` silently ignores a non-dict truthy value
+Passing `True` or a string yields run-scoped behavior with no warning. It fails **safe** (the
+conservative default), so this is a docstring/ergonomics note only.
+
+## 4. Ruling on my remaining open findings
+
+| # | Finding | Ruling | Rationale |
+|---|---|---|---|
+| MEDIUM-4 | Unclamped delimiter depth; operator swallowing with no diagnostic (`a AND b) OR c` → `and(a, "b) OR c")`, silent) | **Advisory — does not block** | Malformed input only; deterministic graceful degradation; never wrong for well-formed input. NORM-002 gap, unchanged and not worsened. |
+| MEDIUM-5 | `compute_pass_v1` injected into live-pack adequacy handlers (re-confirmed present in C2) | **Advisory — does not block** | Contract-purity only; no extension case references the URI, so no wrong value is producible today. |
+| MEDIUM-6 | Baseline materialization untraced inside phase 8 | **Advisory — does not block** | RUNTIME-001 re-verified (13 ascending phases, all 29 cases); observability gap, not a correctness gap. |
+| MEDIUM-7 | JudgedExpr two-stage contract (§12.1) unimplemented; handler gets no `innerTruth` | **Advisory — does not block** | Pre-existing, out of diff. §12.1 explicitly permits a criterion to ignore `innerTruth`, so C1's *value* is defensible; the gap is that stage 1 never runs and the contract signature is missing. Needs a spec-conformance cycle, not a hotfix. |
+| LOW-1 | `resolve_baseline` reports `status=ready, value=None` pre-materialization (re-confirmed) | **Advisory** | Cosmetic state-reporting inaccuracy; D5's `baseline_states` pin is satisfied trivially either way. |
+| LOW-2 | No test evaluating a 3-arg implies/iff | **CLOSED** | D7 plus the new `TestEvalLogicalConnectives` sweep close exactly this hole. |
+| LOW-3 | Non-evaluable note claims receive a `LicenseResult` (C1 `l0` → T) | **Advisory** | Harmless; §16.6.7 excludes notes from support synthesis, licensing is unstated. |
+
+Recommended future-cycle bundle: **NEW-4 + MEDIUM-7** (both spec-conformance, both §8.5/§12.x),
+then **NEW-1/2/3** (comparator and gate hardening), then MEDIUM-4/5/6 and the LOWs.
+
+## 5. Acceptance criteria and invariant sweep
+
+| Criterion (PRD §Acceptance) | Verdict |
+|---|---|
+| 1. Suite green; vendored 16/16; vendored byte-unchanged | **MET** — 1094 passed ×3 (default order twice + reversed order); 16/16; SHA-256 identical to **`0994537`**, the pre-milestone baseline |
+| 2. Extension corpus validates and passes the runner with all pins met | **MET** — 11/11, 0 mismatches, **0 warnings**, 0 fixture-schema errors, YAML==JSON; and now genuinely *live* (11/11 `eval_path='live'`) |
+| 3. EBNF trees; `B∧N=F` computed live | **MET** — 3600-evaluation precedence/parenthesization equivalence at 0 mismatches; D1 `c1`=F live |
+| 4. `claim_subset` / `shared_state` per §16.2.1/§16.6.3 | **MET** — my five interaction probes re-run, output identical to cycle 0 except C2's intended diagnostic rename |
+
+| Invariant | Result |
+|---|---|
+| FIXTURE-001 | Vendored corpus, all schemas, both spec files, grammar: **SHA-256 identical to `0994537`**. Vendored deep output changed in **22 `reason` fields only**; CLI report byte-identical. |
+| NORM-001 | Normalizer output **identical** pre/post across all 16 vendored sources + 9 examples; `normalize` 3× per example byte-identical; suite deterministic across 3 runs incl. reversed order. |
+| RUNTIME-001/002/003 | 13 ascending phases in every step of all 29 cases across all three corpora; `PrimitiveSet` still 13 fields. |
+| SCHEMA-001 | 0 AST-schema violations across both corpora and all examples, except the pre-existing deliberate A4 `b_invalid` negative case. Extension corpus 0 fixture-schema errors. |
+| MODEL-001/002 | `src/limnalis/models/`, `schemas/`, `grammar/` untouched. |
+
+## 6. Blocking issues
+
+**None.** Cycle 2 is not required.
+
+## 7. Advisories carried forward
+
+NEW-1, NEW-2, NEW-3, NEW-4, NEW-5 (this cycle) and MEDIUM-4, MEDIUM-5, MEDIUM-6, MEDIUM-7,
+LOW-1, LOW-3 (from cycle 0). None is a false-green reachable in CI for the committed artifacts;
+none produces a wrong computed value in any committed artifact.
