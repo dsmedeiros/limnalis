@@ -1,7 +1,7 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 7 COMPLETE: spec-conformance remediation + Track C paradox corpus. PRD: `.taskmaster/docs/milestone-7-remediation-track-c.md`. All acceptance criteria met; red team PASS_WITH_ADVISORIES after one remediation cycle.
+Milestone 8: Documentation remediation. PRD: `.taskmaster/docs/milestone-8-docs-remediation.md`. Three checkpoints (executable truth → contradictions/staleness → navigation/errata/deviations), docs+tests only. (M7 complete; see journal.)
 
 ## Build Candidate
 {M7 ready for tagging — 1094 tests, extension corpus 11/11 live-path, vendored 16/16 echo-path byte-unchanged}
@@ -19,7 +19,7 @@ Milestone 7 COMPLETE: spec-conformance remediation + Track C paradox corpus. PRD
 | T7 | Paradox gallery doc | completed — reviewer PASS_WITH_ADVISORIES (ckpt 3; required 2-cell fix applied) | wave-3 |
 
 ## Active Delegation
-{none — M7 complete. Open advisory backlog for a future milestone: NEW-4 + MEDIUM-7 (aggregation-layer reason gaps), then NEW-1/2/3 (comparator/guard hardening); plus the standing docs-remediation milestone and the not_yet_applicable/no_adequacy_result vocabulary alignment.}
+M8 checkpoint 1 (executable truth: broken snippets, install instructions, integrator field contract, doc-snippet test gate) — single implementer, Incremental Review Protocol. Advisory backlog unchanged (NEW-4+MEDIUM-7, then NEW-1/2/3; vocabulary alignment) for a future milestone.
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).
