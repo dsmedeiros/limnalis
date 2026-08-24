@@ -1,5 +1,7 @@
 # Release Candidate Status Report: Limnalis v0.2.2rc1
 
+> **Historical — superseded (2026-08-24).** Point-in-time snapshot of the v0.2.2rc1 release candidate as of 2026-03-25. Counts, test totals, and known-gap lists below no longer reflect the current tree; see the root `README.md` and `docs/architecture.md` for current state.
+
 **Date:** 2026-03-25
 **Package version:** 0.2.2rc1
 **Spec version:** v0.2.2

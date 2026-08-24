@@ -90,7 +90,7 @@ All envelopes may carry a `source_info` object with optional provenance fields.
 
 ## JSON and YAML serialization
 
-All export functions accept a `format` parameter: `"json"` (default) or
+All export functions accept an `output_format` parameter: `"json"` (default) or
 `"yaml"`.
 
 ### JSON serialization
@@ -186,17 +186,18 @@ envelope.
 Parses a `.lmn` source file, normalizes it, and returns a serialized AST
 envelope.
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.interop import export_ast
 
-json_str = export_ast("examples/minimal_bundle.lmn", format="json")
-yaml_str = export_ast("examples/minimal_bundle.lmn", format="yaml")
+json_str = export_ast("examples/minimal_bundle.lmn", output_format="json")
+yaml_str = export_ast("examples/minimal_bundle.lmn", output_format="yaml")
 ```
 
 Parameters:
 
 - `source_path` -- path to a `.lmn` file.
-- `format` -- `"json"` (default) or `"yaml"`.
+- `output_format` -- `"json"` (default) or `"yaml"`.
 - `validate` -- whether to schema-validate the AST (default `True`).
 - `source_info` -- optional `SourceInfo` for custom provenance.
 
@@ -204,6 +205,7 @@ Parameters:
 
 Wraps a pre-built AST dict (already normalized) in an envelope.
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.interop import export_ast_from_dict
 
@@ -215,17 +217,19 @@ json_str = export_ast_from_dict(ast_data, output_format="json")
 
 Wraps an evaluation result dict in a `ResultEnvelope`.
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.interop import export_result
 
 result_data = {"sessions": [], "status": "complete"}
-json_str = export_result(result_data, format="json")
+json_str = export_result(result_data, output_format="json")
 ```
 
 ### export_conformance
 
 Wraps a conformance report dict in a `ConformanceEnvelope`.
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.interop import export_conformance
 
@@ -237,6 +241,7 @@ json_str = export_conformance(report_data, corpus_version="1.0")
 
 Converts any envelope model to a plain dict (useful for custom serialization).
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.interop import envelope_to_dict, ASTEnvelope
 

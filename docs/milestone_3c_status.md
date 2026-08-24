@@ -1,5 +1,7 @@
 # Milestone 3C: Full Conformance Pass and Pipeline Hardening
 
+> **Historical — superseded (2026-08-24).** Milestone record; conformance and pipeline state have moved on since (M6B transport/adequacy extensions, M7 hardening). For current state see `docs/architecture.md`; for conformance semantics see `docs/cookbook/conformance_testing.md`.
+
 ## Summary
 
 Milestone 3C brings the Limnalis v0.2.2 reference implementation to full corpus conformance. All 16 fixture cases pass end-to-end, the evaluator outputs validate against the conformance-result schema, and the CLI supports standalone evaluation and machine-consumable reporting.

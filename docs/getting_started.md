@@ -63,6 +63,12 @@ limnalis validate-source examples/minimal_bundle.lmn
 limnalis evaluate examples/minimal_bundle.lmn
 ```
 
+**Lint / analyze** -- collect diagnostics (add structural analysis with `analyze`); both support `--format plain|json|grouped|sarif`, e.g. SARIF for CI code-scanning upload (see [SARIF Export](sarif_export.md)):
+```bash
+limnalis lint examples/minimal_bundle.lmn
+limnalis analyze examples/minimal_bundle.lmn --format sarif
+```
+
 Add `--json` to any command for machine-readable output. Stubbed primitives (phases without a registered plugin) are recorded as diagnostics rather than errors.
 
 ## Next Steps

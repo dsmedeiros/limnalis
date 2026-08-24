@@ -213,7 +213,7 @@ metadata = create_package(
     "my_package/",
     source_files=["examples/minimal_bundle.lmn"],
     ast_files=["bundle_ast.json"],
-    format="directory",
+    output_format="directory",  # or "zip"
 )
 print(metadata.manifest.artifact_types)
 print(metadata.manifest.checksums)

@@ -12,15 +12,21 @@ All stable, supported imports for extension authors live under `limnalis.api.*`:
 
 | Module | Contents |
 |---|---|
-| `limnalis.api.plugins` | Phase protocols, `EvaluatorBindings`, `ExprHandler`, `PrimitiveSet` |
+| `limnalis.api.plugins` | Phase protocols (all 13), `EvaluatorBindings`, `ExprHandler` (also re-exports `PrimitiveSet`) |
 | `limnalis.api.context` | `StepContext`, `MachineState`, `EvaluationEnvironment`, `SessionConfig`, `StepConfig`, `ClaimClassification`, `ClaimEvidenceView`, `BaselineState`, `ResolutionStore` |
 | `limnalis.api.results` | `TruthCore`, `SupportResult`, `EvalNode`, `LicenseResult`, `TransportResult`, `BlockResult`, `ClaimResult`, `StepResult`, `SessionResult`, `BundleResult`, `EvaluationResult` |
 | `limnalis.api.models` | AST nodes: `BundleNode`, `ClaimNode`, `ExprNode`, expression types, `AdequacyAssessmentNode`, `BridgeNode`, `TransportNode` |
 | `limnalis.api.services` | `PluginRegistry`, `PluginMetadata`, `build_services_from_registry`, kind constants |
 | `limnalis.api.parser` | `LimnalisParser` |
 | `limnalis.api.normalizer` | `Normalizer`, `NormalizationResult`, `normalize_surface_file`, `normalize_surface_text` |
-| `limnalis.api.evaluator` | `run_bundle`, `run_session`, `run_step`, `PrimitiveSet` |
-| `limnalis.api.conformance` | `FixtureCase`, `compare_case`, `load_corpus`, `run_case` |
+| `limnalis.api.evaluator` | `run_bundle`, `run_session`, `run_step`, `PrimitiveSet` (canonical home), `SessionConfig`, `StepConfig`, `EvaluationEnvironment`, result types |
+| `limnalis.api.conformance` | `FixtureCase`, `compare_case`, `load_corpus`, `load_corpus_from_default`, `run_case` |
+| `limnalis.api.summary` | Summary policies: `SummaryPolicyProtocol`, built-in policies, `execute_summary`, `run_summaries`, `SummaryRequest`/`SummaryResult` |
+| `limnalis.api.evidence` | Evidence inference: `EvidenceInferencePolicyProtocol`, `TransitivityInferencePolicy`, `build_evidence_view_with_inference` |
+| `limnalis.api.adequacy` | Adequacy execution: `execute_adequacy_with_basis`, `aggregate_contested_adequacy`, `detect_basis_circularity`, trace types |
+| `limnalis.api.transport` | Transport chains: `execute_transport_chain`, `execute_transport_with_degradation_policy`, `TransportPlan`, `DegradationPolicyNode`, `TransportTrace` |
+
+`PrimitiveSet` is importable from both `limnalis.api.evaluator` (its canonical home, next to the run functions that accept it) and `limnalis.api.plugins` (a convenience re-export for handler authors); both names refer to the same class.
 
 Everything outside `limnalis.api.*` is internal and may change without notice between releases. Do not import from `limnalis.runtime`, `limnalis.models`, `limnalis.plugins`, or other internal packages directly.
 
@@ -32,7 +38,7 @@ Limnalis evaluates bundles through a fixed 13-phase pipeline. Each phase has a d
 
 | Phase | Primitive | Plugin kind | Typical use |
 |---|---|---|---|
-| 1 | resolve_ref | `BINDING_RESOLVER` | Custom reference resolution |
+| 2 | resolve_ref | `BINDING_RESOLVER` | Custom reference resolution |
 | 3 | resolve_baseline | `BASELINE_HANDLER` | Custom baseline initialization |
 | 4 | evaluate_adequacy_set | `ADEQUACY_METHOD` | Domain-specific adequacy scoring |
 | 5 | compose_license | (via adequacy results) | Driven by adequacy plugins |

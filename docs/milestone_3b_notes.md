@@ -1,5 +1,7 @@
 # Milestone 3B: Broadened Evaluator + Conformance Harness
 
+> **Historical — superseded (2026-08-24).** Milestone record; later milestones (3C, 6B, 7) extended or changed what is described here. For current behavior see `docs/architecture.md` and `docs/how_evaluation_works.md`.
+
 ## What 3B Delivers
 
 ### Evaluator Semantics

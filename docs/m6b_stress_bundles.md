@@ -1,5 +1,7 @@
 # Milestone 6B Stress-Test Bundles
 
+> **Historical — superseded (2026-08-24).** Milestone record for the M6B stress bundles. The bundles themselves remain current in `examples/`; for current transport documentation see `docs/transport_semantics.md` and `docs/cookbook/transport_chains.md`.
+
 ## Purpose
 
 These bundles push Limnalis at its current semantic edges, exercising transport chains, multi-evaluator disagreement, evidence relations, and adequacy assessments in realistic domain scenarios.

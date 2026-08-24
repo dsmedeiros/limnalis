@@ -56,12 +56,18 @@ trace, diagnostics = aggregate_contested_adequacy(
 
 ### Resolution Strategies
 
-| Strategy | Behavior | Disagreement handling |
-|---|---|---|
-| `single` | Use first assessment only | Others ignored |
-| `paraconsistent_union` | All must agree | Disagree → truth="B", failure_kind="method_conflict" |
-| `priority_order` | Assessments in priority order | First adequate wins |
-| `adjudicated` | Delegate to adjudicator binding | Falls back to paraconsistent_union |
+The strategy names are the spec's resolution-policy kinds, and their semantics are defined by spec §8.3 applied to the assessments' truth-valued results (§9.3 aggregates multiple same-task assessments under the anchor's `adequacy_policy`):
+
+| Strategy | Behavior (spec §8.3 / §9.3) |
+|---|---|
+| `single` | The designated member's assessment (or the first, absent member configuration) is the aggregate; others are ignored |
+| `paraconsistent_union` | Pairwise union of assessment truth values: one T and one F yield `B`; an assessment-level `B` (e.g. `B[method_conflict]`) propagates into the aggregate; T with N yields T |
+| `priority_order` | First assessment in the declared order whose truth is **not N** -- including an F or B result; all-N yields N |
+| `adjudicated` | Delegate to an adjudicator binding; falls back to `paraconsistent_union` when none is available |
+
+The spec's own case A12 pins this down: with `aa1 = B[method_conflict]` and `aa2 = T` under `adequacy_policy: paraconsistent_union`, the aggregate is `B` because the union **carries aa1's B forward** -- not because the producers "disagree". Note in particular that `priority_order` is *not* "first adequate wins": an inadequate (F) assessment earlier in the order is decisive and stops the walk.
+
+> **Implementation status:** the normative Phase-4 path (`evaluate_adequacy_set`, exercised by conformance case A12) implements the spec semantics above. The standalone helper `aggregate_contested_adequacy` shown in this guide currently retains older divergent behavior ("all must agree; disagreement → adequate=False with `failure_kind="method_conflict"`" for `paraconsistent_union`, and "first adequate wins" for `priority_order`). That divergence is a known implementation deviation slated for remediation; until then, rely on the runner's Phase-4 aggregation -- not this helper -- for spec-conformant contested adequacy.
 
 ## Circularity Detection
 

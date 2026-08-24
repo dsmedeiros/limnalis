@@ -40,3 +40,16 @@ The existing adequacy system supports declared assessments with optional executa
 
 1. **Simple averaging:** Rejected — loses information about disagreement and doesn't respect different assessment methodologies.
 2. **Voting only:** Rejected — too simplistic for nuanced adequacy scores; a 0.71 vs 0.69 disagreement across a 0.70 threshold is fundamentally different from a 0.9 vs 0.3 disagreement.
+
+---
+
+## Amendment — 2026-08-24 (Milestone 8 documentation remediation)
+
+The **Aggregation Strategies** table above defines `paraconsistent_union` as "all must agree; disagreement produces `truth="B"`, `failure_kind="method_conflict"`" and `priority_order` as "first adequate one wins". Those definitions do not match spec v0.2.2 §8.3/§9.3 or the spec's own case A12:
+
+- Spec `paraconsistent_union` is a pairwise union of truth values (T with F → B; a member-level B — e.g. `B[method_conflict]` — propagates into the aggregate; T with N → T). In A12, `aa1 = B[method_conflict]` with `aa2 = T` aggregates to B because the union carries aa1's B forward, not because the producers disagree.
+- Spec `priority_order` selects the first assessment in the declared order whose truth is **not N** — an early F or B result is decisive — rather than hunting for the first adequate one.
+
+Status of the code at the time of this amendment: the normative Phase-4 aggregation (`evaluate_adequacy_set` → `_aggregate_adequacy_by_policy` in `src/limnalis/runtime/builtins.py`) implements the spec semantics and is what corpus case A12 exercises. The standalone helper `aggregate_contested_adequacy` (exposed via `limnalis.api.adequacy`) still implements this ADR's original divergent definitions; that divergence is now recorded as a known implementation deviation to be remediated (no `src/` changes were permitted in the milestone that added this note). `docs/adequacy_execution_guide.md` has been corrected to the spec's definitions.
+
+This note records the correction; the ADR body above is preserved unchanged as a historical record.

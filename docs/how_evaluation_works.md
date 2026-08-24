@@ -67,7 +67,7 @@ graph TD
 | `B` | Both -- contradictory evidence (paraconsistent) |
 | `N` | Neither -- insufficient evidence |
 
-**Resolution policies** aggregate multi-evaluator results: `single` (one evaluator), `unanimous` (all must agree), `majority`, or `adjudicated` (delegate to binding).
+**Resolution policies** aggregate multi-evaluator results (spec §8.3): `single` (exactly one member; its eval is the aggregate), `paraconsistent_union` (pairwise union of truth values -- one evaluator T and another F yields `B[evaluator_conflict]`; T with N yields T), `priority_order` (first listed evaluator whose truth is not N; all N yields N), or `adjudicated` (delegate to a binding that receives the per-evaluator eval map).
 
 **Block folding** (Phase 12) derives block-level truth from constituent claim results.
 

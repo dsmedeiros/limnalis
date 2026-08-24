@@ -5,7 +5,7 @@ Limnalis is a structured evaluation language for making **claims** about a syste
 **Use Limnalis when you need to:**
 
 - **Formally evaluate claims** — go beyond pass/fail testing by expressing nuanced truth values, including contradictory or insufficient evidence
-- **Compose multiple evaluators** — have independent evaluators assess the same claims, then aggregate results via resolution policies (unanimous, majority, adjudicated)
+- **Compose multiple evaluators** — have independent evaluators assess the same claims, then aggregate results via resolution policies (`single`, `paraconsistent_union`, `priority_order`, `adjudicated`)
 - **Structure evaluation evidence** — attach evidence to claims, track completeness and internal conflicts, and reason about adequacy before evaluation
 - **Transport truth across boundaries** — use bridges to carry evaluated results between evaluation frames (e.g., from a subsystem assessment into a governance review)
 
@@ -193,7 +193,10 @@ limnalis/
     models/                         # Pydantic AST models
     runtime/                        # 13-phase step runner and builtins
     conformance/                    # Fixture-based conformance harness
-    parser.py, normalizer.py, loader.py, schema.py, cli.py, diagnostics.py
+    cli/                            # argparse CLI (per-command modules)
+    interop/                        # Envelopes, exchange packages, projections
+    plugins/                        # Plugin registry + example plugin packs
+    parser.py, normalizer.py, loader.py, schema.py, diagnostics.py
   schemas/                          # Vendored JSON Schemas (v0.2.2)
   fixtures/                         # Vendored fixture corpus (v0.2.2)
   tests/                            # Unit, integration, property, and conformance tests

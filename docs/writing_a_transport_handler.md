@@ -22,11 +22,11 @@ The transport phase executes after all per-claim evaluation, resolution, and blo
 
 The `TransportNode` declares a mode that governs how results are carried:
 
-| Mode | Description |
+| Mode | Description (spec §10.2) |
 |---|---|
 | `metadata_only` | Only metadata crosses the bridge; truth values are not transported |
-| `preserve` | Truth values are preserved across the bridge |
-| `degrade` | Truth values may be degraded (e.g., confidence reduced) during transport |
+| `preserve` | Source truth is copied only if preconditions hold and `claim.semantic_requirements ∩ bridge.lose = ∅`; otherwise the destination gets `N[transport_loss]` / `N[transport_precondition]` |
+| `degrade` | Attempts preservation; when a required property is lost, **truth** weakens by the default degradation rule `T → N[transport_loss]`, `F → N[transport_loss]`, `B → B[boundary_mix]`, `N → N`, and support drops to `partial` (a custom truth/degradation policy may override this) |
 | `remap_recompute` | Results are remapped and recomputed in the destination frame |
 
 ## Bridge structure
@@ -71,7 +71,9 @@ In phase 13, the runner iterates over bridges in the bundle and executes transpo
 from limnalis.api.results import TransportResult
 
 # TransportResult fields:
-#   status: str                    -- "ok", "degraded", "failed", etc.
+#   status: str                    -- one of "metadata_only", "preserved",
+#                                     "degraded", "transported", "blocked",
+#                                     "unresolved", "pattern_only"
 #   srcAggregate: EvalNode | None  -- aggregate evaluation at source
 #   dstAggregate: EvalNode | None  -- aggregate evaluation at destination
 #   metadata: dict                 -- transport metadata
@@ -99,6 +101,7 @@ registry.register(
 
 A transport handler for the simplest mode, where only metadata crosses the bridge:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.services import PluginRegistry, TRANSPORT_HANDLER
 from limnalis.api.results import TransportResult, EvalNode
@@ -115,7 +118,7 @@ def metadata_only_transport(bridge, step_result, machine_state):
 
     if mode != "metadata_only":
         return TransportResult(
-            status="failed",
+            status="blocked",
             metadata={"error": f"handler only supports metadata_only, got {mode}"},
             provenance=[bridge_id],
             diagnostics=[{
@@ -126,7 +129,7 @@ def metadata_only_transport(bridge, step_result, machine_state):
         )
 
     return TransportResult(
-        status="ok",
+        status="metadata_only",
         metadata={
             "bridge": bridge_id,
             "source_frame": str(bridge.from_),
@@ -147,50 +150,86 @@ registry.register(
 )
 ```
 
-## Example: degraded transport with confidence reduction
+## Example: a custom degradation policy that overrides the default
 
+The spec's default `degrade` rule weakens **truth** on loss (`T`/`F` → `N[transport_loss]`, `B` → `B[boundary_mix]`) and drops support to `partial`; spec §10.2 allows a truth policy to override that. In this implementation the override hook is the M6B degradation-policy extension: a `DegradationPolicyNode(kind="custom", binding=...)` whose binding is looked up in `services["__degradation_handlers__"]` and called as `handler(bridge, step_ctx, machine_state, services, policy)`.
+
+The handler below deliberately **replaces** the spec default: it keeps the source truth and instead scales confidence by the bridge's declared risk count. Note that `"confidence_scaling_v1"` appears only in provenance/metadata -- it is a policy-local label, not a spec §8.5 reason code, and the source eval's own reason is carried through unchanged.
+
+<!-- doc-snippet: runnable -->
 ```python
-from limnalis.api.results import TransportResult, EvalNode
+from limnalis.api.context import MachineState, StepContext
+from limnalis.api.models import BridgeNode, FrameNode, FramePatternNode, TransportNode
+from limnalis.api.results import EvalNode, TransportResult
+from limnalis.api.transport import (
+    DegradationPolicyNode,
+    execute_transport_with_degradation_policy,
+)
 
 
-def degrading_transport(bridge, step_result, machine_state):
-    """Transport that degrades confidence based on bridge risks."""
-    bridge_id = bridge.id
-    risks = bridge.risk
+def confidence_scaling_degradation(bridge, step_ctx, machine_state, services, policy):
+    """CUSTOM degradation: keep truth, scale confidence by declared risks.
 
-    # Calculate degradation factor based on number of risks
-    degradation = max(0.5, 1.0 - 0.1 * len(risks))
-
-    # Get source aggregate from step result if available
-    src_aggregate = None
-    if step_result and step_result.per_block_aggregates:
-        first_block = next(iter(step_result.per_block_aggregates.values()), None)
-        src_aggregate = first_block
-
-    dst_aggregate = None
-    if src_aggregate:
-        dst_confidence = None
-        if src_aggregate.confidence is not None:
-            dst_confidence = src_aggregate.confidence * degradation
-        dst_aggregate = EvalNode(
-            truth=src_aggregate.truth,
-            reason="degraded_transport",
-            support=src_aggregate.support,
-            confidence=dst_confidence,
-            provenance=src_aggregate.provenance + [bridge_id],
+    Overrides the spec 10.2 default degradation rule.
+    """
+    src = services.get("__per_claim_aggregates__", {}).get("c1")
+    scale = max(0.5, 1.0 - 0.1 * len(bridge.risk))
+    dst = None
+    if src is not None:
+        dst = EvalNode(
+            truth=src.truth,          # default rule would weaken this on loss
+            reason=src.reason,        # carry the source reason; invent none
+            support=src.support,
+            confidence=None if src.confidence is None else src.confidence * scale,
+            provenance=src.provenance + [bridge.id, "confidence_scaling_v1"],
         )
-
     return TransportResult(
         status="degraded",
-        srcAggregate=src_aggregate,
-        dstAggregate=dst_aggregate,
-        metadata={
-            "degradation_factor": degradation,
-            "risks": risks,
-        },
-        provenance=[bridge_id, "degrading_transport"],
+        srcAggregate=src,
+        dstAggregate=dst,
+        metadata={"degradation_factor": scale, "risks": bridge.risk},
+        provenance=[bridge.id, "confidence_scaling_v1"],
     )
+
+
+bridge = BridgeNode(
+    **{"from": FramePatternNode(facets={"system": "Theory"})},
+    id="b_theory_to_policy",
+    to=FramePatternNode(facets={"system": "Policy"}),
+    via="test://bridge/theory_to_policy",
+    preserve=["model_grounding"],
+    lose=["sensor_fidelity"],
+    risk=["aliasing", "temporal_smear"],
+    transport=TransportNode(mode="degrade"),
+)
+
+policy = DegradationPolicyNode(id="dp_conf", kind="custom", binding="confidence_scaling_v1")
+
+step_ctx = StepContext(
+    effective_frame=FrameNode(
+        system="Theory", namespace="ModelFit", scale="computational",
+        task="analysis", regime="nominal",
+    ),
+)
+services = {
+    "__per_claim_aggregates__": {
+        "c1": EvalNode(truth="T", support="supported", confidence=0.9),
+    },
+    "__degradation_handlers__": {
+        "confidence_scaling_v1": confidence_scaling_degradation,
+    },
+}
+
+result, machine_state, diagnostics = execute_transport_with_degradation_policy(
+    bridge, step_ctx, MachineState(), services, degradation_policy=policy,
+)
+print(result.status)                    # degraded
+print(result.degradation_policy_used)   # dp_conf
+print(result.dstAggregate.truth)        # T -- kept, because the CUSTOM policy says so
+print(result.dstAggregate.confidence)   # 0.72 -- scaled instead
 ```
+
+With `kind="default"` (or no policy at all), the same call reduces to the normative `execute_transport` behavior and the spec's degradation table applies.
 
 ## Next steps
 

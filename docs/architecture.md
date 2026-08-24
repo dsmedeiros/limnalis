@@ -88,9 +88,9 @@ Comparison checks sessions, step results, block results, claim results, diagnost
 
 Loads vendored JSON Schemas and validates AST payloads. Includes an opt-in repair pass for the known `$ref` typo in the shipped schema. Provides `collect_validation_errors()` for structured error reporting.
 
-### `limnalis.cli` (cli.py)
+### `limnalis.cli` (the `cli/` package)
 
-The command-line interface built on `argparse`. Provides commands for all pipeline stages plus conformance harness operations. Supports `--json` output, `--strict` mode, `--allowlist` for known deviations, and consistent exit codes.
+The command-line interface built on `argparse`, organized as a package (`src/limnalis/cli/`) with per-command modules (`lint_cmd.py`, `inspect_cmd.py`, `doctor_cmd.py`, `visualize_cmd.py`, `init_cmd.py`, plus the pipeline/conformance commands in `_existing.py`). `build_parser()` assembles the full parser. Provides commands for all pipeline stages plus conformance harness, interop export/import, packaging, and tooling operations (`lint`, `analyze`, `inspect`, `doctor`, ...). Supports `--json` output, `--strict` mode, `--allowlist` for known deviations, SARIF output on `lint`/`analyze` (see [SARIF Export](sarif_export.md)), and consistent exit codes.
 
 ## Public API Surface
 
@@ -102,6 +102,15 @@ The stable public API is exposed through `limnalis.api.*`:
 | `limnalis.api.normalizer` | `Normalizer`, `NormalizationResult`, `NormalizationError`, `normalize_surface_file`, `normalize_surface_text` |
 | `limnalis.api.evaluator` | `run_bundle`, `run_session`, `run_step`, `PrimitiveSet`, `BundleResult`, `SessionResult`, `StepResult`, `EvaluationResult` |
 | `limnalis.api.conformance` | `load_corpus`, `load_corpus_from_default`, `run_case`, `compare_case`, `FixtureCase` |
+| `limnalis.api.services` | `PluginRegistry`, `PluginMetadata`, `build_services_from_registry`, plugin-kind constants |
+| `limnalis.api.plugins` | The 13 phase protocols, `EvaluatorBindings`, `ExprHandler` (re-exports `PrimitiveSet`) |
+| `limnalis.api.context` | `StepContext`, `MachineState`, `EvaluationEnvironment`, `SessionConfig`, `StepConfig`, ... |
+| `limnalis.api.models` | AST node types (`BundleNode`, `ClaimNode`, `BridgeNode`, `TransportNode`, ...) |
+| `limnalis.api.results` | `TruthCore`, `SupportResult`, `EvalNode`, `LicenseResult`, `TransportResult`, ... |
+| `limnalis.api.summary` | Summary policies (`execute_summary`, `run_summaries`, built-in policy classes) |
+| `limnalis.api.evidence` | Evidence inference (`build_evidence_view_with_inference`, inference policies) |
+| `limnalis.api.adequacy` | Adequacy execution helpers (`execute_adequacy_with_basis`, `aggregate_contested_adequacy`, `detect_basis_circularity`) |
+| `limnalis.api.transport` | Transport chain extensions (`execute_transport_chain`, `execute_transport_with_degradation_policy`, policy/trace types) |
 
 Internal module paths (e.g., `limnalis.normalizer`, `limnalis.runtime.runner`) are implementation details and may change without notice.
 
@@ -121,4 +130,4 @@ The runner accepts an optional `adjudicator` callable for adjudicated resolution
 
 ### Transport handlers
 
-Transport execution (`execute_transport`, phase 13) is currently stubbed. Implementations can inject custom transport handlers via `PrimitiveSet.execute_transport` to support different transport modes (metadata_only, preserve, etc.).
+Transport execution (`execute_transport`, phase 13) is fully implemented in the builtin primitives: all four transport modes (`metadata_only`, `preserve`, `degrade`, `remap_recompute`) execute per spec §10.2, including precondition checking, `semantic_requirements ∩ lose` loss gating, the default truth-degradation rule, and `remap_recompute` re-evaluation under the destination panel. Bridges without matching transport queries record `pattern_only` results. Beyond the normative primitive, the M6B extensions in `limnalis.api.transport` add bridge-chain composition (`execute_transport_chain` with `fail_fast`/`best_effort`), configurable degradation policies (`execute_transport_with_degradation_policy` with `DegradationPolicyNode`, including custom bindings via `services["__degradation_handlers__"]` and `max_loss` blocking), claim-map validation, destination completion policies, and transport traces. Custom implementations can still replace the whole phase by injecting `PrimitiveSet.execute_transport`.

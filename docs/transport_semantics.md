@@ -8,11 +8,11 @@ Limnalis transport moves claims across frames via bridges. Milestone 6B extends 
 
 ### Transport Modes
 
-| Mode | Behavior |
+| Mode | Behavior (spec §10.2) |
 |---|---|
 | `metadata_only` | Transport header metadata only; no truth/support |
-| `preserve` | Truth and support transported unchanged |
-| `degrade` | Support reduced; truth unchanged |
+| `preserve` | Copy source truth and support only if preconditions hold and `claim.semantic_requirements ∩ bridge.lose = ∅`; otherwise destination is `N[transport_loss]` / `N[transport_precondition]` |
+| `degrade` | Attempt preservation; when required detail is lost, weaken **truth**: `T → N[transport_loss]`, `F → N[transport_loss]`, `B → B[boundary_mix]`, `N → N`; support becomes `partial` when truth degrades (unless a truth policy overrides) |
 | `remap_recompute` | Claims remapped to destination frame and recomputed |
 
 ### Bridge-Chain Composition

@@ -45,14 +45,15 @@ print(ast["node"])                 # "Bundle"
 
 ### From a string
 
+<!-- doc-snippet: runnable -->
 ```python
-from limnalis.interop import import_ast_envelope
+from limnalis.interop import export_ast, import_ast_envelope
 
-json_text = '{"spec_version": "0.2.2", ...}'
-envelope = import_ast_envelope(json_text, format="json")
+json_text = export_ast("examples/minimal_bundle.lmn")  # any envelope JSON string
+envelope = import_ast_envelope(json_text, input_format="json")
 ```
 
-When importing from a string, the `format` parameter is required.
+When importing raw serialized content from a string, the `input_format` parameter is required (`"json"` or `"yaml"`); a string that names an existing file is treated as a path instead.
 
 ### From a dict
 
@@ -70,7 +71,7 @@ extension:
 
 - `.json` -- parsed as JSON.
 - `.yaml` or `.yml` -- parsed as YAML.
-- Other extensions -- raises `ValueError`; pass `format` explicitly.
+- Other extensions -- raises `ValueError`; pass `input_format` explicitly.
 
 ## Consuming result envelopes
 

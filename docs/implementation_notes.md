@@ -1,5 +1,7 @@
 # Implementation notes
 
+> **Historical — superseded (2026-08-24).** Early design rationale from the project's first milestones. The decisions largely still hold, but current architecture documentation lives in `docs/architecture.md` and the ADRs under `docs/adr/`.
+
 ## Why Pydantic over dataclasses here?
 
 The canonical AST is now both:
