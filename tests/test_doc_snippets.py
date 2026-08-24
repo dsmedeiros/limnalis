@@ -221,3 +221,52 @@ def test_readme_cli_table_lists_only_real_commands() -> None:
     parser = build_parser()
     unknown = [cmd for cmd in rows if not _cli_command_exists(parser, cmd.split())]
     assert not unknown, f"README CLI table names nonexistent commands: {unknown}"
+
+
+# ---------------------------------------------------------------------------
+# Documentation index canaries (M8 checkpoint 3, PRD item 12)
+# ---------------------------------------------------------------------------
+
+_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+
+def test_docs_index_references_every_doc() -> None:
+    """Every markdown file under docs/ must be reachable from docs/README.md.
+
+    New docs must be added to the index; orphaned documentation was an audited
+    defect class (16 orphans at the M8 recount). Matching is by the file's
+    path relative to docs/, so a listing anywhere in the index counts."""
+    index = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    missing = []
+    for doc in sorted((REPO_ROOT / "docs").rglob("*.md")):
+        rel = doc.relative_to(REPO_ROOT / "docs").as_posix()
+        if rel == "README.md":
+            continue
+        if rel not in index:
+            missing.append(rel)
+    assert not missing, f"docs/README.md does not reference: {missing}"
+
+
+def test_doc_index_relative_links_resolve() -> None:
+    """Every relative link in the navigation docs must point at a real file or
+    directory: docs/README.md, the root README.md, spec/README.md, and the
+    spec errata."""
+    nav_files = [
+        REPO_ROOT / "docs" / "README.md",
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "spec" / "README.md",
+        REPO_ROOT / "spec" / "Limnalis-v0.2.2-errata.md",
+    ]
+    broken = []
+    for nav in nav_files:
+        text = nav.read_text(encoding="utf-8")
+        for target in _LINK_RE.findall(text):
+            if target.startswith(("http://", "https://", "mailto:")):
+                continue
+            path = target.split("#", 1)[0]
+            if not path:
+                continue  # pure in-page anchor
+            resolved = (nav.parent / path).resolve()
+            if not resolved.exists():
+                broken.append(f"{nav.relative_to(REPO_ROOT)} -> {target}")
+    assert not broken, f"Broken relative links: {broken}"

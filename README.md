@@ -199,9 +199,20 @@ limnalis/
     parser.py, normalizer.py, loader.py, schema.py, diagnostics.py
   schemas/                          # Vendored JSON Schemas (v0.2.2)
   fixtures/                         # Vendored fixture corpus (v0.2.2)
+  examples/                         # Runnable .lmn bundles and consumer scripts
+  editor/                           # Editor support (VS Code extension)
   tests/                            # Unit, integration, property, and conformance tests
-  docs/                             # Architecture, ADRs, and status documents
+  docs/                             # Documentation (see docs/README.md), ADRs, status records
 ```
+
+## Documentation
+
+- [docs/README.md](docs/README.md) -- full documentation index with reading order
+- [Getting Started](docs/getting_started.md) and [How to Read Limnalis](docs/reading_limnalis.md)
+- [Interop Overview](docs/interop_overview.md) -- envelopes, exchange packages, projections (the interop cluster entry point)
+- [Architecture Decision Records](docs/adr/) -- ADRs 001-008
+- [examples/](examples/) -- runnable bundles; [editor/](editor/) -- VS Code support
+- [spec/](spec/README.md) -- vendored specification set and [errata](spec/Limnalis-v0.2.2-errata.md)
 
 ## Running Tests
 

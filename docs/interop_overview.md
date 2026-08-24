@@ -47,8 +47,11 @@ difference is essential.
   consume LinkML -- but they are never the authority on what is valid Limnalis.
 
 **Rule of thumb:** if you need to validate data, use the canonical JSON Schemas.
-If you need to feed a documentation generator or an RDF pipeline, use the LinkML
-projection.
+If you need to feed a documentation generator or LinkML-consuming toolchain, use
+the LinkML projection. RDF/linked-data integration is **not implemented**: no
+JSON-LD context ships with the envelopes, and no RDF mapping is maintained --
+see the [JSON-LD / RDF note](jsonld_rdf_note.md) (the authority on what is and
+is not implemented there) for the exploratory sketch and its limits.
 
 ## What is guaranteed stable
 

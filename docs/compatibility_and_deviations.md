@@ -77,12 +77,72 @@ Internal module paths (`limnalis.normalizer`, `limnalis.runtime.runner`, etc.) a
 
 ## Known Limitations of the Conformance Harness
 
-### Extra-diagnostic blindness (non-blocking)
+### Extra-diagnostic handling (updated 2026-08-24; largely remediated in M7)
 
 **Severity:** non-blocking
-**Status:** accepted
-**Milestone:** deferred to post-v0.2.2
+**Status:** partially resolved
+**Milestone:** M7 (comparator bidirectionality)
 
-The conformance comparator does not flag unexpected additional diagnostics when at least one expected diagnostic matches. This means a regression that introduces spurious error diagnostics may go undetected in cases with existing expected diagnostics.
+The original limitation recorded here — "the comparator does not flag unexpected additional diagnostics when at least one expected diagnostic matches" — no longer describes the comparator. Since M7 (`src/limnalis/conformance/compare.py`; behavioral contract in `src/limnalis/conformance/agents.md`):
 
-This is a design gap in the comparator's matching strategy, not a correctness bug in the implementation. The current comparator checks that every expected diagnostic is present in the actual output, but does not verify that no extra diagnostics were emitted. A future milestone should tighten the comparator to optionally enforce an exact-match mode for diagnostics.
+- Whenever a case pins a `diagnostics` expectation, unmatched **error/fatal** actual diagnostics are reported as mismatches (the case fails), regardless of how many expected entries matched.
+- Step-level reverse checks flag extra actual claims, blocks, and transports under a pinned map, with exactly two documented exemptions (non-evaluable note claims, e.g. vendored B1 `c5`; per-bridge transport scaffolding entries keyed by declared bridge ids, e.g. vendored A7).
+- Under-specified pins that deserve author attention (a B/N truth pinned without a reason while the actual carries one) surface through `CaseComparison.warnings` without affecting `passed`.
+
+Remaining known limits (accepted):
+
+- Extra **warning/info** diagnostics are still tolerated by design — expectations are partial matchers (spec §18.2).
+- Two diagnostic codes (`frame_pattern_completed`, `logical_composition`) are *injected* into actual results by the fixture-echo runner because no phase can produce them under fixture evaluation (`src/limnalis/conformance/runner.py:_build_injected_diagnostics`); for those two codes the comparison is self-fulfilling.
+
+## Deviation Ledger
+
+Deviations filed per the recording format above. Synthetic IDs are used for non-corpus deviations. Line references are to the tree as of 2026-08-24.
+
+### DEV-ADEQ-CONTESTED — `aggregate_contested_adequacy` implements superseded aggregation semantics
+
+- **Case ID:** DEV-ADEQ-CONTESTED (non-corpus; API helper `limnalis.api.adequacy.aggregate_contested_adequacy`)
+- **Reason:** The standalone M6B helper implements ADR-008's original aggregation table, which the ADR's 2026-08-24 amendment records as diverging from spec §8.3/§9.3: its `paraconsistent_union` is "all must agree; disagreement → `adequate=False`, `failure_kind='method_conflict'`" (its `AdequacyExecutionTrace` result has no `truth` field, so it structurally cannot express a propagated B), and its `priority_order` is "first adequate wins" (an early decisive F is skipped — an exact inversion of the spec's first-non-N walk; it also accepts no `policy.order` input). Additionally, its `B[method_conflict]` **trigger mechanism** differs from the normative path: `execute_adequacy_with_basis` fires on computed-vs-declared score divergence beyond tolerance (the literal §9.2 rule), while the normative Phase-4 path (`evaluate_adequacy_set`, `builtins.py:1162-1196`) fires when same-task assessments use different method URIs (what corpus A12 exercises). The normative Phase-4 aggregation (`_aggregate_adequacy_by_policy`) follows the spec; only this helper diverges. Execution-confirmed in the checkpoint-2 review (`.armature/reviews/m8-ckpt2-contradictions.md`); see also the amendment appended to `docs/adr/008-contested-adequacy-aggregation.md` and the warning in `docs/adequacy_execution_guide.md`.
+- **Severity:** non-blocking (no corpus case is served by the helper; the normative path is conformant)
+- **Status:** open — remediation queued (no `src/` changes permitted in M8)
+
+### DEV-REASON-VOCAB — `no_adequacy_result` is not a spec §8.5 reason code
+
+- **Case ID:** DEV-REASON-VOCAB (non-corpus; license composition)
+- **Reason:** Spec §9.2/§16.6.4 use `N[not_yet_applicable]` for adequacy that cannot yet be determined. The score-`N` path is conformant since M7: an assessment with `score: N` now yields `N[not_yet_applicable]` (`builtins.py:981-998`, m7 red-team MEDIUM-1). The no-record path is still divergent: when license composition finds no adequacy result at all for an `anchor:task` pair, it emits `truth="N", reason="no_adequacy_result"` (`builtins.py:1535`) — a reason string that appears in no spec §8.5 taxonomy list.
+- **Severity:** non-blocking (reason-string wording; severity/truth are correct)
+- **Status:** open — partially remediated (score-N path fixed in M7; no-record path pending)
+
+### DEV-UNBOUND-REF — unbound reference surface syntax rejected
+
+- **Case ID:** DEV-UNBOUND-REF (non-corpus; surface syntax)
+- **Reason:** The reconstruction's EBNF defines `UnboundRef ::= "|∞:" Ident "|" | "|inf:" Ident "|"` (A.9 lines 1279-1280), and spec §13.2 lists the `|∞:kind|` reference form. The normalizer's scanners shield these spans as single terms, but term parsing then rejects them: `|inf:...|`/`|∞:...|` raise `NormalizationError: invalid baseline reference` (`normalizer.py:1575`); only the baseline form `|0:...|` is accepted.
+- **Severity:** non-blocking (authored surface form not exercised by the fixture corpus)
+- **Status:** open
+
+### DEV-ASSUMPTION-SURFACE — assumption declarations have no surface grammar
+
+- **Case ID:** DEV-ASSUMPTION-SURFACE (non-corpus; surface syntax)
+- **Reason:** `AssumptionNode` exists in the AST models (`models/ast.py:362`) and the vendored AST schema (`$defs.AssumptionNode`), and `BundleNode.assumptions` is populated on import of AST JSON — but no `assumption` production exists in `grammar/limnalis.lark` and the normalizer builds no assumptions from surface text. Assumptions are reachable only via pre-built AST payloads, never from `.lmn` sources.
+- **Severity:** non-blocking (authored surface form not exercised by the fixture corpus)
+- **Status:** open
+
+### DEV-INTERVENTION-CLAUSE — intervention clause syntax mutually incompatible with the EBNF
+
+- **Case ID:** DEV-INTERVENTION-CLAUSE (non-corpus; surface syntax)
+- **Reason:** The reconstruction's EBNF defines a trailing clause: `CausalExpr ::= SimpleExpr CausalOp SimpleExpr [InterventionClause]`, `InterventionClause ::= "intervention" (Ref | "(" Expr ")")`, with `CausalOp` allowing only bare `=>[obs]`/`=>[do]` (`Limnalis-v0.2.2-reconstructed.md:1249-1251`). The implementation instead encodes the intervention inside the operator bracket: `=>[do:<intervention>]` (`normalizer.py` `_CAUSAL_RE`). The two forms are bidirectionally incompatible: the implementation's `=>[do:X]` is underivable from the EBNF, and the EBNF's trailing form does not error but **misparses** — `a =>[do] b intervention c` normalizes with the entire trailing text absorbed into the rhs predicate name (execution-confirmed: rhs name becomes `"stable(grid) intervention shed_load"`). The misparse makes this the sharpest surface-syntax hazard in this ledger.
+- **Severity:** non-blocking for corpus conformance (corpus uses the bracket form), but note the silent-misparse hazard for EBNF-derived sources
+- **Status:** open
+
+### DEV-EMRG-HYSTERESIS — emergence hysteresis/witness unimplemented
+
+- **Case ID:** DEV-EMRG-HYSTERESIS (non-corpus; surface syntax + runtime)
+- **Reason:** Spec `EmergenceExpr` carries `hysteresis?: Condition` and `witness: [ClaimId]` (`Limnalis-v0.2.2.md:1056-1057`), and the reconstruction's EBNF defines surface clauses `["hysteresis" Expr] ["witness" RefList]` (`:1253-1254`). The AST model and schema carry both fields (`models/ast.py:280-281`), so imported AST JSON can express them — but the EMRG surface parser (`normalizer.py:1080-1122`) never produces them, and the runtime has no hysteresis/witness semantics: `hysteresis` is only walked for baseline-reference collection (`builtins.py:734`), and emergence evaluation is a delegated leaf handed to evaluator bindings.
+- **Severity:** non-blocking (feature deferred; not exercised by the fixture corpus)
+- **Status:** open
+
+### DEV-TRUTHPOLICY-DEAD — `TransportNode.truthPolicy` parsed but never read
+
+- **Case ID:** DEV-TRUTHPOLICY-DEAD (non-corpus; runtime)
+- **Reason:** Spec §10.1 defines `transport.truth_policy: BindingRef?` as the override hook for default degradation ("support becomes partial unless truth_policy overrides it", §10.2). The field exists on the AST (`models/ast.py:501`), is parsed from surface text (`normalizer.py:713,724`), and validates against the schema — but nothing under `src/limnalis/runtime/` ever reads it (execution-confirmed by the checkpoint-2 review, `.armature/reviews/m8-ckpt2-contradictions.md`). The working override mechanism is the M6B degradation-policy extension (`DegradationPolicyNode(kind="custom")` with `services["__degradation_handlers__"]`), documented in `docs/writing_a_transport_handler.md`.
+- **Severity:** non-blocking (declared field is inert; no corpus case pins truth-policy behavior)
+- **Status:** open
