@@ -97,13 +97,35 @@ class Normalizer:
         "order": "order",
         "binding": "binding",
     }
-    # Ordered by precedence: first match wins (highest precedence first)
-    _LOGICAL_OPERATORS = [
-        ("AND", "and"),
-        ("IFF", "iff"),
-        ("IMPLIES", "implies"),
-        ("OR", "or"),
+    # Logical operator levels per the recovered EBNF (spec/Limnalis-v0.2.2-reconstructed.md,
+    # A.9 "Expression Grammar"):
+    #
+    #   LogicalExpr ::= IffExpr ;
+    #   IffExpr     ::= ImplExpr { IffOp ImplExpr } ;
+    #   ImplExpr    ::= OrExpr  { ImplOp OrExpr } ;
+    #   OrExpr      ::= AndExpr { OrOp  AndExpr } ;
+    #   AndExpr     ::= UnaryExpr { AndOp UnaryExpr } ;
+    #   UnaryExpr   ::= [ NotOp ] CoreExpr ;
+    #
+    # so binding tightest -> loosest is NOT > AND > OR > IMPLIES > IFF. The
+    # splitter is first-match-SPLITS: the first level found at the top level of
+    # the text becomes the ROOT of the tree and therefore binds LOOSEST, so this
+    # table must be ordered loosest-first: IFF, IMPLIES, OR, AND.
+    #
+    # Spellings: the spec's operator kernel is NotOp "¬"|"NOT",
+    # AndOp "∧"|"AND", OrOp "∨"|"OR", ImplOp "→"|"->", and
+    # IffOp "↔"|"<=>" (lines 1240-1244). The word forms IMPLIES and IFF are
+    # legacy spellings (not part of the spec kernel) retained for backward
+    # compatibility with the vendored corpus and examples.
+    # Each entry: (canonical op, word spellings, symbol spellings).
+    _LOGICAL_PRECEDENCE: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = [
+        ("iff", ("IFF",), ("<=>", "↔")),
+        ("implies", ("IMPLIES",), ("->", "→")),
+        ("or", ("OR",), ("∨",)),
+        ("and", ("AND",), ("∧",)),
     ]
+    _NOT_SYMBOL = "¬"
+    _JUDGED_KEYWORD = "judged_by"
     _CAUSAL_RE = re.compile(r"^=>\[(?P<mode>obs|do)(?::(?P<intervention>.+))?\]$")
     _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
@@ -856,43 +878,27 @@ class Normalizer:
         if not tokens:
             raise NormalizationError("claim expression is empty")
         if tokens[0] == "note":
-            note_text = self._join_tokens(tokens[1:]).strip()
-            if not note_text:
-                raise NormalizationError("note expressions require text")
-            return self._build_model(
-                NoteExprNode,
-                "note expression",
-                node="NoteExpr",
-                text=self._parse_string_literal(note_text),
-            )
+            return self._parse_note(tokens)
         if tokens[0] == "declare":
             return self._parse_declaration(tokens)
-        if "EMRG" in tokens:
-            return self._parse_emergence(tokens)
-
-        causal_index = self._find_causal_index(tokens)
-        if causal_index is not None:
-            return self._parse_causal(tokens, causal_index)
-
-        if "judged_by" in tokens:
-            index = tokens.index("judged_by")
-            if index == 0 or index == len(tokens) - 1:
-                raise NormalizationError(
-                    "judged_by expressions require both an inner expression and a criterion"
-                )
-            inner = self._parse_expr_text(self._join_tokens(tokens[:index]))
-            criterion_ref = self._parse_scalar_text(self._join_tokens(tokens[index + 1 :]).strip())
-            if not criterion_ref:
-                raise NormalizationError("judged_by expressions require a criterion reference")
-            return self._build_model(
-                JudgedExprNode,
-                "judged expression",
-                node="JudgedExpr",
-                expr=inner,
-                criterionRef=criterion_ref,
-            )
-
+        # All other authored forms (judged_by, logical connectives, causal
+        # markers, EMRG, dynamics, predicates) are handled by the expression
+        # text parser, which enforces the EBNF A.9 nesting order —
+        # in particular Expr ::= JudgedExpr, so a trailing `judged_by`
+        # wraps causal/emergence expressions instead of being swallowed
+        # into their right-hand side.
         return self._parse_expr_text(self._join_tokens(tokens))
+
+    def _parse_note(self, tokens: list[str]) -> NoteExprNode:
+        note_text = self._join_tokens(tokens[1:]).strip()
+        if not note_text:
+            raise NormalizationError("note expressions require text")
+        return self._build_model(
+            NoteExprNode,
+            "note expression",
+            node="NoteExpr",
+            text=self._parse_string_literal(note_text),
+        )
 
     def _parse_declaration(self, tokens: list[str]) -> DeclarationExprNode:
         if "as" not in tokens:
@@ -1020,27 +1026,106 @@ class Normalizer:
         )
 
     def _parse_expr_text(self, text: str) -> Any:
+        """Parse expression text per EBNF A.9 (spec/Limnalis-v0.2.2-reconstructed.md).
+
+        Nesting order, outermost first::
+
+            Expr        ::= JudgedExpr ;
+            JudgedExpr  ::= LogicalExpr [ "judged_by" Ref ] ;
+            LogicalExpr ::= IffExpr ;             (levels: IFF, IMPLIES, OR, AND)
+            UnaryExpr   ::= [ NotOp ] CoreExpr ;
+
+        Each stage splits the text at top-level occurrences of its operator
+        (parentheses, brackets, braces, and string quotes shield inner
+        occurrences) and recurses on the remainders, so unparenthesized
+        operands always receive logical structure and never collapse into
+        atomic predicate names.
+        """
         text = text.strip()
         if not text:
             raise NormalizationError("expression text is empty")
 
-        if self._is_wrapped_expression(text):
-            inner = text[1:-1].strip()
-            if inner.upper().startswith("NOT "):
+        # Expr ::= JudgedExpr ; JudgedExpr ::= LogicalExpr [ "judged_by" Ref ]
+        # judged_by is the OUTERMOST construct: it wraps whatever expression
+        # precedes it (including causal and emergence forms).
+        judged_parts = self._split_at_top_level_operators(text, self._match_judged_by)
+        if len(judged_parts) > 2:
+            raise NormalizationError(
+                "expressions may contain at most one 'judged_by' per nesting level"
+            )
+        if len(judged_parts) == 2:
+            inner_text, criterion_text = judged_parts
+            if not inner_text or not criterion_text:
+                raise NormalizationError(
+                    "judged_by expressions require both an inner expression and a criterion"
+                )
+            criterion_ref = self._parse_scalar_text(criterion_text)
+            if not criterion_ref:
+                raise NormalizationError("judged_by expressions require a criterion reference")
+            return self._build_model(
+                JudgedExprNode,
+                "judged expression",
+                node="JudgedExpr",
+                expr=self._parse_expr_text(inner_text),
+                criterionRef=criterion_ref,
+            )
+
+        # Binary levels, loosest first: the first level that splits becomes the
+        # root, so IFF binds loosest and AND binds tightest of the binary ops.
+        # The EBNF's `{ Op ... }` repetition maps to a flat n-ary args list
+        # (LogicalExprNode.args), so `a AND b AND c` -> and(a, b, c).
+        for op_name, word_ops, symbol_ops in self._LOGICAL_PRECEDENCE:
+            parts = self._split_logical_level(text, word_ops, symbol_ops)
+            if len(parts) > 1:
+                if any(not part for part in parts):
+                    raise NormalizationError(
+                        f"logical '{op_name}' expression is missing an operand in '{text}'"
+                    )
                 return LogicalExprNode(
                     node="LogicalExpr",
-                    op="not",
-                    args=[self._parse_expr_text(inner[4:].strip())],
+                    op=op_name,
+                    args=[self._parse_expr_text(part) for part in parts],
                 )
-            for token, op in self._LOGICAL_OPERATORS:
-                parts = self._split_top_level(inner, f" {token} ")
-                if len(parts) > 1:
-                    return LogicalExprNode(
-                        node="LogicalExpr",
-                        op=op,
-                        args=[self._parse_expr_text(part) for part in parts],
-                    )
-            return self._parse_expr_text(inner)
+
+        # UnaryExpr ::= [ NotOp ] CoreExpr — checked after the binary splits so
+        # NOT binds tighter than every binary operator: `NOT a AND b` splits on
+        # AND first and yields and(not(a), b).
+        not_operand = self._strip_not_prefix(text)
+        if not_operand is not None:
+            return LogicalExprNode(
+                node="LogicalExpr",
+                op="not",
+                args=[self._parse_expr_text(not_operand)],
+            )
+
+        return self._parse_core_expr_text(text)
+
+    def _parse_core_expr_text(self, text: str) -> Any:
+        """Parse a CoreExpr per EBNF A.9::
+
+            CoreExpr ::= CausalExpr | EmergenceExpr | DeclarationExpr
+                       | NoteExpr | DynamicExpr | PredicateExpr | "(" Expr ")" ;
+
+        The text reaching this stage has no top-level judged_by/logical
+        operators, so marker-led forms are located by splitting the text into
+        top-level surface words and dispatching to the dedicated parsers.
+        """
+        if self._is_wrapped_expression(text):
+            return self._parse_expr_text(text[1:-1].strip())
+
+        words = self._split_words(text)
+        if len(words) > 1:
+            if words[0] == "note":
+                return self._parse_note(words)
+            if words[0] == "declare":
+                return self._parse_declaration(words)
+            if "EMRG" in words:
+                return self._parse_emergence(words)
+            causal_index = self._find_causal_index(words)
+            if causal_index is not None:
+                return self._parse_causal(words, causal_index)
+            if "-->" in words:
+                return self._parse_dynamic(words)
 
         if self._looks_like_call(text):
             name, args_text = text.split("(", 1)
@@ -1054,6 +1139,182 @@ class Normalizer:
             return PredicateExprNode(node="PredicateExpr", name=name, args=args)
 
         return PredicateExprNode(node="PredicateExpr", name=text, args=[])
+
+    def _strip_not_prefix(self, text: str) -> str | None:
+        """Return the NotOp operand when text is `("¬" | "NOT") CoreExpr`, else None.
+
+        The word form requires trailing whitespace (matched case-insensitively,
+        preserving the normalizer's historical acceptance of `not`); the symbol
+        form `¬` may abut its operand.
+        """
+        if text.startswith(self._NOT_SYMBOL):
+            rest = text[len(self._NOT_SYMBOL) :].strip()
+            if rest:
+                return rest
+        if len(text) > 4 and text[:4].upper() == "NOT ":
+            rest = text[4:].strip()
+            if rest:
+                return rest
+        return None
+
+    def _split_logical_level(
+        self, text: str, word_ops: tuple[str, ...], symbol_ops: tuple[str, ...]
+    ) -> list[str]:
+        def matcher(candidate: str, index: int) -> int:
+            return self._match_logical_operator(candidate, index, word_ops, symbol_ops)
+
+        return self._split_at_top_level_operators(text, matcher)
+
+    def _match_logical_operator(
+        self, text: str, index: int, word_ops: tuple[str, ...], symbol_ops: tuple[str, ...]
+    ) -> int:
+        """Return the matched operator length at `index`, or 0.
+
+        Word spellings (AND, OR, IMPLIES, IFF) require whitespace on both sides
+        so symbol names such as TARIFF or BRAND are never split. Symbol
+        spellings may abut their operands; `->` refuses to match inside the
+        dynamic operator `-->` (and `->>`/`<->`-like neighborhoods), keeping
+        `a --> |0:b|` a DynamicExpr.
+        """
+        for word in word_ops:
+            end = index + len(word)
+            if (
+                text.startswith(word, index)
+                and index > 0
+                and text[index - 1].isspace()
+                and end < len(text)
+                and text[end].isspace()
+            ):
+                return len(word)
+        for symbol in symbol_ops:
+            if not text.startswith(symbol, index):
+                continue
+            before = text[index - 1] if index > 0 else ""
+            after_index = index + len(symbol)
+            after = text[after_index] if after_index < len(text) else ""
+            if symbol == "->" and (before in {"-", "<"} or after == ">"):
+                continue
+            if symbol == "<=>" and (before == "<" or after == ">"):
+                continue
+            return len(symbol)
+        return 0
+
+    def _match_judged_by(self, text: str, index: int) -> int:
+        keyword = self._JUDGED_KEYWORD
+        if not text.startswith(keyword, index):
+            return 0
+        end = index + len(keyword)
+        before_ok = index == 0 or text[index - 1].isspace()
+        after_ok = end == len(text) or text[end].isspace()
+        return len(keyword) if before_ok and after_ok else 0
+
+    def _split_at_top_level_operators(self, text: str, matcher: Any) -> list[str]:
+        """Split text at every top-level operator occurrence reported by `matcher`.
+
+        `matcher(text, index)` returns the number of characters the operator
+        occupies at `index` (0 for no match). Occurrences inside parentheses,
+        brackets, braces, or string quotes never split. Parts are stripped but
+        NOT filtered: callers decide how to treat empty operands.
+        """
+        parts: list[str] = []
+        start = 0
+        paren_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        quote: str | None = None
+        escape = False
+        index = 0
+
+        while index < len(text):
+            char = text[index]
+            if quote is not None:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == quote:
+                    quote = None
+                index += 1
+                continue
+
+            if char in {'"', "'"}:
+                quote = char
+            elif char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]":
+                bracket_depth -= 1
+            elif char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+
+            if paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
+                matched = matcher(text, index)
+                if matched:
+                    parts.append(text[start:index].strip())
+                    index += matched
+                    start = index
+                    continue
+            index += 1
+
+        parts.append(text[start:].strip())
+        return parts
+
+    def _split_words(self, text: str) -> list[str]:
+        """Split expression text into top-level surface words.
+
+        Whitespace inside parentheses, brackets, braces, or string quotes does
+        not split, so a word list mirrors the parser's statement atoms for the
+        same source (e.g. `p(x) =>[obs] q(y)` -> [`p(x)`, `=>[obs]`, `q(y)`]).
+        """
+        words: list[str] = []
+        start: int | None = None
+        paren_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        quote: str | None = None
+        escape = False
+
+        for index, char in enumerate(text):
+            if quote is not None:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == quote:
+                    quote = None
+                continue
+
+            if char in {'"', "'"}:
+                quote = char
+            elif char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]":
+                bracket_depth -= 1
+            elif char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+            elif char.isspace() and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
+                if start is not None:
+                    words.append(text[start:index])
+                    start = None
+                continue
+
+            if start is None:
+                start = index
+
+        if start is not None:
+            words.append(text[start:])
+        return words
 
     def _parse_arg_text(self, text: str) -> Any:
         text = text.strip()

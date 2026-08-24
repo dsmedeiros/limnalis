@@ -365,3 +365,12 @@ Validation: PASS
 **Hard constraints:** Vendored spec/schemas/corpus immutable; vendored 16/16 conformance must remain green; tests rewritten only with spec citation, never weakened.
 **Review protocol:** standard reviewer per wave, red team over full changeset at milestone end (critical invariants: NORM-001, RUNTIME-*, FIXTURE-001-adjacent).
 **Approved by:** Human (milestone), Orchestrator (decomposition)
+
+## 2026-08-23 — M7 Wave 1 complete: truth algebra + normalizer precedence conformant
+
+**Event:** Wave completion (T1, T2)
+**T1 (runtime):** Belnap–Dunn pair algebra per spec §4 replaces the linearized ordering; B∧N=F computed live; expression-level and block-level semantics now uniform (block folding already had the correct rule — they had been disagreeing). 9 new §4-cited tests incl. full 16-entry ∧/∨ tables. Reviewer PASS (hand-verified all 32 cells; scope guards on licensing/summary severity orders held). Commit 73c0154.
+**T2 (normalizer):** Expression parsing rebuilt to the recovered EBNF: precedence NOT > AND > OR > IMPLIES > IFF (operator table loosest-first), recursion on all split remainders (no operator text swallowed into predicate names), NOT prefix-unary, judged_by outermost, canonical aliases -> <=> plus Unicode, legacy word spellings retained and flagged. test_operator_precedence.py rewritten 23→42 tests asserting full tree shapes with EBNF line citations. Three grammar ambiguities resolved and documented (judged_by attachment after clause-bearing forms → outermost; repeated-operator associativity → flat n-ary matching AST convention; causal under connectives per CoreExpr/SimpleExpr). Reviewer PASS_WITH_ADVISORIES: independently re-derived all trees; confirmed removed tests lost no correct coverage; NORM-001 determinism verified.
+**Advisories (pre-existing, verified byte-identical on pre-T2 commit, unreachable from corpus/examples/tests):** (1) note/declare-rooted top-level claims bypass the judged_by-aware pipeline — crash on `note "x" judged_by k`, silent declaredAs corruption on `declare … judged_by k` / `declare … AND b`; (2) boundary-malformed word operators (`AND b`, `a AND`) become literal predicate names silently; (3) zero-whitespace causal/dynamic markers collapse to opaque predicates. Logged as task T2b (Wave 2, normalizer scope).
+**State:** 910 tests passing (baseline 870+1 skipped; hypothesis now exercised), 16/16 vendored conformance, vendored artifacts untouched.
+**Approved by:** Orchestrator (both reviewer verdicts received)
