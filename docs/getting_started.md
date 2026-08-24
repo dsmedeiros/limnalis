@@ -2,12 +2,20 @@
 
 ## Installation
 
+Limnalis is not yet published to PyPI. Install it from a clone of this repository:
+
 ```bash
-pip install limnalis          # from PyPI
+pip install -e .              # editable install from the repo root
 pip install -e ".[dev]"       # development mode with test deps
 ```
 
-Requires Python 3.11+.
+Or run it without installing, from the repository root:
+
+```bash
+PYTHONPATH=src python -m limnalis parse examples/minimal_bundle.lmn
+```
+
+Requires Python 3.11+. Runtime dependencies (installed automatically by pip): `pydantic` 2.x, `lark`, `jsonschema`, `PyYAML`.
 
 ## Your First Bundle
 

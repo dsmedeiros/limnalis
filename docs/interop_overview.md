@@ -96,9 +96,13 @@ projection.
 
 ### Install limnalis
 
+Not yet on PyPI -- install from a clone of this repository (runtime dependencies `pydantic` 2.x, `lark`, `jsonschema`, and `PyYAML` are installed automatically):
+
 ```bash
-pip install limnalis
+pip install -e .        # or: pip install -e ".[dev]" for test tooling
 ```
+
+Without installing, prefix commands with `PYTHONPATH=src` from the repository root (e.g. `PYTHONPATH=src python -m limnalis ...`).
 
 ### Export an AST envelope from the CLI
 

@@ -14,32 +14,41 @@ Wraps a normalized canonical AST.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec_version` | string | Limnalis specification version (e.g. `"0.2.2"`). |
-| `schema_version` | string | JSON Schema version for AST validation (e.g. `"0.2.2"`). |
+| `spec_version` | string | Limnalis specification version (e.g. `"v0.2.2"`). |
+| `schema_version` | string | JSON Schema version for AST validation (e.g. `"v0.2.2"`). |
 | `package_version` | string | Version of the `limnalis` package that produced this envelope. |
 | `artifact_kind` | string | Always `"ast"`. |
 | `source_info` | object or null | Provenance metadata (see below). |
-| `normalized_ast` | object | The canonical AST payload as a JSON object. |
+| `normalized_ast` | object | The canonical AST payload as a JSON object. Every AST node carries a `node` discriminator with a PascalCase type name (e.g. `"Bundle"`, `"ClaimBlock"`, `"Evaluator"`). |
 
-Example:
+Example (payload abridged with `"..."`; regenerate the full envelope with `limnalis export-ast examples/minimal_bundle.lmn`):
 
 ```json
 {
   "artifact_kind": "ast",
   "normalized_ast": {
-    "claimBlocks": [],
+    "claimBlocks": [
+      {
+        "claims": ["..."],
+        "id": "local#1",
+        "node": "ClaimBlock",
+        "stratum": "local"
+      }
+    ],
+    "evaluators": ["..."],
+    "frame": ["..."],
     "id": "minimal_bundle",
-    "node_type": "bundle",
-    "version": "0.2.2"
+    "node": "Bundle",
+    "resolutionPolicy": ["..."]
   },
-  "package_version": "0.1.0",
-  "schema_version": "0.2.2",
+  "package_version": "0.2.2rc1",
+  "schema_version": "v0.2.2",
   "source_info": {
     "path": "examples/minimal_bundle.lmn",
     "sha256": null,
     "timestamp": null
   },
-  "spec_version": "0.2.2"
+  "spec_version": "v0.2.2"
 }
 ```
 
@@ -114,19 +123,20 @@ Every envelope carries three version fields:
 | `schema_version` | `limnalis.interop.types.SCHEMA_VERSION` | Identifies the JSON Schema version used to validate the payload. |
 | `package_version` | `limnalis.interop.types.get_package_version()` | The installed `limnalis` Python package version. |
 
-You can retrieve the current values from the CLI:
+You can retrieve the current values from the CLI with the `version` subcommand (`limnalis --version` prints just the package version line):
 
 ```bash
-limnalis --version
+limnalis version
 ```
 
 Output:
 
 ```json
 {
-  "spec_version": "0.2.2",
-  "schema_version": "0.2.2",
-  "package_version": "0.1.0"
+  "package": "0.2.2rc1",
+  "spec": "v0.2.2",
+  "schema": "v0.2.2",
+  "corpus": "v0.2.2"
 }
 ```
 
@@ -197,8 +207,8 @@ Wraps a pre-built AST dict (already normalized) in an envelope.
 ```python
 from limnalis.interop import export_ast_from_dict
 
-ast_data = {"id": "my_bundle", "node_type": "bundle", "version": "0.2.2"}
-json_str = export_ast_from_dict(ast_data, format="json")
+ast_data = {"id": "my_bundle", "node": "Bundle"}
+json_str = export_ast_from_dict(ast_data, output_format="json")
 ```
 
 ### export_result
@@ -231,9 +241,9 @@ Converts any envelope model to a plain dict (useful for custom serialization).
 from limnalis.interop import envelope_to_dict, ASTEnvelope
 
 envelope = ASTEnvelope(
-    spec_version="0.2.2",
-    schema_version="0.2.2",
-    package_version="0.1.0",
+    spec_version="v0.2.2",
+    schema_version="v0.2.2",
+    package_version="0.2.2rc1",
     normalized_ast={"id": "test"},
 )
 d = envelope_to_dict(envelope)  # plain dict, JSON-serializable

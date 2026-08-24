@@ -3,7 +3,7 @@
 ## What you'll need
 
 - Python 3.11+
-- Limnalis installed (`pip install limnalis` or `pip install -e ".[dev]"` for development)
+- Limnalis installed from a clone of this repository: `pip install -e .` (or `pip install -e ".[dev]"` for development). The package is not yet published to PyPI; without installing, run the CLI as `PYTHONPATH=src python -m limnalis ...` from the repository root. Runtime dependencies (installed automatically): `pydantic` 2.x, `lark`, `jsonschema`, `PyYAML`.
 - Familiarity with the Limnalis evaluation model (bundles, claims, evaluators, frames)
 
 ## Public vs internal modules
@@ -128,24 +128,41 @@ registry.register(
 
 ## Wiring plugins into the runner with build_services_from_registry
 
-Once you have registered all your plugins, use `build_services_from_registry()` to produce the services dict that `run_bundle`, `run_session`, and `run_step` expect:
+Once you have registered all your plugins, use `build_services_from_registry()` to produce the services dict that `run_bundle`, `run_session`, and `run_step` accept via their `services` parameter. `run_bundle` also requires the session plan and evaluation environment as positional arguments, and the normalized bundle lives on `NormalizationResult.canonical_ast`:
 
+<!-- doc-snippet: runnable -->
 ```python
-from limnalis.api.services import PluginRegistry, build_services_from_registry
-from limnalis.api.evaluator import run_bundle
+from limnalis.api.services import (
+    EVALUATOR_BINDING,
+    PluginRegistry,
+    build_services_from_registry,
+)
+from limnalis.api.results import TruthCore
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
 from limnalis.api.normalizer import normalize_surface_file
 
 # 1. Create and populate the registry
 registry = PluginRegistry()
-# ... register your plugins ...
+registry.register(
+    EVALUATOR_BINDING,
+    "ev0::predicate",  # ev0 is the evaluator declared in the example bundle
+    lambda expr, claim, step_ctx, machine_state: TruthCore(truth="T"),
+)
 
 # 2. Build services from the registry
 services = build_services_from_registry(registry)
 
 # 3. Parse, normalize, and evaluate
-bundle = normalize_surface_file("my_bundle.lmn").bundle
+bundle = normalize_surface_file("examples/minimal_bundle.lmn").canonical_ast
 
-result = run_bundle(bundle, services=services)
+env = EvaluationEnvironment()
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
+result = run_bundle(bundle, sessions, env, services=services)
 ```
 
 `build_services_from_registry` collects:

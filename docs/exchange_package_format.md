@@ -45,8 +45,8 @@ object with deterministic key ordering.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `format_version` | string | yes | Manifest format version. Currently `"1.0"`. |
-| `spec_version` | string | yes | Limnalis spec version (e.g. `"0.2.2"`). |
-| `schema_version` | string | yes | JSON Schema version for AST payloads (e.g. `"0.2.2"`). |
+| `spec_version` | string | yes | Limnalis spec version (e.g. `"v0.2.2"`). |
+| `schema_version` | string | yes | JSON Schema version for AST payloads (e.g. `"v0.2.2"`). |
 | `package_version` | string | yes | Version of the `limnalis` package that created this. |
 | `corpus_version` | string or null | no | Fixture corpus version, if applicable. |
 | `artifact_types` | array of strings | yes | Sorted list of artifact types present. |
@@ -69,10 +69,10 @@ object with deterministic key ordering.
   "corpus_version": null,
   "created_at": "2026-03-30T12:00:00+00:00",
   "format_version": "1.0",
-  "package_version": "0.1.0",
+  "package_version": "0.2.2rc1",
   "plugin_requirements": [],
-  "schema_version": "0.2.2",
-  "spec_version": "0.2.2"
+  "schema_version": "v0.2.2",
+  "spec_version": "v0.2.2"
 }
 ```
 

@@ -19,7 +19,7 @@ Milestone 8: Documentation remediation. PRD: `.taskmaster/docs/milestone-8-docs-
 | T7 | Paradox gallery doc | completed — reviewer PASS_WITH_ADVISORIES (ckpt 3; required 2-cell fix applied) | wave-3 |
 
 ## Active Delegation
-M8 checkpoint 1 (executable truth: broken snippets, install instructions, integrator field contract, doc-snippet test gate) — single implementer, Incremental Review Protocol. Advisory backlog unchanged (NEW-4+MEDIUM-7, then NEW-1/2/3; vocabulary alignment) for a future milestone.
+M8 checkpoint 2 delegated (contradictions/staleness per PRD items 5-11, PLUS checkpoint-1 handoff verified by reviewer: `format=` kwarg → `output_format=`/`input_format=` at 5 sites across 3 files (downstream_artifact_consumption.md:52, export_formats.md:192,193,222, exchange_package_format.md:216 — all raise TypeError, execution-confirmed); PrimitiveSet dual-module listing in plugin_sdk_overview.md:15,22; stale src comment src/limnalis/interop/envelopes.py:19-21 is REPORT-ONLY, no src changes). Checkpoint 1 committed: 9 docs + snippet gate, reviewer PASS_WITH_ADVISORIES, suite 1110.
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).

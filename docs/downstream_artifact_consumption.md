@@ -6,11 +6,13 @@ compatibility checking with concrete code examples.
 
 ## Prerequisites
 
-Install the `limnalis` package:
+Install the `limnalis` package from a clone of this repository (it is not yet published to PyPI; runtime dependencies `pydantic` 2.x, `lark`, `jsonschema`, and `PyYAML` are installed automatically):
 
 ```bash
-pip install limnalis
+pip install -e .        # or: pip install -e ".[dev]" for test tooling
 ```
+
+Without installing, run from the repository root with `PYTHONPATH=src` (e.g. `PYTHONPATH=src python -m limnalis ...`).
 
 All consumer-facing functionality lives in `limnalis.interop`. You should only
 import from this module.
@@ -30,15 +32,15 @@ from limnalis.interop import import_ast_envelope
 envelope = import_ast_envelope(Path("bundle_ast.json"))
 
 # Access version metadata
-print(envelope.spec_version)       # e.g. "0.2.2"
-print(envelope.schema_version)     # e.g. "0.2.2"
-print(envelope.package_version)    # e.g. "0.1.0"
+print(envelope.spec_version)       # e.g. "v0.2.2"
+print(envelope.schema_version)     # e.g. "v0.2.2"
+print(envelope.package_version)    # e.g. "0.2.2rc1"
 print(envelope.artifact_kind)      # "ast"
 
-# Access the AST payload
+# Access the AST payload (every AST node carries a PascalCase "node" discriminator)
 ast = envelope.normalized_ast
 print(ast["id"])                   # bundle ID
-print(ast["node_type"])            # "bundle"
+print(ast["node"])                 # "Bundle"
 ```
 
 ### From a string

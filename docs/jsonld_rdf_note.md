@@ -32,9 +32,9 @@ Example JSON-LD snippet for an `ASTEnvelope`:
       "@type": "@json"
     }
   },
-  "spec_version": "0.2.2",
-  "schema_version": "0.2.2",
-  "package_version": "0.1.0",
+  "spec_version": "v0.2.2",
+  "schema_version": "v0.2.2",
+  "package_version": "0.2.2rc1",
   "artifact_kind": "ast",
   "source_info": {
     "path": "example.lmn",

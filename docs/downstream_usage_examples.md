@@ -2,47 +2,66 @@
 
 This cookbook shows common patterns for using the Limnalis public API to parse, normalize, evaluate, and test bundles.
 
+All Python snippets below are executed by `tests/test_doc_snippets.py` from the repository root, so they stay in sync with the real API. The HTML comment markers (`<!-- doc-snippet: ... -->`) before each block are the extraction hooks for that test; they are invisible in rendered Markdown.
+
 ## What you'll need
 
 - Python 3.11+
-- Limnalis installed (`pip install limnalis` or `pip install -e ".[dev]"`)
+- Limnalis installed from a clone of this repository: `pip install -e .` (or `pip install -e ".[dev]"` to include test tooling). The package is not yet published to PyPI. Alternatively, run without installing via `PYTHONPATH=src python -m limnalis ...` from the repository root.
+- Runtime dependencies (installed automatically): `pydantic` 2.x, `lark`, `jsonschema`, `PyYAML`.
 - A `.lmn` surface file or pre-normalized AST JSON
 
 ## Minimal parse + normalize example
 
-Parse a `.lmn` surface file into a raw parse tree, then normalize it into a validated AST:
+Parse a `.lmn` surface file into a raw parse tree, then normalize it into a validated AST. `normalize_surface_file` returns a `NormalizationResult` whose `canonical_ast` field holds the normalized `BundleNode`; claims are grouped by stratum under `bundle.claimBlocks`, and each block carries its own `claims` list:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.normalizer import normalize_surface_file
 
 result = normalize_surface_file("examples/minimal_bundle.lmn")
 
-# result.bundle is a BundleNode (the normalized AST root)
-bundle = result.bundle
+# result.canonical_ast is a BundleNode (the normalized AST root)
+bundle = result.canonical_ast
 print(f"Bundle ID: {bundle.id}")
-print(f"Claims: {len(bundle.claims)}")
+print(f"Claim blocks: {len(bundle.claimBlocks)}")
+print(f"Claims: {sum(len(block.claims) for block in bundle.claimBlocks)}")
 ```
 
 To normalize from a string instead of a file:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.normalizer import normalize_surface_text
 
 source = """
-bundle my_bundle
-  frame system=test namespace=demo scale=unit task=check regime=standard
-  claim c1 (atomic)
-    overload(line_B)
-  evaluator ev1 (model, primary)
-    bind ev1 -> c1
+bundle my_bundle {
+  frame {
+    system Demo;
+    namespace Examples;
+    scale unit;
+    task check;
+    regime standard;
+  }
+
+  evaluator ev1 {
+    kind model;
+    binding test://eval/demo_v1;
+  }
+
+  local {
+    c1: overload(line_B);
+  }
+}
 """
 
 result = normalize_surface_text(source)
-bundle = result.bundle
+bundle = result.canonical_ast
 ```
 
 To use the parser and normalizer separately:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.parser import LimnalisParser
 from limnalis.api.normalizer import Normalizer
@@ -52,26 +71,34 @@ tree = parser.parse_file("examples/minimal_bundle.lmn")
 
 normalizer = Normalizer()
 result = normalizer.normalize(tree)
-bundle = result.bundle
+bundle = result.canonical_ast
 ```
 
 ## Parse + normalize + evaluate example
 
-Run the full pipeline from surface syntax to evaluation results:
+Run the full pipeline from surface syntax to evaluation results. `run_bundle` requires the bundle plus two more positional arguments: the list of `SessionConfig` objects to execute and an `EvaluationEnvironment`:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.normalizer import normalize_surface_file
-from limnalis.api.evaluator import run_bundle, EvaluationEnvironment
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
 
 # 1. Parse and normalize
-result = normalize_surface_file("my_bundle.lmn")
-bundle = result.bundle
+result = normalize_surface_file("examples/minimal_bundle.lmn")
+bundle = result.canonical_ast
 
-# 2. Set up the evaluation environment
-env = EvaluationEnvironment(clock="2024-01-01T00:00:00Z")
+# 2. Set up the evaluation environment and session plan
+env = EvaluationEnvironment(clock="2026-01-01T00:00:00Z")
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
 
-# 3. Run evaluation (uses builtin primitives -- most phases are stubbed)
-eval_result = run_bundle(bundle, env=env)
+# 3. Run evaluation (builtin primitives; without plugin services,
+#    unbound evaluators fall back to defaults)
+eval_result = run_bundle(bundle, sessions, env)
 
 # 4. Inspect results
 for session_result in eval_result.session_results:
@@ -86,8 +113,9 @@ for session_result in eval_result.session_results:
 
 ## Using the plugin registry to wire custom evaluators
 
-Register domain-specific handlers and wire them into the runner:
+Register domain-specific handlers and wire them into the runner. Plugin IDs for evaluator bindings use the `"evaluator_id::expr_type"` convention; `ev0` is the evaluator declared in `examples/minimal_bundle.lmn`, so the handler below is actually consulted when that bundle is evaluated:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.services import (
     PluginRegistry,
@@ -97,7 +125,12 @@ from limnalis.api.services import (
 )
 from limnalis.api.results import TruthCore, SupportResult
 from limnalis.api.normalizer import normalize_surface_file
-from limnalis.api.evaluator import run_bundle
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
 
 
 # Define handlers
@@ -119,23 +152,33 @@ def my_support_policy(claim, truth_core, evidence_view, evaluator_id, step_ctx, 
 
 # Set up registry
 registry = PluginRegistry()
-registry.register(EVALUATOR_BINDING, "my_eval::predicate", my_predicate_handler)
+registry.register(EVALUATOR_BINDING, "ev0::predicate", my_predicate_handler)
 registry.register(EVIDENCE_POLICY, "my://policy/support_v1", my_support_policy)
 
 # Build services and run
 services = build_services_from_registry(registry)
-bundle = normalize_surface_file("my_bundle.lmn").bundle
-result = run_bundle(bundle, services=services)
+bundle = normalize_surface_file("examples/minimal_bundle.lmn").canonical_ast
+
+env = EvaluationEnvironment()
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
+result = run_bundle(bundle, sessions, env, services=services)
 ```
 
 ## Running B1 with the grid plugin pack
 
-The grid example plugin pack provides handlers for the B1 fixture case (power grid contingency analysis):
+The grid example plugin pack provides handlers for the B1 fixture case (power grid contingency analysis). The B1 bundle is not a standalone `.lmn` file: it ships inside the fixture corpus (`fixtures/limnalis_fixture_corpus_v0.2.2.json`) as the `source` of case `B1`, so load the corpus and normalize the case source:
 
+<!-- doc-snippet: runnable -->
 ```python
+from limnalis.api.conformance import load_corpus_from_default
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
+from limnalis.api.normalizer import normalize_surface_text
 from limnalis.api.services import PluginRegistry, build_services_from_registry
-from limnalis.api.normalizer import normalize_surface_file
-from limnalis.api.evaluator import run_bundle
 from limnalis.plugins.grid_example import register_grid_plugins
 
 # 1. Create registry and register grid plugins
@@ -145,11 +188,17 @@ register_grid_plugins(registry)
 # 2. Build services
 services = build_services_from_registry(registry)
 
-# 3. Parse, normalize, and evaluate the B1 bundle
-bundle = normalize_surface_file("tests/fixtures/B1/B1.lmn").bundle
-result = run_bundle(bundle, services=services)
+# 3. Load the B1 bundle from the fixture corpus and normalize it
+corpus = load_corpus_from_default()
+case = corpus.get_case("B1")
+bundle = normalize_surface_text(case.source).canonical_ast
 
-# 4. Inspect per-claim results
+# 4. Evaluate
+env = EvaluationEnvironment()
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
+result = run_bundle(bundle, sessions, env, services=services)
+
+# 5. Inspect per-claim results
 for session_result in result.session_results:
     for step_result in session_result.step_results:
         for claim_result in step_result.claim_results:
@@ -166,12 +215,19 @@ The grid plugin pack registers:
 
 ## Running B2 with the JWT plugin pack
 
-The JWT example plugin pack provides handlers for the B2 fixture case (JWT gateway authorization):
+The JWT example plugin pack provides handlers for the B2 fixture case (JWT gateway authorization). Like B1, the B2 bundle lives inside the fixture corpus:
 
+<!-- doc-snippet: runnable -->
 ```python
+from limnalis.api.conformance import load_corpus_from_default
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
+from limnalis.api.normalizer import normalize_surface_text
 from limnalis.api.services import PluginRegistry, build_services_from_registry
-from limnalis.api.normalizer import normalize_surface_file
-from limnalis.api.evaluator import run_bundle
 from limnalis.plugins.jwt_example import register_jwt_plugins
 
 # 1. Create registry and register JWT plugins
@@ -181,11 +237,17 @@ register_jwt_plugins(registry)
 # 2. Build services
 services = build_services_from_registry(registry)
 
-# 3. Parse, normalize, and evaluate the B2 bundle
-bundle = normalize_surface_file("tests/fixtures/B2/B2.lmn").bundle
-result = run_bundle(bundle, services=services)
+# 3. Load the B2 bundle from the fixture corpus and normalize it
+corpus = load_corpus_from_default()
+case = corpus.get_case("B2")
+bundle = normalize_surface_text(case.source).canonical_ast
 
-# 4. Check license results (B2 demonstrates license-level failure)
+# 4. Evaluate
+env = EvaluationEnvironment()
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
+result = run_bundle(bundle, sessions, env, services=services)
+
+# 5. Check license results (B2 demonstrates license-level failure)
 for session_result in result.session_results:
     for step_result in session_result.step_results:
         for claim_result in step_result.claim_results:
@@ -200,50 +262,47 @@ The JWT plugin pack registers:
 - JWT support policy
 - JWT adequacy check methods
 
-## Using the fixture plugin pack for conformance testing
+## Running conformance cases with the fixture plugin pack
 
-The fixture plugin pack provides deterministic handlers backed by expected values from fixture cases. This is useful for conformance testing:
+The fixture plugin pack (`limnalis.plugins.fixtures`) provides deterministic handlers backed by expected values from fixture cases. You do not wire it up yourself: `run_case` applies it internally, building fixture-backed bindings from the case's expected results, then running the evaluator. Pass the corpus as the second argument so corpus-level fixture bindings are available:
 
+<!-- doc-snippet: runnable -->
 ```python
-from limnalis.api.services import PluginRegistry, build_services_from_registry
-from limnalis.api.conformance import load_corpus, compare_case, run_case
-from limnalis.plugins.fixtures import register_fixture_plugins
+from limnalis.api.conformance import compare_case, load_corpus_from_default, run_case
 
 # 1. Load the fixture corpus
-corpus = load_corpus("tests/fixtures")
+corpus = load_corpus_from_default()
 
-# 2. Run each case
-for case in corpus:
+# 2. Run and compare each case (FixtureCorpus is not iterable itself;
+#    iterate its .cases list)
+for case in corpus.cases:
     print(f"Running case: {case.id}")
 
-    # Create a fresh registry for each case
-    registry = PluginRegistry()
-    extras = register_fixture_plugins(registry, case)
-    services = build_services_from_registry(registry)
-    services.update(extras)
-
-    # Run and compare
-    actual = run_case(case, services=services)
+    actual = run_case(case, corpus)
     comparison = compare_case(case, actual)
 
     if comparison.passed:
-        print(f"  PASS")
+        print("  PASS")
     else:
-        print(f"  FAIL: {comparison.differences}")
+        print(f"  FAIL: {comparison.mismatches}")
 ```
 
-To load from the default corpus location:
+`compare_case` returns a `CaseComparison` whose `mismatches` list holds field-level differences; its `warnings` list carries advisory notes (e.g. under-specified expectation pins) that never affect `passed`.
 
+To load a corpus from an explicit path instead of the default vendored location:
+
+<!-- doc-snippet: runnable -->
 ```python
-from limnalis.api.conformance import load_corpus_from_default
+from limnalis.api.conformance import load_corpus
 
-corpus = load_corpus_from_default()
+corpus = load_corpus("fixtures/limnalis_fixture_corpus_v0.2.2.json")
 ```
 
 ## Combining multiple plugin packs
 
 You can register handlers from multiple packs into a single registry, as long as there are no plugin ID conflicts:
 
+<!-- doc-snippet: runnable -->
 ```python
 from limnalis.api.services import PluginRegistry, build_services_from_registry
 from limnalis.plugins.grid_example import register_grid_plugins
@@ -265,8 +324,22 @@ for plugin in registry.list_plugins():
 
 The runner records diagnostics for stubbed or failing phases:
 
+<!-- doc-snippet: runnable -->
 ```python
-result = run_bundle(bundle, services=services)
+from limnalis.api.evaluator import (
+    EvaluationEnvironment,
+    SessionConfig,
+    StepConfig,
+    run_bundle,
+)
+from limnalis.api.normalizer import normalize_surface_file
+
+bundle = normalize_surface_file("examples/minimal_bundle.lmn").canonical_ast
+env = EvaluationEnvironment()
+sessions = [SessionConfig(id="s1", steps=[StepConfig(id="step1")])]
+
+# No plugin services registered, so unbound phases record diagnostics
+result = run_bundle(bundle, sessions, env)
 
 for session_result in result.session_results:
     for step_result in session_result.step_results:
