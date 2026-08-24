@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lark import Token, Tree
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from . import SPEC_VERSION
 from .diagnostics import Diagnostic, SourcePosition, SourceSpan
@@ -125,6 +125,14 @@ class Normalizer:
         ("and", ("AND",), ("∧",)),
     ]
     _NOT_SYMBOL = "¬"
+    # Word spellings of every logical operator level (including the prefix
+    # NotOp, line 1240). Used to diagnose boundary-malformed inputs such as
+    # `AND b` / `a AND`: a word operator at the very start or end of a
+    # (sub)expression has no operand on that side, which no EBNF A.9
+    # production derives, so the text survives as a predicate name whose
+    # boundary retains the operator token (see
+    # `_warn_boundary_operator_predicates`).
+    _WORD_OPERATOR_TOKENS = ("NOT", "AND", "OR", "IMPLIES", "IFF")
     _JUDGED_KEYWORD = "judged_by"
     _CAUSAL_RE = re.compile(r"^=>\[(?P<mode>obs|do)(?::(?P<intervention>.+))?\]$")
     _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
@@ -213,7 +221,7 @@ class Normalizer:
             elif head in self._CLAIM_BLOCK_STRATA:
                 block_counts[head] += 1
                 claim_blocks.append(
-                    self._normalize_claim_block(head, block_counts[head], block_tree)
+                    self._normalize_claim_block(head, block_counts[head], block_tree, diagnostics)
                 )
             else:
                 raise NormalizationError(
@@ -778,10 +786,14 @@ class Normalizer:
         )
 
     def _normalize_claim_block(
-        self, stratum: str, index: int, block_tree: Tree[Any]
+        self,
+        stratum: str,
+        index: int,
+        block_tree: Tree[Any],
+        diagnostics: list[dict[str, Any]],
     ) -> ClaimBlockNode:
         claims = [
-            self._normalize_claim(self._expect_tree(item, "statement"))
+            self._normalize_claim(self._expect_tree(item, "statement"), diagnostics)
             for item in block_tree.children
         ]
         return ClaimBlockNode(
@@ -791,7 +803,9 @@ class Normalizer:
             claims=claims,
         )
 
-    def _normalize_claim(self, statement_tree: Tree[Any]) -> ClaimNode:
+    def _normalize_claim(
+        self, statement_tree: Tree[Any], diagnostics: list[dict[str, Any]]
+    ) -> ClaimNode:
         tokens = self._statement_tokens(statement_tree)
         if len(tokens) < 2:
             raise NormalizationError("claim statements must include an id and an expression")
@@ -801,6 +815,9 @@ class Normalizer:
         claim_id = tokens[0][:-1]
         expr_tokens, metadata = self._split_claim_tokens(claim_id, tokens[1:])
         expr = self._normalize_claim_expr(expr_tokens)
+        self._warn_boundary_operator_predicates(
+            claim_id, expr, diagnostics, source_tree=statement_tree
+        )
         kind = self._claim_kind_for_expr(expr)
         return self._build_model(
             ClaimNode,
@@ -877,17 +894,94 @@ class Normalizer:
     def _normalize_claim_expr(self, tokens: list[str]) -> Any:
         if not tokens:
             raise NormalizationError("claim expression is empty")
-        if tokens[0] == "note":
-            return self._parse_note(tokens)
-        if tokens[0] == "declare":
-            return self._parse_declaration(tokens)
-        # All other authored forms (judged_by, logical connectives, causal
-        # markers, EMRG, dynamics, predicates) are handled by the expression
-        # text parser, which enforces the EBNF A.9 nesting order —
-        # in particular Expr ::= JudgedExpr, so a trailing `judged_by`
-        # wraps causal/emergence expressions instead of being swallowed
-        # into their right-hand side.
+        # ALL authored forms (judged_by, logical connectives, causal markers,
+        # EMRG, dynamics, note, declare, predicates) are handled by the
+        # expression text parser, which enforces the EBNF A.9 nesting order —
+        # in particular Expr ::= JudgedExpr (line 1232), so a trailing
+        # `judged_by` wraps causal/emergence/note/declaration expressions
+        # instead of being swallowed into their right-hand side. `note` and
+        # `declare` are CoreExprs (lines 1246-1247, 1258-1263) dispatched by
+        # `_parse_core_expr_text` AFTER the judged_by/logical splits; the
+        # former top-level early-exits to `_parse_note`/`_parse_declaration`
+        # bypassed those splits, crashing on `note "x" judged_by k` and
+        # leaking `judged_by`/operator text into DeclarationExpr.declaredAs
+        # (fixed per review advisory 1,
+        # .armature/reviews/m7-t2-normalizer-precedence.md).
         return self._parse_expr_text(self._join_tokens(tokens))
+
+    def _warn_boundary_operator_predicates(
+        self,
+        claim_id: str,
+        expr: Any,
+        diagnostics: list[dict[str, Any]],
+        *,
+        source_tree: Tree[Any],
+    ) -> None:
+        """Warn when a claim expression retains a word operator at a boundary.
+
+        A word operator at the very start or end of a (sub)expression —
+        `AND b`, `a AND` — has no operand on that side, which no EBNF A.9
+        production derives (AndExpr ::= UnaryExpr { AndOp UnaryExpr }, line
+        1238, and likewise lines 1235-1237; the prefix NotOp, line 1239-1240,
+        requires a following CoreExpr). The permissive pipeline keeps such
+        text as an atomic predicate name rather than hard-failing, so this
+        walk inspects the normalized claim expression for PredicateExpr names
+        that begin or end with an operator token and emits an
+        `expr_malformed_operator` warning for each (NORM-002; review
+        advisory 2, .armature/reviews/m7-t2-normalizer-precedence.md).
+
+        Only multi-word names are flagged: a bare single-word name equal to an
+        operator spelling (e.g. a predicate literally named `AND`) is still a
+        lexically valid Ident (line 1013) and carries no swallowed operand.
+        Symbol spellings never reach a boundary silently — an empty operand
+        beside them already raises a missing-operand error in
+        `_parse_expr_text`.
+        """
+        for predicate in self._iter_predicate_nodes(expr):
+            token = self._boundary_operator_token(predicate.name)
+            if token is None:
+                continue
+            self._append_diagnostic(
+                diagnostics,
+                severity="warning",
+                subject=claim_id,
+                code="expr_malformed_operator",
+                message=(
+                    f"Claim '{claim_id}' expression retains the bare word operator "
+                    f"'{token}' at a boundary of predicate name {predicate.name!r}; "
+                    "word operators require an operand on each side (EBNF A.9 "
+                    "lines 1235-1240), so the text was kept verbatim as an atomic "
+                    "predicate name."
+                ),
+                source_node=source_tree,
+            )
+
+    def _iter_predicate_nodes(self, node: Any) -> list[PredicateExprNode]:
+        """Collect every PredicateExprNode in an expression tree, depth-first.
+
+        Traversal order is deterministic (model field declaration order, list
+        order), preserving NORM-001 for the diagnostics this feeds.
+        """
+        found: list[PredicateExprNode] = []
+        self._collect_predicate_nodes(node, found)
+        return found
+
+    def _collect_predicate_nodes(self, value: Any, found: list[PredicateExprNode]) -> None:
+        if isinstance(value, BaseModel):
+            if isinstance(value, PredicateExprNode):
+                found.append(value)
+            for field_name in type(value).model_fields:
+                self._collect_predicate_nodes(getattr(value, field_name), found)
+        elif isinstance(value, list):
+            for item in value:
+                self._collect_predicate_nodes(item, found)
+
+    def _boundary_operator_token(self, name: str) -> str | None:
+        """Return the word operator sitting at a boundary of `name`, else None."""
+        for word in self._WORD_OPERATOR_TOKENS:
+            if name.startswith(f"{word} ") or name.endswith(f" {word}"):
+                return word
+        return None
 
     def _parse_note(self, tokens: list[str]) -> NoteExprNode:
         note_text = self._join_tokens(tokens[1:]).strip()
@@ -932,14 +1026,20 @@ class Normalizer:
             within=within,
         )
 
-    def _parse_causal(self, tokens: list[str], index: int) -> CausalExprNode:
-        marker = tokens[index]
+    def _parse_causal(self, lhs_text: str, marker: str, rhs_text: str) -> CausalExprNode:
+        """Build a CausalExpr per EBNF A.9 line 1249 from a top-level split.
+
+        `CausalExpr ::= SimpleExpr CausalOp SimpleExpr [ InterventionClause ]`
+        with `CausalOp ::= "⇒[obs]" | "=>[obs]" | "⇒[do]" | "=>[do]"`
+        (line 1250). The split arrives from `_find_causal_split`, which is
+        whitespace-independent, so both `x =>[obs] y` and `x=>[obs]y`
+        reach this builder (review advisory 3,
+        .armature/reviews/m7-t2-normalizer-precedence.md).
+        """
         match = self._CAUSAL_RE.fullmatch(marker)
         if match is None:
             raise NormalizationError(f"invalid causal marker '{marker}'")
-        lhs_tokens = tokens[:index]
-        rhs_tokens = tokens[index + 1 :]
-        if not lhs_tokens or not rhs_tokens:
+        if not lhs_text or not rhs_text:
             raise NormalizationError("causal expressions require both lhs and rhs expressions")
 
         intervention = match.group("intervention")
@@ -957,8 +1057,8 @@ class Normalizer:
             "causal expression",
             node="CausalExpr",
             mode=match.group("mode"),
-            lhs=self._parse_expr_text(self._join_tokens(lhs_tokens)),
-            rhs=self._parse_expr_text(self._join_tokens(rhs_tokens)),
+            lhs=self._parse_expr_text(lhs_text),
+            rhs=self._parse_expr_text(rhs_text),
             intervention=parsed_intervention,
         )
 
@@ -1003,26 +1103,36 @@ class Normalizer:
             "emergence expression",
             node="EmergenceExpr",
             property=self._parse_expr_text(self._join_tokens(property_tokens)),
-            onset=self._parse_dynamic(onset_tokens),
+            onset=self._parse_dynamic(self._join_tokens(onset_tokens)),
             persistsWhile=persists_while,
             dissolvesWhen=dissolves_when,
         )
 
-    def _parse_dynamic(self, tokens: list[str]) -> DynamicExprNode | Any:
-        if "-->" not in tokens:
-            return self._parse_expr_text(self._join_tokens(tokens))
-        index = tokens.index("-->")
-        subject_tokens = tokens[:index]
-        target_tokens = tokens[index + 1 :]
-        if not subject_tokens or not target_tokens:
+    def _parse_dynamic(self, text: str) -> DynamicExprNode | Any:
+        """Parse text that MAY carry a top-level `-->` DynamicOp (EBNF line 1266).
+
+        Used for emergence onset clauses, which are Exprs when no dynamic
+        marker is present. Marker detection is whitespace-independent (see
+        `_find_dynamic_split`).
+        """
+        split = self._find_dynamic_split(text)
+        if split is None:
+            return self._parse_expr_text(text)
+        return self._build_dynamic(*split)
+
+    def _build_dynamic(self, subject_text: str, target_text: str) -> DynamicExprNode:
+        """Build a DynamicExpr per EBNF A.9 line 1265:
+        `DynamicExpr ::= Term DynamicOp [ TermOrExpr ]` with the `-->`
+        spelling of DynamicOp (line 1266) normalized to op="approaches"."""
+        if not subject_text or not target_text:
             raise NormalizationError("dynamic authored forms require both a subject and target")
         return self._build_model(
             DynamicExprNode,
             "dynamic expression",
             node="DynamicExpr",
             op="approaches",
-            subject=self._parse_term_text(self._join_tokens(subject_tokens)),
-            target=self._parse_arg_text(self._join_tokens(target_tokens)),
+            subject=self._parse_term_text(subject_text),
+            target=self._parse_arg_text(target_text),
         )
 
     def _parse_expr_text(self, text: str) -> Any:
@@ -1101,14 +1211,25 @@ class Normalizer:
         return self._parse_core_expr_text(text)
 
     def _parse_core_expr_text(self, text: str) -> Any:
-        """Parse a CoreExpr per EBNF A.9::
+        """Parse a CoreExpr per EBNF A.9 (lines 1246-1247)::
 
             CoreExpr ::= CausalExpr | EmergenceExpr | DeclarationExpr
                        | NoteExpr | DynamicExpr | PredicateExpr | "(" Expr ")" ;
 
         The text reaching this stage has no top-level judged_by/logical
-        operators, so marker-led forms are located by splitting the text into
-        top-level surface words and dispatching to the dedicated parsers.
+        operators. Keyword-led forms (`note`, `declare`, EMRG) are dispatched
+        from the top-level surface words; the causal `=>[obs]`/`=>[do]`
+        (CausalOp, line 1250) and dynamic `-->` (DynamicOp, line 1266) markers
+        are located by whitespace-independent top-level text scans, so
+        `x=>[obs]y` and `a-->|0:b|` parse identically to their spaced
+        spellings (review advisory 3,
+        .armature/reviews/m7-t2-normalizer-precedence.md). The scans cannot
+        collide with grammar-valid predicate names: `Ident ::= Letter
+        { Letter | Digit | "_" | "-" }` (line 1013) admits `-` but never `>`
+        or `=`, so neither marker can occur inside a valid Ident. Reference
+        ids carry no such charset guarantee, so `|0:...|`/`|inf:...|`/`|∞:...|`
+        spans are additionally shielded from every top-level scan by
+        `_scan_top_level_matches` (m7-t2b review Finding 1).
         """
         if self._is_wrapped_expression(text):
             return self._parse_expr_text(text[1:-1].strip())
@@ -1121,11 +1242,13 @@ class Normalizer:
                 return self._parse_declaration(words)
             if "EMRG" in words:
                 return self._parse_emergence(words)
-            causal_index = self._find_causal_index(words)
-            if causal_index is not None:
-                return self._parse_causal(words, causal_index)
-            if "-->" in words:
-                return self._parse_dynamic(words)
+
+        causal_split = self._find_causal_split(text)
+        if causal_split is not None:
+            return self._parse_causal(*causal_split)
+        dynamic_split = self._find_dynamic_split(text)
+        if dynamic_split is not None:
+            return self._build_dynamic(*dynamic_split)
 
         if self._looks_like_call(text):
             name, args_text = text.split("(", 1)
@@ -1218,11 +1341,47 @@ class Normalizer:
         """
         parts: list[str] = []
         start = 0
+        for index, length in self._scan_top_level_matches(text, matcher):
+            parts.append(text[start:index].strip())
+            start = index + length
+        parts.append(text[start:].strip())
+        return parts
+
+    def _scan_top_level_matches(self, text: str, matcher: Any) -> list[tuple[int, int]]:
+        """Return every top-level `(index, length)` match reported by `matcher`.
+
+        `matcher(text, index)` returns the number of characters the match
+        occupies at `index` (0 for no match). Occurrences inside parentheses,
+        brackets, braces, string quotes, or `|...|` reference spans are never
+        reported, and scanning resumes after each match so matches never
+        overlap. Shared by the operator splitter and the whitespace-independent
+        causal/dynamic marker finders so all top-level scans use one shielding
+        state machine.
+
+        Pipe-span rule (m7-t2b review Finding 1,
+        .armature/reviews/m7-t2b-claim-forms.md): baseline and unbound
+        reference terms — `BaselineRef ::= "|0:" Ident "|"`, `UnboundRef ::=
+        "|∞:" Ident "|" | "|inf:" Ident "|"` (EBNF A.9 lines 1279-1280) — are
+        consumed verbatim as single terms by `_parse_arg_text`, and this
+        normalizer imposes no charset restriction on the reference id, so
+        marker/operator-shaped substrings inside them (e.g.
+        `|0:some=>[obs]weird|`, `|0:a AND b|`) must never split. `|` is its
+        own closer, so a span is tracked as a boolean: it OPENS only at a `|`
+        immediately followed by `0:`, `inf:`, or `∞:` (the only reference
+        sigils, per the EBNF above) and CLOSES at the next `|`. Restricting
+        the opening to plausible reference sigils keeps a stray `|` elsewhere
+        in the text (e.g. a lone `|` or `||` token) from swallowing the rest
+        of the scan. Span content is treated as fully opaque — nested
+        delimiters inside it do not touch the depth counters, mirroring how
+        `_parse_arg_text` consumes the span without interpreting it.
+        """
+        matches: list[tuple[int, int]] = []
         paren_depth = 0
         bracket_depth = 0
         brace_depth = 0
         quote: str | None = None
         escape = False
+        pipe_span = False
         index = 0
 
         while index < len(text):
@@ -1234,6 +1393,20 @@ class Normalizer:
                     escape = True
                 elif char == quote:
                     quote = None
+                index += 1
+                continue
+
+            if pipe_span:
+                if char == "|":
+                    pipe_span = False
+                index += 1
+                continue
+            if char == "|" and (
+                text.startswith("0:", index + 1)
+                or text.startswith("inf:", index + 1)
+                or text.startswith("∞:", index + 1)
+            ):
+                pipe_span = True
                 index += 1
                 continue
 
@@ -1255,14 +1428,12 @@ class Normalizer:
             if paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
                 matched = matcher(text, index)
                 if matched:
-                    parts.append(text[start:index].strip())
+                    matches.append((index, matched))
                     index += matched
-                    start = index
                     continue
             index += 1
 
-        parts.append(text[start:].strip())
-        return parts
+        return matches
 
     def _split_words(self, text: str) -> list[str]:
         """Split expression text into top-level surface words.
@@ -1606,11 +1777,106 @@ class Normalizer:
             )
         return tokens[0], tokens[1:]
 
-    def _find_causal_index(self, tokens: list[str]) -> int | None:
-        matches = [index for index, token in enumerate(tokens) if self._CAUSAL_RE.fullmatch(token)]
+    def _find_causal_split(self, text: str) -> tuple[str, str, str] | None:
+        """Locate a top-level CausalOp marker; return (lhs, marker, rhs) or None.
+
+        `CausalOp ::= "⇒[obs]" | "=>[obs]" | "⇒[do]" | "=>[do]"` (EBNF A.9
+        line 1250; this normalizer supports the ASCII spellings). The scan is
+        whitespace-independent — `x=>[obs]y` splits the same as
+        `x =>[obs] y` — and cannot be ambiguous: the `=>[` lead-in shares no
+        prefix with ImplOp `->` (line 1243), and `Ident` (line 1013) admits
+        neither `=` nor `>`, so no grammar-valid predicate name contains it
+        (review advisory 3, .armature/reviews/m7-t2-normalizer-precedence.md).
+        Baseline/unbound reference spans (`|0:...|` etc., lines 1279-1280),
+        whose ids are NOT charset-restricted, are shielded by
+        `_scan_top_level_matches` so a marker-shaped substring inside one can
+        never split (m7-t2b review Finding 1).
+        """
+        matches = self._scan_top_level_matches(text, self._match_causal_marker)
+        if not matches:
+            return None
         if len(matches) > 1:
             raise NormalizationError("causal expressions may only contain one causal operator")
-        return matches[0] if matches else None
+        index, length = matches[0]
+        return (
+            text[:index].strip(),
+            text[index : index + length],
+            text[index + length :].strip(),
+        )
+
+    def _match_causal_marker(self, text: str, index: int) -> int:
+        """Return the length of the CausalOp marker starting at `index`, or 0.
+
+        A marker starts with `=>[` and runs to the bracket-matched `]`
+        (interventions may nest brackets or quote strings); the whole span
+        must match `_CAUSAL_RE` (`=>[obs]`, `=>[do]`, `=>[do:<intervention>]`).
+        """
+        if not text.startswith("=>[", index):
+            return 0
+        depth = 0
+        quote: str | None = None
+        escape = False
+        for pos in range(index + 2, len(text)):
+            char = text[pos]
+            if quote is not None:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == quote:
+                    quote = None
+                continue
+            if char in {'"', "'"}:
+                quote = char
+            elif char == "[":
+                depth += 1
+            elif char == "]":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[index : pos + 1]
+                    return len(candidate) if self._CAUSAL_RE.fullmatch(candidate) else 0
+        return 0
+
+    def _find_dynamic_split(self, text: str) -> tuple[str, str] | None:
+        """Locate the first top-level `-->` DynamicOp; return (subject, target) or None.
+
+        `DynamicOp ::= "⟶" | "-->" | ...` (EBNF A.9 line 1266; this
+        normalizer supports the ASCII `-->` spelling, normalized to
+        op="approaches"). The scan is whitespace-independent — `a-->|0:b|`
+        splits the same as `a --> |0:b|` — and is guarded against the two
+        neighboring token families (review advisory 3,
+        .armature/reviews/m7-t2-normalizer-precedence.md):
+
+        - ImplOp `->` (line 1243) is a shorter, distinct token: it cannot
+          contain `-->`, and `_match_logical_operator` already refuses `->`
+          when adjacent to another `-`/`<`/`>`, so `a->b` stays IMPLIES and
+          `a-->b` reaches this scan un-split.
+        - Predicate names may contain `-` (`Ident ::= Letter { Letter | Digit
+          | "_" | "-" }`, line 1013) but never `>`, so no grammar-valid name
+          contains `-->`; hyphenated names such as `well-formed` are
+          unaffected. Longer dash-arrow runs (`a--->b`, `<-->`, `-->>`) are
+          not derivable from the EBNF and are deliberately NOT treated as
+          DynamicOps: the match refuses a preceding `-`/`<` and a following
+          `>`, so such text stays an opaque predicate name.
+        - Reference-span content (`|0:...|` etc., lines 1279-1280) is shielded
+          by `_scan_top_level_matches` (m7-t2b review Finding 1).
+        """
+        matches = self._scan_top_level_matches(text, self._match_dynamic_marker)
+        if not matches:
+            return None
+        index, length = matches[0]
+        return text[:index].strip(), text[index + length :].strip()
+
+    def _match_dynamic_marker(self, text: str, index: int) -> int:
+        """Return 3 when exactly `-->` (not a longer arrow run) starts at `index`."""
+        if not text.startswith("-->", index):
+            return 0
+        before = text[index - 1] if index > 0 else ""
+        after_index = index + 3
+        after = text[after_index] if after_index < len(text) else ""
+        if before in {"-", "<"} or after == ">":
+            return 0
+        return 3
 
     def _parse_scalar_tokens(self, tokens: list[str]) -> str:
         return self._parse_scalar_text(self._join_tokens(tokens))
