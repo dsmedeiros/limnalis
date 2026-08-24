@@ -383,3 +383,17 @@ Validation: PASS
 **Circuit breaker:** 1 remediation cycle used (of 3) on T2b; none elsewhere.
 **State:** 998 tests passing (910 → +56 T2b → +22 T3/T4 → +10 remediation), 16/16 vendored conformance, vendored artifacts byte-unchanged. Orchestrator independently verified the combined tree mid-wave (988 at the pre-remediation point) — both implementers had validated in isolation only.
 **Approved by:** Orchestrator (all reviewer verdicts received)
+
+## 2026-08-23 — M7 Wave 3 complete: extension corpus, Track C paradox gallery, documentation
+
+**Event:** Wave completion (T5, T6, T7 — Incremental Review Protocol, three checkpoints, one implementer)
+**T5 (ckpt 1, commit f23f44f):** Project-authored extension corpus (cases D1–D6) validating 0-errors against the immutable vendored schema (track pinned to A by schema enum — documented). Connectives computed LIVE via atom-level fixture bindings (B∧N=F through real sub-expression evaluation); truth-discriminating unparenthesized-precedence cases; the consolidated spec's §17.2 A11 narrative realized with both shared_state configurations; claim_subset case. Gated live-services runner path proven byte-identical on vendored output (worktree diff). Canary proves the corpus computes rather than echoes. Reviewer PASS_WITH_ADVISORIES; scoped conformance/agents.md created per advisory.
+**T6 (ckpt 2, commit 824142e):** Track C paradox-forensics cases C1–C4 (liar, Schwarzschild, decoherence cat, Banach–Tarski) + four example bundles (byte-identity test-enforced). All algebra pins hand-verified by the reviewer from spec formulas. Flagship N∧B=F fires in C1's live block fold. Seven implementation-delta pins documented in corpus ast_decisions. Reviewer PASS_WITH_ADVISORIES.
+**T7 (ckpt 3):** docs/paradox_gallery.md (layer-taxonomy reading, per-case verdict tables verbatim from pins, precision notes on all implementation-vocabulary divergences, limits paragraph) + one-line README link + doc-drift canary. Reviewer PASS_WITH_ADVISORIES with one required fix (two license table cells understating vacuous T licenses) — applied and probe-verified.
+**New ledger discoveries from live exercise (pre-existing gaps, documented in corpus ast_decisions and gallery doc; candidates for a future milestone):**
+- The spec's §8.5 reason code `not_yet_applicable` is absent from the implementation, which emits `no_adequacy_result` (not a §8.5 name) and `missing_binding` for the situations §9.2/§16.6.4 assign to it.
+- `|inf:...|` / `|∞:...|` unbound references are defined by the recovered EBNF but rejected by the normalizer (only `|0:...|` supported).
+- `assumption` declarations have AST/schema support but no surface grammar in the normalizer.
+**State:** 1022 tests passing, extension corpus 10/10 PASS, vendored conformance 16/16, vendored artifacts byte-unchanged throughout the milestone.
+**Next:** milestone-wide red team over the full M7 changeset (required: critical invariants touched).
+**Approved by:** Orchestrator (all three checkpoint verdicts received)

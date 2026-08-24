@@ -16,10 +16,10 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 | T4 | EvaluationSession.shared_state (§16.6.3) | completed — reviewer PASS_WITH_ADVISORIES | wave-2 |
 | T5 | Extension corpus: connective/precedence coverage + spec-A11 case | completed — reviewer PASS_WITH_ADVISORIES (ckpt 1) | wave-3 |
 | T6 | Extension corpus: Track C paradox bundles (C1–C4) | completed — reviewer PASS_WITH_ADVISORIES (ckpt 2) | wave-3 |
-| T7 | Paradox gallery doc | pending | wave-3 |
+| T7 | Paradox gallery doc | completed — reviewer PASS_WITH_ADVISORIES (ckpt 3; required 2-cell fix applied) | wave-3 |
 
 ## Active Delegation
-Wave 3 checkpoint 1 (T5 coverage cases) delegated under the Incremental Review Protocol — single implementer, three checkpoints (T5 → T6 → T7), reviewer + commit per checkpoint. Wave 2 closed: T2b PASS after one remediation cycle (ref-span shielding; strict improvement over HEAD), T3+T4 PASS_WITH_ADVISORIES committed a393de4. Tree at 998 tests passing, 16/16 vendored conformance.
+Milestone-wide RED TEAM over the full M7 changeset (0994537..HEAD) — required gate (critical invariants NORM-001, RUNTIME-*, FIXTURE-001-adjacent). All implementation waves complete: 1022 tests passing, extension corpus 10/10, vendored conformance 16/16 byte-unchanged.
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).

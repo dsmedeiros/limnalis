@@ -404,6 +404,23 @@ class TestParadoxExamples:
             assert code == 0, f"CLI normalize failed for {filename}"
 
 
+class TestParadoxGalleryDoc:
+    """Doc-drift canary: the gallery doc tracks the Track C artifacts."""
+
+    def test_gallery_doc_names_all_cases_and_examples(self):
+        doc_path = fixtures_dir().parent / "docs" / "paradox_gallery.md"
+        assert doc_path.is_file(), "docs/paradox_gallery.md is missing"
+        text = doc_path.read_text(encoding="utf-8")
+        for case_id in PARADOX_EXAMPLE_FILES:
+            assert f"`{case_id}`" in text, (
+                f"paradox_gallery.md no longer mentions case {case_id}"
+            )
+        for filename in PARADOX_EXAMPLE_FILES.values():
+            assert filename in text, (
+                f"paradox_gallery.md no longer points at examples/{filename}"
+            )
+
+
 # ---------------------------------------------------------------------------
 # (d) Canary: atoms_v2 evaluates ATOMS (composition != claim-id keying)
 # ---------------------------------------------------------------------------

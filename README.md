@@ -28,7 +28,7 @@ bundle minimal_bundle {
 
 This bundle declares a single claim `c1: p` evaluated by `ev0` within the `@Test:Minimal::nominal` frame. Running `limnalis evaluate` on it produces a full result hierarchy — from bundle-level summaries down to per-claim truth values.
 
-For a deeper introduction, see the [Getting Started guide](docs/getting_started.md). For how the 13-phase evaluation pipeline works, see [How Evaluation Works](docs/how_evaluation_works.md). For the full architecture, see [Architecture Overview](docs/architecture.md). The upstream language specification and conformance matrix are in [`spec/`](spec/).
+For a deeper introduction, see the [Getting Started guide](docs/getting_started.md). For how the 13-phase evaluation pipeline works, see [How Evaluation Works](docs/how_evaluation_works.md). For the full architecture, see [Architecture Overview](docs/architecture.md). For classic paradoxes encoded as claim bundles, see the [Track C Paradox Gallery](docs/paradox_gallery.md). The upstream language specification and conformance matrix are in [`spec/`](spec/).
 
 ## Language Concepts
 
