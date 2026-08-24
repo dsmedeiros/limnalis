@@ -1,0 +1,42 @@
+bundle C3_decoherence_cat {
+  frame {
+    system Quantum;
+    namespace DecoherenceLab;
+    scale micro;
+    task state_assignment;
+    regime pre_measurement;
+  }
+
+  evaluator ev_unitary {
+    kind model;
+    role primary;
+    binding test://paradox/eval/unitary_v1;
+  }
+
+  evaluator ev_collapse {
+    kind model;
+    role adversarial;
+    binding test://paradox/eval/collapse_v1;
+  }
+
+  resolution_policy rp_panel {
+    kind paraconsistent_union;
+    members [ev_unitary, ev_collapse];
+  }
+
+  bridge b_amplify {
+    from @{system=Quantum, namespace=DecoherenceLab, scale=micro, task=state_assignment};
+    to @{system=Quantum, namespace=DecoherenceLab, scale=macro, task=state_assignment, regime=post_measurement};
+    via test://paradox/bridge/amplification_v1;
+    preserve [pointer_states];
+    lose [phase_coherence];
+    transport {
+      mode degrade;
+    }
+  }
+
+  local {
+    c_super: superposed(cat);
+    c_coherent: interference_pattern(cat) requires [phase_coherence];
+  }
+}

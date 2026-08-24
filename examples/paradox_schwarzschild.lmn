@@ -1,0 +1,60 @@
+bundle C2_schwarzschild_forensics {
+  frame {
+    system Spacetime;
+    namespace SchwarzschildGR;
+    scale global;
+    task prediction;
+    regime exterior_vacuum;
+  }
+
+  evaluator ev_gr {
+    kind model;
+    binding test://paradox/eval/gr_semiclassical_v1;
+  }
+
+  resolution_policy rp0 {
+    kind single;
+    members [ev_gr];
+  }
+
+  anchor a_smooth_manifold {
+    term symbol smooth_lorentzian_manifold;
+    subtype idealization;
+    status active;
+
+    adequacy {
+      id aa_pred;
+      task prediction;
+      producer gw_observatory;
+      score 0.99;
+      threshold 0.95;
+      method test://paradox/method/gw_waveforms_v1;
+    }
+
+    adequacy {
+      id aa_core;
+      task description;
+      producer qg_program;
+      score N;
+      threshold 0.90;
+      method test://paradox/method/qg_tbd_v1;
+    }
+  }
+
+  bridge b_to_core {
+    from @{system=Spacetime, namespace=SchwarzschildGR, scale=global, task=prediction};
+    to @{system=Spacetime, namespace=QuantumGravity, scale=planck, task=description, regime=singular};
+    via test://paradox/bridge/naive_extrapolation_v1;
+    preserve [causal_structure];
+    lose [semiclassical_validity];
+    transport {
+      mode degrade;
+    }
+  }
+
+  local {
+    c1: geodesically_incomplete(interior_geodesics) uses [a_smooth_manifold];
+    c2: curvature --> divergence_within_finite_time;
+    c3: infinite_density(r_zero) requires [semiclassical_validity] uses [a_smooth_manifold] annotations {"license_task": "description"};
+  }
+}

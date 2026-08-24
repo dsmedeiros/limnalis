@@ -1,0 +1,56 @@
+bundle C4_banach_tarski {
+  frame {
+    system Mathematics;
+    namespace ZFCSetTheory;
+    scale theorem;
+    task derivation;
+    regime formal;
+  }
+
+  evaluator ev_zfc {
+    kind model;
+    role primary;
+    binding test://paradox/eval/zfc_v1;
+  }
+
+  evaluator ev_zf {
+    kind model;
+    role auxiliary;
+    binding test://paradox/eval/zf_v1;
+  }
+
+  resolution_policy rp_panel {
+    kind paraconsistent_union;
+    members [ev_zfc, ev_zf];
+  }
+
+  anchor a_choice {
+    term symbol axiom_of_choice;
+    subtype placeholder;
+    status active;
+  }
+
+  anchor a_volume {
+    term symbol lebesgue_volume;
+    subtype proxy;
+    status active;
+
+    adequacy {
+      id aa_vol;
+      task measure_theoretic_volume;
+      producer measure_theory;
+      score 0.98;
+      threshold 0.90;
+      method test://paradox/method/lebesgue_measure_v1;
+    }
+  }
+
+  local {
+    c1: duplicable(sphere);
+    c2: volume_preserved(sphere) uses [a_volume];
+  }
+
+  meta {
+    m1: note "ASSUMPTION (active): axiom_of_choice -- the duplication derivation is choice-dependent; recorded as the active placeholder anchor a_choice because the surface grammar has no assumption-block form.";
+  }
+}

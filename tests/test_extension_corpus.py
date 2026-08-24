@@ -12,6 +12,11 @@ closes the coverage gaps the vendored corpus is blind to (spec §17.4):
   (test://baseline/by_context_v1), and EvaluationStep.claim_subset
   (§16.2.1).
 
+Track C (milestone 7, T6) adds the four paradox-forensics cases C1..C4
+(liar, Schwarzschild, decoherence cat, Banach-Tarski), each mirrored as an
+examples/paradox_*.lmn bundle whose source is byte-identical to the corpus
+source field.
+
 Contract enforced here:
 (a) the extension corpus validates against the VENDORED fixture-corpus
     schema with zero errors;
@@ -20,7 +25,9 @@ Contract enforced here:
     (load_corpus + run_case + compare_case) and passes with zero
     mismatches;
 (d) a canary proves test://eval/atoms_v2 evaluates ATOMS — composition is
-    computed, not claim-id keyed.
+    computed, not claim-id keyed;
+(e) the paradox example bundles match their corpus sources and normalize
+    through the CLI.
 """
 
 from __future__ import annotations
@@ -48,7 +55,19 @@ from limnalis.schema import collect_validation_errors, fixtures_dir
 EXTENSION_CORPUS_YAML = fixtures_dir() / "limnalis_extension_corpus_v0.1.yaml"
 EXTENSION_CORPUS_JSON = fixtures_dir() / "limnalis_extension_corpus_v0.1.json"
 
-EXTENSION_CASE_IDS = ["D1", "D2", "D3", "D4", "D5", "D6"]
+EXTENSION_CASE_IDS = [
+    "D1", "D2", "D3", "D4", "D5", "D6",
+    "C1", "C2", "C3", "C4",
+]
+
+EXAMPLES_DIR = fixtures_dir().parent / "examples"
+
+PARADOX_EXAMPLE_FILES = {
+    "C1": "paradox_liar.lmn",
+    "C2": "paradox_schwarzschild.lmn",
+    "C3": "paradox_decoherence_cat.lmn",
+    "C4": "paradox_banach_tarski.lmn",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +116,12 @@ class TestExtensionCorpusSchema:
 
     def test_track_labels_respect_vendored_enum(self):
         """The vendored schema pins track to the enum ["A", "B"]; extension
-        cases carry track "A" with the reserved D id prefix (documented in
-        the corpus meta.purpose and ast_decisions)."""
+        cases carry track "A" with the reserved D/C id prefixes (documented
+        in the corpus meta.purpose and ast_decisions)."""
         data = yaml.safe_load(EXTENSION_CORPUS_YAML.read_text(encoding="utf-8"))
         for case in data["cases"]:
             assert case["track"] == "A"
-            assert case["id"].startswith("D")
+            assert case["id"][0] in ("D", "C")
 
     def test_all_fixture_bindings_use_test_scheme(self):
         data = yaml.safe_load(EXTENSION_CORPUS_YAML.read_text(encoding="utf-8"))
@@ -256,6 +275,133 @@ class TestExtensionCasesConformance:
                 result1.bundle_result.model_dump()
                 == result2.bundle_result.model_dump()
             ), f"non-deterministic results for {case.id}"
+
+
+# ---------------------------------------------------------------------------
+# Track C paradox-forensics cases (milestone 7, T6)
+# ---------------------------------------------------------------------------
+
+
+class TestParadoxCasesConformance:
+    """C1..C4 through the live conformance machinery, zero mismatches."""
+
+    def test_c1_liar_forensics(self, extension_corpus):
+        """Flagship: block(meta) folds the evaluable set {l1=N, l3=B} to F
+        (B-and-N-present rule) through live per-evaluator folding; the note
+        l0 is non-evaluable and excluded from the fold."""
+        result = _run_and_compare(extension_corpus, "C1")
+        step = result.bundle_result.session_results[0].step_results[0]
+
+        assert step.per_claim_classifications["l0"].evaluable is False
+        assert step.per_claim_aggregates["l1"].truth == "N"
+        assert step.per_claim_aggregates["l1"].reason == "undefined_term"
+        assert step.per_claim_aggregates["l3"].truth == "B"
+        assert step.per_claim_aggregates["l3"].reason == "self_reference"
+        # N AND B = F, computed by the live block fold over {l1, l3} only.
+        assert step.per_block_aggregates["meta#1"].truth == "F"
+        # Placeholder anchor with zero assessments: live license vocabulary.
+        assert step.per_claim_licenses["l1"].overall.truth == "N"
+        assert step.per_claim_licenses["l1"].overall.reason == "no_adequacy_result"
+
+    def test_c2_schwarzschild_forensics(self, extension_corpus):
+        """Attested adequacy licenses the prediction claim; the registered
+        score-N method pins N[missing_binding]; degrade transport pins
+        N[transport_loss] via the builtin section 10.2 rules."""
+        result = _run_and_compare(extension_corpus, "C2")
+        step = result.bundle_result.session_results[0].step_results[0]
+
+        # c2 is a live DynamicExpr evaluation (op=approaches).
+        bundle = result.bundle
+        claims = {c.id: c for blk in bundle.claimBlocks for c in blk.claims}
+        assert claims["c2"].expr.node == "DynamicExpr"
+        assert claims["c2"].expr.op == "approaches"
+
+        assert step.per_claim_licenses["c1"].overall.truth == "T"
+        assert step.per_claim_licenses["c3"].overall.truth == "N"
+        assert step.per_claim_licenses["c3"].overall.reason == "missing_binding"
+
+        transport = step.transport_results["q_core"]
+        assert transport.status == "degraded"
+        assert transport.dstAggregate.truth == "N"
+        assert transport.dstAggregate.reason == "transport_loss"
+
+    def test_c3_decoherence_cat(self, extension_corpus):
+        """Two-evaluator panel splits live (T vs F) into
+        B[evaluator_conflict]; blocks fold per evaluator FIRST; the
+        coherence-requiring claim degrades to N[transport_loss]."""
+        result = _run_and_compare(extension_corpus, "C3")
+        step = result.bundle_result.session_results[0].step_results[0]
+
+        per_ev = step.per_claim_per_evaluator["c_super"]
+        assert per_ev["ev_unitary"].truth == "T"
+        assert per_ev["ev_collapse"].truth == "F"
+        agg = step.per_claim_aggregates["c_super"]
+        assert (agg.truth, agg.reason, agg.support) == (
+            "B", "evaluator_conflict", "conflicted"
+        )
+
+        # Per-evaluator-first block fold: T (unitary) vs F (collapse) -> B.
+        block_per_ev = step.per_block_per_evaluator["local#1"]
+        assert block_per_ev["ev_unitary"].truth == "T"
+        assert block_per_ev["ev_collapse"].truth == "F"
+        assert step.per_block_aggregates["local#1"].truth == "B"
+
+        transport = step.transport_results["q_amplify"]
+        assert transport.status == "degraded"
+        assert transport.dstAggregate.truth == "N"
+        assert transport.dstAggregate.reason == "transport_loss"
+
+    def test_c4_banach_tarski(self, extension_corpus):
+        """The per_evaluator split (ZFC: T, choiceless ZF:
+        N[missing_binding]) is the pinned disclosure; paraconsistent_union
+        joins T+N to T and inherits the unique missing_binding reason; the
+        proxy volume anchor licenses N outside its assessed task."""
+        result = _run_and_compare(extension_corpus, "C4")
+        step = result.bundle_result.session_results[0].step_results[0]
+
+        per_ev = step.per_claim_per_evaluator["c1"]
+        assert per_ev["ev_zfc"].truth == "T"
+        assert per_ev["ev_zf"].truth == "N"
+        assert per_ev["ev_zf"].reason == "missing_binding"
+        agg = step.per_claim_aggregates["c1"]
+        assert (agg.truth, agg.reason) == ("T", "missing_binding")
+
+        assert step.per_claim_licenses["c2"].overall.truth == "N"
+        assert step.per_claim_licenses["c2"].overall.reason == "no_adequacy_result"
+
+        # AC disclosure travels as an ACTIVE placeholder anchor (the surface
+        # grammar has no assumption-block form) plus a meta note claim.
+        bundle = result.bundle
+        anchors = {a.id: a for a in bundle.anchors}
+        assert anchors["a_choice"].subtype == "placeholder"
+        assert anchors["a_choice"].status == "active"
+        assert anchors["a_choice"].adequacy == []
+        assert step.per_claim_classifications["m1"].evaluable is False
+
+        # Note-only meta block folds to N[empty_block].
+        meta_agg = step.per_block_aggregates["meta#1"]
+        assert (meta_agg.truth, meta_agg.reason) == ("N", "empty_block")
+
+
+class TestParadoxExamples:
+    """examples/paradox_*.lmn mirror the corpus sources exactly."""
+
+    def test_example_files_match_corpus_sources(self, extension_corpus):
+        for case_id, filename in PARADOX_EXAMPLE_FILES.items():
+            case = extension_corpus.get_case(case_id)
+            assert case is not None
+            path = EXAMPLES_DIR / filename
+            assert path.is_file(), f"missing example {path}"
+            assert path.read_text(encoding="utf-8") == case.source + "\n", (
+                f"{filename} diverges from the {case_id} corpus source"
+            )
+
+    def test_example_files_normalize_via_cli(self):
+        from limnalis.cli import main
+
+        for filename in PARADOX_EXAMPLE_FILES.values():
+            code = main(["normalize", str(EXAMPLES_DIR / filename)])
+            assert code == 0, f"CLI normalize failed for {filename}"
 
 
 # ---------------------------------------------------------------------------

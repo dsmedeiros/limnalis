@@ -2,7 +2,7 @@
   "version": "v0.1",
   "meta": {
     "name": "Limnalis extension corpus (project-authored)",
-    "purpose": "Project-authored coverage extension closing the vendored corpus blind spots listed in spec section 17.4: logical connectives computed LIVE through sub-expression evaluation (atom-level fixture bindings, not claim-id keying), unparenthesized operator precedence per the recovered EBNF A.9, and the session semantics added in milestone 7 wave 2 (EvaluationSession.shared_state per section 16.6.3 and EvaluationStep.claim_subset per section 16.2.1), including the consolidated spec section 17.2 A11 narrative (test://baseline/by_context_v1, sessions s_shared/s_isolated) that the vendored A11 case does not pin. TRACK LABELING CONSTRAINT: the vendored fixture-corpus schema pins ConformanceCase.track to the enum [\"A\", \"B\"], so these extension cases carry track \"A\" (the closest legal value: they are feature-focused cases in the track-A style) while their ids use the reserved \"D\" prefix (D1..D6) to keep them unambiguously separate from the vendored A1..A14/B1..B2 cases.",
+    "purpose": "Project-authored coverage extension closing the vendored corpus blind spots listed in spec section 17.4: logical connectives computed LIVE through sub-expression evaluation (atom-level fixture bindings, not claim-id keying), unparenthesized operator precedence per the recovered EBNF A.9, and the session semantics added in milestone 7 wave 2 (EvaluationSession.shared_state per section 16.6.3 and EvaluationStep.claim_subset per section 16.2.1), including the consolidated spec section 17.2 A11 narrative (test://baseline/by_context_v1, sessions s_shared/s_isolated) that the vendored A11 case does not pin. Cases C1..C4 are the Track C paradox-forensics gallery (liar, Schwarzschild, decoherence cat, Banach-Tarski): four bundles with deterministic live fixtures and pinned expectations, also mirrored as examples/paradox_*.lmn. TRACK LABELING CONSTRAINT: the vendored fixture-corpus schema pins ConformanceCase.track to the enum [\"A\", \"B\"], so all extension cases carry track \"A\" (the closest legal value: they are feature-focused cases in the track-A style) while their ids use the reserved \"D\" and \"C\" prefixes (D1..D6, C1..C4) to keep them unambiguously separate from the vendored A1..A14/B1..B2 cases.",
     "phase_order": [
       "resolve references and policies",
       "resolve active frame and evaluator panel",
@@ -28,7 +28,22 @@
     {
       "topic": "Composed-claim reasons under live sub-expression evaluation",
       "status": "settled",
-      "notes": "Live LogicalExpr evaluation composes only truth values: atom-local reasons (e.g. source_conflict on b, undefined_term on n) do NOT propagate to the composed claim result. Extension expectations therefore state reasons only for leaf-level (whole-claim atomic) results. This differs from the vendored corpus, whose claim-id-keyed fixture evaluator echoes reasons for composed claims too."
+      "notes": "Live LogicalExpr evaluation composes only truth values: atom-local reasons (e.g. source_conflict on b, undefined_term on n) do NOT propagate to the composed claim result. Extension expectations therefore state reasons only for leaf-level (whole-claim atomic) results. This differs from the vendored corpus, whose claim-id-keyed fixture evaluator echoes reasons for composed claims too. Under multi-evaluator paraconsistent_union with NO T/F conflict, a single unique evaluator-local reason IS inherited by the aggregate (e.g. C4 c1 aggregates to T with the zf evaluator's missing_binding reason carried as disclosure)."
+    },
+    {
+      "topic": "License reason vocabulary under live compose_license",
+      "status": "settled",
+      "notes": "The live runtime pins the vendored-corpus reason vocabulary, not the consolidated spec section 16.6.4 prose: an anchor with NO adequacy record for the resolved task licenses N[no_adequacy_result] (C1 l1, C4 c2), and an assessment whose score is declared N with no numeric method result yields N[missing_binding] plus an error diagnostic adequacy_method_binding_missing (C2 aa_core, per the vendored ast_decision \"unresolved_method -> N[missing_binding]\"). The spec-sketch spelling N[not_yet_applicable] does not occur in the implementation; extension expectations pin the live values."
+    },
+    {
+      "topic": "Assumption records have no surface-grammar form",
+      "status": "settled",
+      "notes": "AssumptionNode exists in the AST model and schema, but the normalizer has no assumption-block surface syntax (pre-existing gap, unrelated to the milestone 7 wave 1-2 changes). C4 therefore records the axiom of choice as an ACTIVE placeholder anchor (a_choice) plus a meta-stratum note claim; no runtime code was modified."
+    },
+    {
+      "topic": "Baseline reference offsets are fixed at 0",
+      "status": "settled",
+      "notes": "The normalizer accepts only |0:ref| baseline references; the sketched C2 form |inf:finite_time| is not legal surface syntax. C2 c2 pins the declared-unboundedness dynamic as `curvature --> divergence_within_finite_time` (DynamicExpr, op=approaches per the EBNF `-->` spelling) evaluated by a live dynamic-expression handler."
     }
   ],
   "fixtures": [
@@ -98,6 +113,182 @@
       },
       "used_by": [
         "D5"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/liar_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "Liar-forensics evaluator. Predicate leaves resolve by NAME: the predicate \"false\" resolves N[undefined_term] (the liar sentence is an undefined term for the truth evaluator); unknown predicate names also resolve N[undefined_term]. JudgedExpr claims dispatch on the expression's criterionRef against the live criterion pack (see test://paradox/criterion/tarski_gate_v1); an unregistered criterion resolves N[missing_binding].",
+        "predicates": {
+          "false": {
+            "truth": "N",
+            "reason": "undefined_term"
+          }
+        }
+      },
+      "used_by": [
+        "C1"
+      ]
+    },
+    {
+      "id": "test://paradox/criterion/tarski_gate_v1",
+      "type": "criterion_binding",
+      "behavior": {
+        "description": "Tarski-gate self-reference detector for JudgedExpr claims. Returns B[self_reference] when any symbol argument inside the judged inner expression names the enclosing claim's own id (the claim judges itself); otherwise returns T. Deterministic."
+      },
+      "used_by": [
+        "C1"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/gr_semiclassical_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "Semiclassical GR evaluator. Predicate leaves by NAME; DynamicExpr claims by SUBJECT symbol (declared unboundedness is assertable). Unknown names/subjects resolve N[undefined_term].",
+        "predicates": {
+          "geodesically_incomplete": {
+            "truth": "T"
+          },
+          "infinite_density": {
+            "truth": "T"
+          }
+        },
+        "dynamics": {
+          "curvature": {
+            "truth": "T"
+          }
+        }
+      },
+      "used_by": [
+        "C2"
+      ]
+    },
+    {
+      "id": "test://paradox/method/gw_waveforms_v1",
+      "type": "adequacy_method",
+      "behavior": {
+        "description": "Executable adequacy method: recomputes 0.99, agreeing with the attested score (the runtime uses the attested score directly when present).",
+        "computes": 0.99
+      },
+      "used_by": [
+        "C2"
+      ]
+    },
+    {
+      "id": "test://paradox/method/qg_tbd_v1",
+      "type": "adequacy_method",
+      "behavior": {
+        "description": "Registered adequacy method that declares its score not yet computable (returns the non-numeric sentinel \"N\"). The runtime pins the assessment as N[missing_binding] and emits an error diagnostic adequacy_method_binding_missing — the missing-ness IS the verdict (quantum-gravity core description is open).",
+        "computes": "N"
+      },
+      "used_by": [
+        "C2"
+      ]
+    },
+    {
+      "id": "test://paradox/bridge/naive_extrapolation_v1",
+      "type": "bridge_binding",
+      "behavior": {
+        "description": "Degrade-mode bridge carrier for the semiclassical-to-core extrapolation. The runtime's builtin execute_transport implements degrade internally (spec section 10.2 default degradation: T -> N[transport_loss], support partial); the via URI is carried in provenance and registered in the live pack as a marker only."
+      },
+      "used_by": [
+        "C2"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/unitary_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "Unitary-dynamics evaluator for the decoherence-cat panel.",
+        "predicates": {
+          "superposed": {
+            "truth": "T"
+          },
+          "interference_pattern": {
+            "truth": "T"
+          }
+        }
+      },
+      "used_by": [
+        "C3"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/collapse_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "Collapse-postulate evaluator for the decoherence-cat panel.",
+        "predicates": {
+          "superposed": {
+            "truth": "F"
+          },
+          "interference_pattern": {
+            "truth": "T"
+          }
+        }
+      },
+      "used_by": [
+        "C3"
+      ]
+    },
+    {
+      "id": "test://paradox/bridge/amplification_v1",
+      "type": "bridge_binding",
+      "behavior": {
+        "description": "Degrade-mode micro-to-macro amplification bridge losing phase_coherence. Builtin degrade semantics apply (T -> N[transport_loss], support partial); via URI registered as a marker."
+      },
+      "used_by": [
+        "C3"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/zfc_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "ZFC-frame evaluator: the duplication theorem holds (duplicable(sphere)=T) and contradicts naive volume preservation (volume_preserved(sphere)=F).",
+        "predicates": {
+          "duplicable": {
+            "truth": "T"
+          },
+          "volume_preserved": {
+            "truth": "F"
+          }
+        }
+      },
+      "used_by": [
+        "C4"
+      ]
+    },
+    {
+      "id": "test://paradox/eval/zf_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "ZF-frame evaluator (no axiom of choice), REGISTERED in the live pack but deterministically undecided on choice-dependent predicates: duplicable and volume_preserved resolve N[missing_binding] (no binding without AC). Unknown predicate names resolve N[undefined_term].",
+        "predicates": {
+          "duplicable": {
+            "truth": "N",
+            "reason": "missing_binding"
+          },
+          "volume_preserved": {
+            "truth": "N",
+            "reason": "missing_binding"
+          }
+        }
+      },
+      "used_by": [
+        "C4"
+      ]
+    },
+    {
+      "id": "test://paradox/method/lebesgue_measure_v1",
+      "type": "adequacy_method",
+      "behavior": {
+        "description": "Executable adequacy method: recomputes 0.98, agreeing with the attested score.",
+        "computes": 0.98
+      },
+      "used_by": [
+        "C4"
       ]
     }
   ],
@@ -792,6 +983,466 @@
             ]
           }
         ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "C1",
+      "name": "Liar paradox forensics",
+      "focus": [
+        "paradox_gallery",
+        "meta_stratum",
+        "note_exclusion",
+        "judged_expr",
+        "self_reference",
+        "N_and_B_equals_F"
+      ],
+      "source": "bundle C1_liar_forensics {\n  frame {\n    system Language;\n    namespace TarskianSemantics;\n    scale sentence;\n    task truth_assignment;\n    regime classical;\n  }\n\n  evaluator ev_meta {\n    kind model;\n    binding test://paradox/eval/liar_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev_meta];\n  }\n\n  anchor a_liar_truth {\n    term symbol liar_sentence_truth;\n    subtype placeholder;\n    status active;\n  }\n\n  meta {\n    l0: note \"The liar sentence -- this sentence is false. Notation-layer artifact; recorded, not evaluated.\";\n    l1: false(liar_sentence) uses [a_liar_truth];\n    l3: refers_to_itself(l3) judged_by test://paradox/criterion/tarski_gate_v1;\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "l0 -> NoteExprNode, non-evaluable; excluded from block folding and carried without pinned expectations (note claims are omitted from expected claims per the vendored convention)",
+        "l1 -> PredicateExprNode(name=false); the liar sentence is an undefined term for the live truth evaluator -> N[undefined_term]",
+        "l1 license: a_liar_truth is an active placeholder anchor with ZERO adequacy assessments, so live compose_license pins N[no_adequacy_result] (the implementation's reason vocabulary; the spec-sketch spelling not_yet_applicable does not occur — see ast_decisions). No runtime lint-13 diagnostic exists; lint rules live in the analyzer, not the conformance runtime.",
+        "l3 -> JudgedExprNode(criterionRef=test://paradox/criterion/tarski_gate_v1) wrapping refers_to_itself(l3); the criterion detects the claim-id self-reference -> B[self_reference]",
+        "block(meta) folds the evaluable set {l1=N, l3=B} -> F: the flagship B-and-N-present rule firing through live per-evaluator folding"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "l1": {
+                    "per_evaluator": {
+                      "ev_meta": {
+                        "truth": "N",
+                        "reason": "undefined_term",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "N",
+                      "reason": "undefined_term",
+                      "support": "absent"
+                    },
+                    "license": {
+                      "overall": {
+                        "truth": "N",
+                        "reason": "no_adequacy_result"
+                      },
+                      "individual": {
+                        "a_liar_truth:truth_assignment": {
+                          "truth": "N",
+                          "reason": "no_adequacy_result"
+                        }
+                      }
+                    }
+                  },
+                  "l3": {
+                    "per_evaluator": {
+                      "ev_meta": {
+                        "truth": "B",
+                        "reason": "self_reference",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "B",
+                      "reason": "self_reference",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "meta": {
+                    "per_evaluator": {
+                      "ev_meta": "F"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "l0",
+                      "l1",
+                      "l3"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "C2",
+      "name": "Schwarzschild singularity forensics",
+      "focus": [
+        "paradox_gallery",
+        "adequacy_assessment",
+        "score_not_computable",
+        "dynamic_expr",
+        "degrade_transport",
+        "transport_loss"
+      ],
+      "source": "bundle C2_schwarzschild_forensics {\n  frame {\n    system Spacetime;\n    namespace SchwarzschildGR;\n    scale global;\n    task prediction;\n    regime exterior_vacuum;\n  }\n\n  evaluator ev_gr {\n    kind model;\n    binding test://paradox/eval/gr_semiclassical_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev_gr];\n  }\n\n  anchor a_smooth_manifold {\n    term symbol smooth_lorentzian_manifold;\n    subtype idealization;\n    status active;\n\n    adequacy {\n      id aa_pred;\n      task prediction;\n      producer gw_observatory;\n      score 0.99;\n      threshold 0.95;\n      method test://paradox/method/gw_waveforms_v1;\n    }\n\n    adequacy {\n      id aa_core;\n      task description;\n      producer qg_program;\n      score N;\n      threshold 0.90;\n      method test://paradox/method/qg_tbd_v1;\n    }\n  }\n\n  bridge b_to_core {\n    from @{system=Spacetime, namespace=SchwarzschildGR, scale=global, task=prediction};\n    to @{system=Spacetime, namespace=QuantumGravity, scale=planck, task=description, regime=singular};\n    via test://paradox/bridge/naive_extrapolation_v1;\n    preserve [causal_structure];\n    lose [semiclassical_validity];\n    transport {\n      mode degrade;\n    }\n  }\n\n  local {\n    c1: geodesically_incomplete(interior_geodesics) uses [a_smooth_manifold];\n    c2: curvature --> divergence_within_finite_time;\n    c3: infinite_density(r_zero) requires [semiclassical_validity] uses [a_smooth_manifold] annotations {\"license_task\": \"description\"};\n  }\n}",
+      "environment": {
+        "transport_queries": [
+          {
+            "id": "q_core",
+            "claimId": "c3",
+            "bridgeId": "b_to_core"
+          }
+        ]
+      },
+      "normalized_ast_expectations": [
+        "c1 licensed under the frame task (prediction): aa_pred attests 0.99 >= 0.95 with a registered, agreeing method -> anchor:prediction adequacy T -> license T",
+        "c2 -> DynamicExprNode(op=approaches, subject=curvature): the sketched |inf:finite_time| target is not legal surface syntax (baseline refs are fixed at offset 0), so declared unboundedness is pinned as the symbol target divergence_within_finite_time, evaluated T by the live dynamic-expression handler",
+        "c3 annotated license_task=description: aa_core declares score N and its registered method qg_tbd_v1 returns the non-numeric sentinel, so the live runtime pins adequacy N[missing_binding] plus the error diagnostic adequacy_method_binding_missing (vendored ast_decision unresolved_method -> N[missing_binding]; the spec-sketch spelling not_yet_applicable does not occur) -> license N[missing_binding]",
+        "q_core: c3 requires [semiclassical_validity], bridge b_to_core loses it under mode degrade -> status degraded, dstAggregate N[transport_loss] with support partial (spec section 10.2 default degradation, computed by the builtin execute_transport)"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev_gr": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    },
+                    "license": {
+                      "overall": {
+                        "truth": "T"
+                      },
+                      "individual": {
+                        "a_smooth_manifold:prediction": {
+                          "truth": "T"
+                        }
+                      }
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev_gr": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c3": {
+                    "per_evaluator": {
+                      "ev_gr": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    },
+                    "license": {
+                      "overall": {
+                        "truth": "N",
+                        "reason": "missing_binding"
+                      },
+                      "individual": {
+                        "a_smooth_manifold:description": {
+                          "truth": "N",
+                          "reason": "missing_binding"
+                        }
+                      }
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev_gr": "T"
+                    },
+                    "aggregate": "T",
+                    "claimIds": [
+                      "c1",
+                      "c2",
+                      "c3"
+                    ]
+                  }
+                },
+                "transports": {
+                  "q_core": {
+                    "status": "degraded",
+                    "sourceAggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    },
+                    "dstAggregate": {
+                      "truth": "N",
+                      "reason": "transport_loss",
+                      "support": "partial"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "adequacy_expectations": {
+          "aa_pred": {
+            "truth": "T"
+          },
+          "aa_core": {
+            "truth": "N",
+            "reason": "missing_binding"
+          },
+          "a_smooth_manifold:prediction": {
+            "truth": "T"
+          },
+          "a_smooth_manifold:description": {
+            "truth": "N",
+            "reason": "missing_binding"
+          }
+        },
+        "diagnostics": [
+          {
+            "severity": "error",
+            "subject": "aa_core",
+            "code": "adequacy_method_binding_missing"
+          }
+        ]
+      }
+    },
+    {
+      "track": "A",
+      "id": "C3",
+      "name": "Decoherence cat forensics",
+      "focus": [
+        "paradox_gallery",
+        "multi_evaluator",
+        "paraconsistent_union",
+        "evaluator_conflict",
+        "block_fold_order",
+        "degrade_transport"
+      ],
+      "source": "bundle C3_decoherence_cat {\n  frame {\n    system Quantum;\n    namespace DecoherenceLab;\n    scale micro;\n    task state_assignment;\n    regime pre_measurement;\n  }\n\n  evaluator ev_unitary {\n    kind model;\n    role primary;\n    binding test://paradox/eval/unitary_v1;\n  }\n\n  evaluator ev_collapse {\n    kind model;\n    role adversarial;\n    binding test://paradox/eval/collapse_v1;\n  }\n\n  resolution_policy rp_panel {\n    kind paraconsistent_union;\n    members [ev_unitary, ev_collapse];\n  }\n\n  bridge b_amplify {\n    from @{system=Quantum, namespace=DecoherenceLab, scale=micro, task=state_assignment};\n    to @{system=Quantum, namespace=DecoherenceLab, scale=macro, task=state_assignment, regime=post_measurement};\n    via test://paradox/bridge/amplification_v1;\n    preserve [pointer_states];\n    lose [phase_coherence];\n    transport {\n      mode degrade;\n    }\n  }\n\n  local {\n    c_super: superposed(cat);\n    c_coherent: interference_pattern(cat) requires [phase_coherence];\n  }\n}",
+      "environment": {
+        "transport_queries": [
+          {
+            "id": "q_amplify",
+            "claimId": "c_coherent",
+            "bridgeId": "b_amplify"
+          }
+        ]
+      },
+      "normalized_ast_expectations": [
+        "c_super: the panel splits live (unitary_v1 -> T, collapse_v1 -> F) -> aggregate B[evaluator_conflict] with support conflicted under paraconsistent_union",
+        "block(local) folds PER EVALUATOR FIRST (ev_unitary: T AND T = T; ev_collapse: F AND T = F) and then aggregates -> B[evaluator_conflict]; never aggregate-then-fold",
+        "q_amplify: c_coherent (both evaluators T) requires [phase_coherence], which the micro-to-macro amplification bridge loses under mode degrade -> status degraded, dstAggregate N[transport_loss] with support partial"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c_super": {
+                    "per_evaluator": {
+                      "ev_unitary": {
+                        "truth": "T",
+                        "support": "absent"
+                      },
+                      "ev_collapse": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "B",
+                      "reason": "evaluator_conflict",
+                      "support": "conflicted"
+                    }
+                  },
+                  "c_coherent": {
+                    "per_evaluator": {
+                      "ev_unitary": {
+                        "truth": "T",
+                        "support": "absent"
+                      },
+                      "ev_collapse": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev_unitary": "T",
+                      "ev_collapse": "F"
+                    },
+                    "aggregate": "B",
+                    "claimIds": [
+                      "c_super",
+                      "c_coherent"
+                    ]
+                  }
+                },
+                "transports": {
+                  "q_amplify": {
+                    "status": "degraded",
+                    "sourceAggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    },
+                    "dstAggregate": {
+                      "truth": "N",
+                      "reason": "transport_loss",
+                      "support": "partial"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "C4",
+      "name": "Banach-Tarski forensics",
+      "focus": [
+        "paradox_gallery",
+        "assumption_disclosure",
+        "choice_dependence",
+        "missing_binding",
+        "proxy_anchor_license",
+        "note_only_block"
+      ],
+      "source": "bundle C4_banach_tarski {\n  frame {\n    system Mathematics;\n    namespace ZFCSetTheory;\n    scale theorem;\n    task derivation;\n    regime formal;\n  }\n\n  evaluator ev_zfc {\n    kind model;\n    role primary;\n    binding test://paradox/eval/zfc_v1;\n  }\n\n  evaluator ev_zf {\n    kind model;\n    role auxiliary;\n    binding test://paradox/eval/zf_v1;\n  }\n\n  resolution_policy rp_panel {\n    kind paraconsistent_union;\n    members [ev_zfc, ev_zf];\n  }\n\n  anchor a_choice {\n    term symbol axiom_of_choice;\n    subtype placeholder;\n    status active;\n  }\n\n  anchor a_volume {\n    term symbol lebesgue_volume;\n    subtype proxy;\n    status active;\n\n    adequacy {\n      id aa_vol;\n      task measure_theoretic_volume;\n      producer measure_theory;\n      score 0.98;\n      threshold 0.90;\n      method test://paradox/method/lebesgue_measure_v1;\n    }\n  }\n\n  local {\n    c1: duplicable(sphere);\n    c2: volume_preserved(sphere) uses [a_volume];\n  }\n\n  meta {\n    m1: note \"ASSUMPTION (active): axiom_of_choice -- the duplication derivation is choice-dependent; recorded as the active placeholder anchor a_choice because the surface grammar has no assumption-block form.\";\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "AC disclosure: AssumptionNode has no surface-grammar form (pre-existing gap), so the axiom of choice is recorded as the ACTIVE placeholder anchor a_choice plus the meta-stratum note m1",
+        "c1 splits live: zfc_v1 -> T, zf_v1 (registered, choiceless) -> N[missing_binding]; paraconsistent_union joins T+N -> aggregate T, and the single unique evaluator reason missing_binding is inherited onto the aggregate as the choice-dependence disclosure — the per_evaluator map is the pinned disclosure",
+        "c2 (volume_preserved): zfc_v1 -> F (the duplication theorem contradicts naive volume preservation), zf_v1 -> N[missing_binding]; aggregate F with the inherited missing_binding reason",
+        "c2 license: a_volume (subtype proxy) carries adequacy ONLY for task measure_theoretic_volume, not the frame task derivation -> live compose_license pins N[no_adequacy_result] (implementation reason vocabulary)",
+        "block(local): per-evaluator first (ev_zfc: T AND F = F; ev_zf: N AND N = N) -> aggregate F; block(meta) holds only the non-evaluable note -> N[empty_block] fold"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev_zfc": {
+                        "truth": "T",
+                        "support": "absent"
+                      },
+                      "ev_zf": {
+                        "truth": "N",
+                        "reason": "missing_binding",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "reason": "missing_binding",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev_zfc": {
+                        "truth": "F",
+                        "support": "absent"
+                      },
+                      "ev_zf": {
+                        "truth": "N",
+                        "reason": "missing_binding",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "reason": "missing_binding",
+                      "support": "absent"
+                    },
+                    "license": {
+                      "overall": {
+                        "truth": "N",
+                        "reason": "no_adequacy_result"
+                      },
+                      "individual": {
+                        "a_volume:derivation": {
+                          "truth": "N",
+                          "reason": "no_adequacy_result"
+                        }
+                      }
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev_zfc": "F",
+                      "ev_zf": "N"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "c1",
+                      "c2"
+                    ]
+                  },
+                  "meta": {
+                    "per_evaluator": {
+                      "ev_zfc": "N",
+                      "ev_zf": "N"
+                    },
+                    "aggregate": "N",
+                    "claimIds": [
+                      "m1"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "adequacy_expectations": {
+          "aa_vol": {
+            "truth": "T"
+          },
+          "a_volume:measure_theoretic_volume": {
+            "truth": "T"
+          }
+        },
         "diagnostics": []
       }
     }

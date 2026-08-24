@@ -824,10 +824,13 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
         services.update(live_services)
 
     # Fixture adequacy handlers for method-computed assessments used in corpus
-    # cases (e.g., A12 aa2 / aa_circular).
-    services["adequacy_handlers"] = {
-        "test://adequacy/compute_pass_v1": lambda assessment: 1.0,
-    }
+    # cases (e.g., A12 aa2 / aa_circular). Merged via setdefault so live-pack
+    # ADEQUACY_METHOD handlers registered above are not clobbered; for
+    # vendored cases services is empty at this point, so behavior is
+    # unchanged.
+    services.setdefault("adequacy_handlers", {}).setdefault(
+        "test://adequacy/compute_pass_v1", lambda assessment: 1.0
+    )
 
     # Inject transport queries from environment/session-step fixtures.
     transport_queries = _build_transport_queries_from_case(case)

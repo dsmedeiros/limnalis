@@ -15,7 +15,7 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 | T3 | EvaluationStep.claim_subset (§16.2.1) | completed — reviewer PASS_WITH_ADVISORIES | wave-2 |
 | T4 | EvaluationSession.shared_state (§16.6.3) | completed — reviewer PASS_WITH_ADVISORIES | wave-2 |
 | T5 | Extension corpus: connective/precedence coverage + spec-A11 case | completed — reviewer PASS_WITH_ADVISORIES (ckpt 1) | wave-3 |
-| T6 | Extension corpus: Track C paradox bundles (C1–C4) | pending | wave-3 |
+| T6 | Extension corpus: Track C paradox bundles (C1–C4) | completed — reviewer PASS_WITH_ADVISORIES (ckpt 2) | wave-3 |
 | T7 | Paradox gallery doc | pending | wave-3 |
 
 ## Active Delegation

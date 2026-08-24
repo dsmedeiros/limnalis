@@ -1,0 +1,31 @@
+bundle C1_liar_forensics {
+  frame {
+    system Language;
+    namespace TarskianSemantics;
+    scale sentence;
+    task truth_assignment;
+    regime classical;
+  }
+
+  evaluator ev_meta {
+    kind model;
+    binding test://paradox/eval/liar_v1;
+  }
+
+  resolution_policy rp0 {
+    kind single;
+    members [ev_meta];
+  }
+
+  anchor a_liar_truth {
+    term symbol liar_sentence_truth;
+    subtype placeholder;
+    status active;
+  }
+
+  meta {
+    l0: note "The liar sentence -- this sentence is false. Notation-layer artifact; recorded, not evaluated.";
+    l1: false(liar_sentence) uses [a_liar_truth];
+    l3: refers_to_itself(l3) judged_by test://paradox/criterion/tarski_gate_v1;
+  }
+}
