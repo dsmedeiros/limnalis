@@ -356,3 +356,12 @@ Validation: PASS
 **Other gaps:** nine *TermNode canonical-AST shapes have grammar coverage but no AST-prose definition in either edition; five schema $defs with zero prose mentions (AnchorTermNode, ArgNode, ScalarValue, FacetValueMap, FrameOrPatternNode); schema-only minItems/uniqueItems constraints without prose warrant; `TransportResult.sourceAggregate` required (§10.3) vs optional (§18.2); corpus YAML/JSON content-identical but only JSON is test-exercised (unguarded drift mode).
 **Highest-leverage prevention identified:** a CI check diffing A.9's field tables against the AST schema's $defs — all three hard mismatches would have been caught at authoring time.
 **Approved by:** Orchestrator (findings logged)
+
+## 2026-08-23 — Milestone 7 opened: spec-conformance remediation + Track C paradox corpus
+
+**Event:** Milestone start (human-approved: "Go for it")
+**PRD:** `.taskmaster/docs/milestone-7-remediation-track-c.md`
+**Scope:** Wave 1: true Belnap–Dunn pair algebra (T1, runtime) + normalizer precedence/recursion/aliases/judged_by per the recovered EBNF (T2, normalizer, includes rewriting `test_operator_precedence.py` to spec-mandated trees with citations). Wave 2: claim_subset (T3) + shared_state (T4) per spec §16.2.1/§16.6.3. Wave 3: project-authored extension corpus `fixtures/limnalis_extension_corpus_v0.1.yaml` — connective/precedence coverage incl. live B∧N=F, the consolidated spec's A11 narrative case, and Track C paradox bundles C1–C4 (liar, Schwarzschild, decoherence cat, Banach–Tarski) with deterministic `test://paradox/*` fixtures — plus gallery doc (T7).
+**Hard constraints:** Vendored spec/schemas/corpus immutable; vendored 16/16 conformance must remain green; tests rewritten only with spec citation, never weakened.
+**Review protocol:** standard reviewer per wave, red team over full changeset at milestone end (critical invariants: NORM-001, RUNTIME-*, FIXTURE-001-adjacent).
+**Approved by:** Human (milestone), Orchestrator (decomposition)

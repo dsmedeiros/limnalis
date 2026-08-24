@@ -1,37 +1,33 @@
 # Armature Session State
 
 ## Current Objective
-Milestone 6C: Tooling, UX, editor support, diagnostics, and developer experience for Limnalis v0.2.2+
+Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskmaster/docs/milestone-7-remediation-track-c.md`. (M6C completed; see journal.)
 
 ## Build Candidate
-{ready for tagging}
+{M6C ready for tagging; M7 in progress}
 
 ## Task Status
 | Task | Description | Status | Commit |
 |------|-------------|--------|--------|
-| T1 | Diagnostic Formatter and Pretty-Printer | completed | wave-1 |
-| T2 | TextMate Grammar and Editor Scaffold | completed | wave-1 |
-| T3 | CLI Module Restructuring | completed | wave-1 |
-| T9 | Documentation Site Content | completed | wave-1 |
-| T4 | Inspect Commands | completed | wave-2 |
-| T5 | Lint and Analyze Commands | completed | wave-2 |
-| T6 | Visualization and Graph Export | completed | wave-2 |
-| T7 | Doctor Command | completed | wave-2 |
-| T8 | Template Generation | completed | wave-2 |
-| T11 | SARIF Export for IDE Integration | completed | wave-2 |
-| T10 | CLI Flag Consistency and Help Polish | completed | wave-3 |
+| T1 | Belnap–Dunn pair algebra in runtime (B∧N=F) | delegated | wave-1 |
+| T2 | Normalizer precedence/recursion/aliases/judged_by per EBNF | delegated | wave-1 |
+| T3 | EvaluationStep.claim_subset (§16.2.1) | pending | wave-2 |
+| T4 | EvaluationSession.shared_state (§16.6.3) | pending | wave-2 |
+| T5 | Extension corpus: connective/precedence coverage + spec-A11 case | pending | wave-3 |
+| T6 | Extension corpus: Track C paradox bundles (C1–C4) | pending | wave-3 |
+| T7 | Paradox gallery doc | pending | wave-3 |
 
 ## Active Delegation
-{none — all tasks complete}
+T1 (runtime scope) and T2 (normalizer scope) — parallel implementers, spawned 2026-08-23. Pre-flight estimates: T1 80–150 LOC, T2 150–300 LOC (includes spec-mandated test rewrites).
 
 ## Pending Reviews
-{none — all tasks reviewed}
+Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).
 
 ## Invariants Touched
-{none — M6C is tooling-only, no core semantic changes}
+NORM-001 (normalizer determinism — T2), FIXTURE-001 (vendored corpus immutable; extension corpus is a new file; precedence tests rewritten to spec with citations), RUNTIME-* (T1 truth algebra), SCHEMA-001 (extension corpus must validate against vendored schema).
 
 ## Test Results
-833 tests passing (up from 670 baseline), 0 failures
+Baseline entering M7: 833 tests passing, 16/16 vendored conformance PASS
 
 ---
 <!-- APPEND-ONLY BELOW THIS LINE -->
