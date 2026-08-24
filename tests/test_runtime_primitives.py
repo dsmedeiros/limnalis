@@ -13,6 +13,7 @@ from limnalis.models.ast import (
     BundleNode,
     ClaimNode,
     ClaimBlockNode,
+    DeclarationExprNode,
     EvaluatorNode,
     FramePatternNode,
     FacetValueMap,
@@ -22,6 +23,7 @@ from limnalis.models.ast import (
     PredicateExprNode,
     LogicalExprNode,
     ResolutionPolicyNode,
+    SymbolTermNode,
     TimeCtxNode,
     TransportNode,
     EvidenceNode,
@@ -47,6 +49,7 @@ from limnalis.runtime.builtins import (
     build_evidence_view,
     assemble_eval,
     apply_resolution_policy,
+    eval_expr,
     fold_block,
     execute_transport,
     synthesize_support,
@@ -338,6 +341,115 @@ class TestClassifyClaim:
         result = classify_claim(claim)
         assert result.evaluable is True
         assert result.expr_kind == "LogicalExpr"
+
+
+# ===================================================================
+# Tests: eval_expr — Belnap-Dunn logical connectives (spec §4)
+# ===================================================================
+
+
+def _decl_expr(truth: str) -> DeclarationExprNode:
+    """A DeclarationExpr leaf that eval_expr resolves directly to `truth`."""
+    return DeclarationExprNode(term=SymbolTermNode(value="x"), declaredAs=truth)
+
+
+def _eval_logical(op: str, *truths: str) -> str:
+    """Evaluate a LogicalExpr over declared-truth leaves; return the result truth.
+
+    Drives the public eval_expr primitive end-to-end. DeclarationExpr leaves
+    need no evaluator bindings, so services={} exercises the pure connective
+    algebra of spec §4.
+    """
+    claim = ClaimNode(
+        id="c_conn",
+        kind="logical",
+        expr=LogicalExprNode(op=op, args=[_decl_expr(t) for t in truths]),
+    )
+    step_ctx = StepContext(effective_frame=_frame())
+    core, _, _ = eval_expr(claim, "ev1", step_ctx, MachineState(), services={})
+    return core.truth
+
+
+class TestEvalLogicalConnectives:
+    """Belnap-Dunn four-valued connectives per spec §4.
+
+    Truth values are pairs (t, f) of truth-support and falsity-support:
+    T=(1,0), F=(0,1), B=(1,1), N=(0,0), with
+    ¬X=(fX,tX); X∧Y=(tX∧tY, fX∨fY); X∨Y=(tX∨tY, fX∧fY);
+    X→Y=¬X∨Y; X↔Y=(X→Y)∧(Y→X).
+    """
+
+    def test_conjunction_full_table_matches_spec(self):
+        """Full 16-entry ∧ table equals spec §4: [T F B N / F F F F / B F B F / N F F N]."""
+        expected = {
+            ("T", "T"): "T", ("T", "F"): "F", ("T", "B"): "B", ("T", "N"): "N",
+            ("F", "T"): "F", ("F", "F"): "F", ("F", "B"): "F", ("F", "N"): "F",
+            ("B", "T"): "B", ("B", "F"): "F", ("B", "B"): "B", ("B", "N"): "F",
+            ("N", "T"): "N", ("N", "F"): "F", ("N", "B"): "F", ("N", "N"): "N",
+        }
+        for (a, b), want in expected.items():
+            got = _eval_logical("and", a, b)
+            assert got == want, f"spec §4: {a}∧{b} must be {want}, got {got}"
+
+    def test_conjunction_B_and_N_is_F(self):
+        """spec §4: B∧N = N∧B = F — B=(1,1) contributes falsity, N=(0,0) contributes
+        nothing; truth-support vanishes, falsity-support remains: (0,1)=F."""
+        assert _eval_logical("and", "B", "N") == "F"
+        assert _eval_logical("and", "N", "B") == "F"
+
+    def test_disjunction_full_table_matches_spec(self):
+        """Full 16-entry ∨ table from spec §4 pair algebra X∨Y=(tX∨tY, fX∧fY)."""
+        expected = {
+            ("T", "T"): "T", ("T", "F"): "T", ("T", "B"): "T", ("T", "N"): "T",
+            ("F", "T"): "T", ("F", "F"): "F", ("F", "B"): "B", ("F", "N"): "N",
+            ("B", "T"): "T", ("B", "F"): "B", ("B", "B"): "B", ("B", "N"): "T",
+            ("N", "T"): "T", ("N", "F"): "N", ("N", "B"): "T", ("N", "N"): "N",
+        }
+        for (a, b), want in expected.items():
+            got = _eval_logical("or", a, b)
+            assert got == want, f"spec §4: {a}∨{b} must be {want}, got {got}"
+
+    def test_disjunction_spec_spot_checks(self):
+        """spec §4: B∨N = N∨B = (1∨0, 1∧0) = (1,0) = T; F∨N = (0,0) = N;
+        T∨anything = T since truth-support persists and falsity-support drops."""
+        assert _eval_logical("or", "B", "N") == "T"
+        assert _eval_logical("or", "N", "B") == "T"
+        assert _eval_logical("or", "F", "N") == "N"
+        assert _eval_logical("or", "N", "F") == "N"
+        for other in ("T", "F", "B", "N"):
+            assert _eval_logical("or", "T", other) == "T"
+            assert _eval_logical("or", other, "T") == "T"
+
+    def test_negation_table(self):
+        """spec §4: ¬X=(fX,tX) — ¬T=F, ¬F=T, ¬B=B, ¬N=N (B and N are fixed points)."""
+        assert _eval_logical("not", "T") == "F"
+        assert _eval_logical("not", "F") == "T"
+        assert _eval_logical("not", "B") == "B"
+        assert _eval_logical("not", "N") == "N"
+
+    def test_implies_B_to_N_is_T(self):
+        """spec §4: X→Y=¬X∨Y, so B→N = ¬B∨N = B∨N = (1∨0, 1∧0) = (1,0) = T."""
+        assert _eval_logical("implies", "B", "N") == "T"
+
+    def test_implies_N_to_F_derived(self):
+        """spec §4 derivation: N→F = ¬N∨F = N∨F = (0∨0, 0∧1) = (0,0) = N.
+
+        ¬N=(0,0)=N (fixed point), then N∨F takes OR of truth-support (0∨0=0)
+        and AND of falsity-support (0∧1=0), giving the pair (0,0) = N.
+        """
+        assert _eval_logical("implies", "N", "F") == "N"
+
+    def test_iff_B_N_is_T(self):
+        """spec §4: X↔Y=(X→Y)∧(Y→X); B→N = B∨N = T and N→B = N∨B = T,
+        so B↔N = T∧T = T (and symmetrically N↔B = T)."""
+        assert _eval_logical("iff", "B", "N") == "T"
+        assert _eval_logical("iff", "N", "B") == "T"
+
+    def test_nary_connectives_fold_pairwise(self):
+        """spec §4 pair algebra generalizes n-ary: and(T,B,N) = (1∧1∧0, 0∨1∨0)
+        = (0,1) = F; or(F,N,B) = (0∨0∨1, 1∧0∧1) = (1,0) = T."""
+        assert _eval_logical("and", "T", "B", "N") == "F"
+        assert _eval_logical("or", "F", "N", "B") == "T"
 
 
 # ===================================================================

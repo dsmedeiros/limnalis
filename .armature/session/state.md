@@ -9,7 +9,7 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 ## Task Status
 | Task | Description | Status | Commit |
 |------|-------------|--------|--------|
-| T1 | Belnap–Dunn pair algebra in runtime (B∧N=F) | delegated | wave-1 |
+| T1 | Belnap–Dunn pair algebra in runtime (B∧N=F) | completed — reviewer PASS | wave-1 |
 | T2 | Normalizer precedence/recursion/aliases/judged_by per EBNF | delegated | wave-1 |
 | T3 | EvaluationStep.claim_subset (§16.2.1) | pending | wave-2 |
 | T4 | EvaluationSession.shared_state (§16.6.3) | pending | wave-2 |
@@ -18,7 +18,7 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 | T7 | Paradox gallery doc | pending | wave-3 |
 
 ## Active Delegation
-T1 (runtime scope) and T2 (normalizer scope) — parallel implementers, spawned 2026-08-23. Pre-flight estimates: T1 80–150 LOC, T2 150–300 LOC (includes spec-mandated test rewrites).
+T2 (normalizer scope) in progress. T1 complete: actual +73 net LOC (est. 80–150), 9 new §4-cited tests, reviewer PASS (.armature/reviews/m7-t1-truth-algebra.md), committed per-task.
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).

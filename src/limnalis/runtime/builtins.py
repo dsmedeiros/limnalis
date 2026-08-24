@@ -1423,32 +1423,57 @@ def _dispatch_to_binding(
         )
 
 
-# Truth ordering for logical operations: T > B > N > F
-_TRUTH_ORDER: dict[TruthValue, int] = {"T": 3, "B": 2, "N": 1, "F": 0}
-_ORDER_TO_TRUTH: dict[int, TruthValue] = {v: k for k, v in _TRUTH_ORDER.items()}
+# Belnap-Dunn pair algebra for logical connectives (spec §4).
+# Each truth value is a pair (t, f) of independent truth-support and
+# falsity-support bits: T=(1,0), F=(0,1), B=(1,1), N=(0,0).
+_TRUTH_TO_PAIR: dict[TruthValue, tuple[int, int]] = {
+    "T": (1, 0),
+    "F": (0, 1),
+    "B": (1, 1),
+    "N": (0, 0),
+}
+_PAIR_TO_TRUTH: dict[tuple[int, int], TruthValue] = {
+    pair: truth for truth, pair in _TRUTH_TO_PAIR.items()
+}
 
 
-def _truth_min(values: list[TruthValue]) -> TruthValue:
-    """AND semantics: min over the truth lattice T > B > N > F."""
+def _truth_and(values: list[TruthValue]) -> TruthValue:
+    """AND semantics per spec §4: X∧Y = (tX∧tY, fX∨fY) on Belnap-Dunn pairs.
+
+    Truth-support survives only when every conjunct carries it; falsity-support
+    from any conjunct survives. Notably B∧N=F — this is NOT a min over a total
+    order. Empty input returns N (preserved prior behavior).
+    """
     if not values:
         return "N"
-    return _ORDER_TO_TRUTH[min(_TRUTH_ORDER[v] for v in values)]
+    pairs = [_TRUTH_TO_PAIR[v] for v in values]
+    t = min(p[0] for p in pairs)  # conjunction of truth-support bits
+    f = max(p[1] for p in pairs)  # disjunction of falsity-support bits
+    return _PAIR_TO_TRUTH[(t, f)]
 
 
-def _truth_max(values: list[TruthValue]) -> TruthValue:
-    """OR semantics: max over the truth lattice T > B > N > F."""
+def _truth_or(values: list[TruthValue]) -> TruthValue:
+    """OR semantics per spec §4: X∨Y = (tX∨tY, fX∧fY) on Belnap-Dunn pairs.
+
+    Truth-support from any disjunct survives; falsity-support survives only
+    when every disjunct carries it. Notably B∨N=T. Empty input returns N
+    (preserved prior behavior).
+    """
     if not values:
         return "N"
-    return _ORDER_TO_TRUTH[max(_TRUTH_ORDER[v] for v in values)]
+    pairs = [_TRUTH_TO_PAIR[v] for v in values]
+    t = max(p[0] for p in pairs)  # disjunction of truth-support bits
+    f = min(p[1] for p in pairs)  # conjunction of falsity-support bits
+    return _PAIR_TO_TRUTH[(t, f)]
 
 
 def _truth_flip(value: TruthValue) -> TruthValue:
-    """NOT semantics: flip(T)=F, flip(F)=T, flip(B)=B, flip(N)=N."""
-    if value == "T":
-        return "F"
-    if value == "F":
-        return "T"
-    return value  # B and N are fixed points
+    """NOT semantics per spec §4: ¬X = (fX,tX) — swap the support bits.
+
+    T and F exchange; B and N are fixed points.
+    """
+    t, f = _TRUTH_TO_PAIR[value]
+    return _PAIR_TO_TRUTH[(f, t)]
 
 
 def _eval_logical_expr(
@@ -1473,20 +1498,20 @@ def _eval_logical_expr(
         provenance.update(sub_core.provenance)
 
     if expr.op == "and":
-        result_truth = _truth_min(sub_truths)
+        result_truth = _truth_and(sub_truths)
     elif expr.op == "or":
-        result_truth = _truth_max(sub_truths)
+        result_truth = _truth_or(sub_truths)
     elif expr.op == "not":
         result_truth = _truth_flip(sub_truths[0])
     elif expr.op == "implies":
-        # A -> B = OR(NOT(A), B)
+        # X→Y = ¬X∨Y (spec §4)
         not_a = _truth_flip(sub_truths[0])
-        result_truth = _truth_max([not_a, sub_truths[1]])
+        result_truth = _truth_or([not_a, sub_truths[1]])
     elif expr.op == "iff":
-        # A <-> B = AND(IMPLIES(A,B), IMPLIES(B,A))
-        implies_ab = _truth_max([_truth_flip(sub_truths[0]), sub_truths[1]])
-        implies_ba = _truth_max([_truth_flip(sub_truths[1]), sub_truths[0]])
-        result_truth = _truth_min([implies_ab, implies_ba])
+        # X↔Y = (X→Y)∧(Y→X) (spec §4)
+        implies_ab = _truth_or([_truth_flip(sub_truths[0]), sub_truths[1]])
+        implies_ba = _truth_or([_truth_flip(sub_truths[1]), sub_truths[0]])
+        result_truth = _truth_and([implies_ab, implies_ba])
     else:
         result_truth = "N"
 
