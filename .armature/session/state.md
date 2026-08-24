@@ -19,7 +19,7 @@ Milestone 7: Spec-conformance remediation + Track C paradox corpus. PRD: `.taskm
 | T7 | Paradox gallery doc | completed — reviewer PASS_WITH_ADVISORIES (ckpt 3; required 2-cell fix applied) | wave-3 |
 
 ## Active Delegation
-Milestone-wide RED TEAM over the full M7 changeset (0994537..HEAD) — required gate (critical invariants NORM-001, RUNTIME-*, FIXTURE-001-adjacent). All implementation waves complete: 1022 tests passing, extension corpus 10/10, vendored conformance 16/16 byte-unchanged.
+RED TEAM FAIL — remediation cycle 1/3. IMPL-α delegated (CRITICAL-1 n-ary implies/iff truncation, HIGH-2 cache scoping, HIGH-3 reason derivation, score=N vocabulary, pipe shielding; normalizer+runtime+extension-pins scope). IMPL-β queued after α (HIGH-1 fail-closed live gate, comparator MEDIUMs; conformance/plugins scope). Red team re-review after both.
 
 ## Pending Reviews
 Wave 1 reviewer after T1+T2 complete. Red team over full M7 changeset at milestone end (required: NORM-001/FIXTURE-001-adjacent).
