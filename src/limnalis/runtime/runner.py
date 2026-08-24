@@ -35,6 +35,7 @@ from .builtins import (
     execute_transport as _execute_transport,
     fold_block as _fold_block,
     assemble_eval as _assemble_eval,
+    materialize_referenced_baselines as _materialize_referenced_baselines,
     resolve_baseline as _resolve_baseline,
     resolve_ref as _resolve_ref,
     synthesize_support as _synthesize_support,
@@ -227,10 +228,38 @@ def run_step(
     machine.adequacy_store["__fixture_step_index__"] = current_step_index
     step_ctx: StepContext | None = None
 
-    # Collect all claims across blocks
+    # Collect claims across blocks, restricted by step.claim_subset (§16.2.1).
+    # None => no restriction; a list (including []) => ONLY the named claims
+    # are evaluated — excluded claims do not appear in per-claim results and
+    # are excluded from block folding. The empty list therefore evaluates
+    # zero claims (spec-silent case, literal reading; see StepConfig).
+    subset_ids: set[str] | None = None
+    if step.claim_subset is not None:
+        subset_ids = set(step.claim_subset)
+
     all_claims: list[ClaimNode] = []
+    known_claim_ids: set[str] = set()
     for block in bundle.claimBlocks:
-        all_claims.extend(block.claims)
+        for claim in block.claims:
+            known_claim_ids.add(claim.id)
+            if subset_ids is None or claim.id in subset_ids:
+                all_claims.append(claim)
+
+    # Unknown claim ids in the subset are ignored with a step-scoped
+    # warning diagnostic in the claim phase (§16.2.1).
+    if subset_ids is not None:
+        for unknown_id in sorted(subset_ids - known_claim_ids):
+            diags.append({
+                "severity": "warning",
+                "code": "claim_subset_unknown_id",
+                "phase": "claim",
+                "subject": unknown_id,
+                "step_id": step.id,
+                "message": (
+                    f"claim_subset entry '{unknown_id}' does not match any "
+                    f"claim in bundle '{bundle.id}'; it is ignored"
+                ),
+            })
 
     evaluators: list[EvaluatorNode] = bundle.evaluators
     evaluator_ids = [e.id for e in evaluators]
@@ -456,6 +485,17 @@ def run_step(
             continue
         per_claim_truth[claim.id] = {}
         for ev_id in evaluator_ids:
+            # Lazy baseline materialization at first relevant use (§16.6.3):
+            # baselines referenced by the claim about to be evaluated are
+            # resolved here — never eagerly — so claim_subset restrictions
+            # cannot force materialization (§16.2.1). Fixed-mode baselines
+            # cache per session.shared_state; on_reference re-resolves.
+            diags.extend(_materialize_referenced_baselines(
+                claim, step_ctx, machine, services,
+                session_id=session.id,
+                step_id=step.id,
+                shared_state=session.shared_state,
+            ))
             try:
                 truth_core, machine, ee_diags = primitives.eval_expr(
                     claim, ev_id, step_ctx, machine, services
@@ -618,6 +658,9 @@ def run_step(
     phase = 12
     per_block_per_evaluator: dict[str, dict[str, EvalNode]] = {}
     per_block_aggregates: dict[str, EvalNode] = {}
+    # Claims excluded by step.claim_subset were never classified, so
+    # fold_block's evaluable set omits them; a block whose evaluable claims
+    # are all excluded folds to N[empty_block] (§16.6.9).
     for block in bundle.claimBlocks:
         try:
             block_ev_evals, block_agg = primitives.fold_block(
@@ -722,11 +765,16 @@ def run_step(
     # ------------------------------------------------------------------
     block_results: list[BlockResult] = []
     for block in bundle.claimBlocks:
+        # Claims excluded by step.claim_subset do not appear in results
+        # (§16.2.1) — the block listing reflects only evaluated claims.
         block_results.append(BlockResult(
             block_id=block.id,
             per_evaluator=per_block_per_evaluator.get(block.id, {}),
             aggregate=per_block_aggregates.get(block.id),
-            claims=[c.id for c in block.claims],
+            claims=[
+                c.id for c in block.claims
+                if subset_ids is None or c.id in subset_ids
+            ],
         ))
 
     # ------------------------------------------------------------------

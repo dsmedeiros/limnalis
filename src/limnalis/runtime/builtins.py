@@ -16,6 +16,7 @@ from ..models.ast import (
     AdequacyAssessmentNode,
     AnchorNode,
     BaselineNode,
+    BaselineRefTermNode,
     BridgeNode,
     BundleNode,
     CausalExprNode,
@@ -36,6 +37,7 @@ from ..models.ast import (
     InferredEvidenceRelation,
     JointAdequacyNode,
     JudgedExprNode,
+    ListTermNode,
     LogicalExprNode,
     NoteExprNode,
     PredicateExprNode,
@@ -666,6 +668,187 @@ def resolve_baseline(
     )
 
     return None, machine_state, diags
+
+
+def _collect_baseline_refs(node: Any) -> list[str]:
+    """Collect BaselineRefTerm ids referenced by an expression, in source order.
+
+    Walks the expression tree (logical args, predicate args, causal lhs/rhs,
+    dynamic subject/target, emergence sub-expressions, declaration terms,
+    judged inner expressions, list items). Duplicate ids are reported once.
+    """
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, BaselineRefTermNode):
+            if obj.id not in seen:
+                seen.add(obj.id)
+                refs.append(obj.id)
+        elif isinstance(obj, PredicateExprNode):
+            for arg in obj.args:
+                _walk(arg)
+        elif isinstance(obj, ListTermNode):
+            for item in obj.items:
+                _walk(item)
+        elif isinstance(obj, LogicalExprNode):
+            for sub in obj.args:
+                _walk(sub)
+        elif isinstance(obj, CausalExprNode):
+            _walk(obj.lhs)
+            _walk(obj.rhs)
+            if obj.intervention is not None and not isinstance(obj.intervention, str):
+                _walk(obj.intervention)
+        elif isinstance(obj, DynamicExprNode):
+            _walk(obj.subject)
+            if obj.target is not None:
+                _walk(obj.target)
+        elif isinstance(obj, EmergenceExprNode):
+            _walk(obj.property)
+            _walk(obj.onset)
+            for sub in (obj.persistsWhile, obj.dissolvesWhen, obj.hysteresis):
+                if sub is not None:
+                    _walk(sub)
+        elif isinstance(obj, DeclarationExprNode):
+            _walk(obj.term)
+            if obj.within is not None and not isinstance(obj.within, FramePatternNode):
+                _walk(obj.within)
+        elif isinstance(obj, JudgedExprNode):
+            _walk(obj.expr)
+        # NoteExpr and scalar terms carry no baseline references.
+
+    _walk(node)
+    return refs
+
+
+def materialize_referenced_baselines(
+    claim: ClaimNode,
+    step_ctx: StepContext | None,
+    machine_state: MachineState,
+    services: dict[str, Any],
+    *,
+    session_id: str,
+    step_id: str,
+    shared_state: bool = True,
+) -> Diagnostics:
+    """Lazily materialize baseline values referenced by a claim (spec §16.6.3).
+
+    Called at first relevant use — when a referencing claim is about to be
+    evaluated — never eagerly: per §16.2.1, restricting a step with
+    claim_subset must not itself force baseline materialization, so a
+    baseline whose referencing claims are all excluded is never resolved.
+
+    Values are produced by the injected criterion resolver service
+    ``services["baseline_criterion_resolver"]``, a callable
+    ``(baseline_node, step_ctx, services) -> Any`` invoked under the current
+    effective step context with the baseline-local frame overlay applied
+    (§16.2.1 baseline-local frame rule). Without that service this function
+    is a no-op, preserving status-only baseline handling.
+
+    Cache semantics per evaluation mode (§16.6.3):
+    - ``fixed`` with ``shared_state=True``: cache key
+      ``(session_id, baseline_id)`` — resolved once per session at first
+      use; later steps reuse the cached value regardless of step-local
+      time/frame/history changes.
+    - ``fixed`` with ``shared_state=False``: cache key
+      ``(session_id, step_id, baseline_id)`` — each step behaves as a fresh
+      fixed-baseline context and may observe a different value.
+    - ``on_reference``: no cache — resolved each time a referencing claim is
+      evaluated, under the current effective step context.
+    - ``tracked``: unaffected — not materialized by this scaffold.
+
+    The cache lives in ``services["__baseline_value_cache__"]`` so it
+    survives across the per-step MachineState instances within a
+    run_session/run_bundle invocation.
+    """
+    diags: Diagnostics = []
+    resolver = services.get("baseline_criterion_resolver")
+    if resolver is None:
+        return diags
+
+    bundle: BundleNode | None = services.get("__bundle__")
+    if bundle is None:
+        return diags
+
+    ref_ids = _collect_baseline_refs(claim.expr)
+    if not ref_ids:
+        return diags
+
+    baselines_by_id = {bl.id: bl for bl in bundle.baselines}
+    cache: dict[tuple[str, ...], Any] = services.setdefault(
+        "__baseline_value_cache__", {}
+    )
+
+    for baseline_id in ref_ids:
+        baseline_node = baselines_by_id.get(baseline_id)
+        if baseline_node is None:
+            # Unknown baseline references are diagnosed by the resolve phases.
+            continue
+
+        mode = baseline_node.evaluationMode
+        if mode == "tracked":
+            # Tracked baselines resolve as time-indexed objects (§16.6.3);
+            # they are unaffected by shared_state and not materialized here.
+            continue
+
+        # Baseline-local frame rule (§16.2.1): the baseline's own frame
+        # overlays the effective step frame for this resolution only.
+        resolve_ctx = step_ctx
+        if step_ctx is not None:
+            overlaid = _merge_frame_facets(
+                step_ctx.effective_frame, baseline_node.frame
+            )
+            resolve_ctx = step_ctx.model_copy(
+                update={"effective_frame": _facets_to_frame(overlaid)}
+            )
+
+        if mode == "fixed":
+            key: tuple[str, ...] = (
+                (session_id, baseline_id)
+                if shared_state
+                else (session_id, step_id, baseline_id)
+            )
+            if key in cache:
+                value = cache[key]
+            else:
+                try:
+                    value = resolver(baseline_node, resolve_ctx, services)
+                except Exception as exc:
+                    diags.append({
+                        "severity": "warning",
+                        "code": "baseline_resolution_error",
+                        "phase": "baseline",
+                        "subject": baseline_id,
+                        "message": str(exc),
+                    })
+                    machine_state.baseline_store[baseline_id] = BaselineState(
+                        baseline_id=baseline_id, status="unresolved"
+                    )
+                    continue
+                cache[key] = value
+            machine_state.baseline_store[baseline_id] = BaselineState(
+                baseline_id=baseline_id, status="ready", value=value
+            )
+        else:  # on_reference: resolve on every referencing-claim evaluation
+            try:
+                value = resolver(baseline_node, resolve_ctx, services)
+            except Exception as exc:
+                diags.append({
+                    "severity": "warning",
+                    "code": "baseline_resolution_error",
+                    "phase": "baseline",
+                    "subject": baseline_id,
+                    "message": str(exc),
+                })
+                machine_state.baseline_store[baseline_id] = BaselineState(
+                    baseline_id=baseline_id, status="unresolved"
+                )
+                continue
+            machine_state.baseline_store[baseline_id] = BaselineState(
+                baseline_id=baseline_id, status="ready", value=value
+            )
+
+    return diags
 
 
 def _detect_basis_cycles(

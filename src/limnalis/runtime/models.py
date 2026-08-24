@@ -37,18 +37,54 @@ class EvaluationEnvironment(BaseModel):
 
 
 class StepConfig(BaseModel):
-    """Configuration for a single evaluation step."""
+    """Configuration for a single evaluation step (spec §16.2 EvaluationStep)."""
 
     id: str
     frame_override: FrameOrPatternNode | None = None
     time: TimeCtxNode | None = None
     history_binding: str | None = None
+    claim_subset: list[str] | None = None
+    """Restrict which claims are evaluated in this step (spec §16.2 / §16.2.1).
+
+    - ``None`` (default): no restriction — every claim in the bundle is
+      evaluated.
+    - A list of claim ids: ONLY the named claims are evaluated in the step.
+      Excluded claims do not appear in per-claim results and are excluded
+      from block folding; a block whose evaluable claims are all excluded
+      has an empty evaluable set and folds to N[empty_block] (spec §16.6.9).
+    - ``[]`` (empty list): the spec is silent on this case. This
+      implementation takes the literal reading and evaluates ZERO claims.
+      An empty list is deliberately NOT treated as "no restriction" — use
+      ``None`` for that.
+    - Ids that name no claim in the bundle are ignored, each with a
+      step-scoped warning diagnostic (code ``claim_subset_unknown_id``,
+      phase ``claim``).
+    - Per §16.2.1, claim_subset does not itself force eager baseline
+      materialization: baselines still resolve lazily at first relevant use.
+    """
 
 
 class SessionConfig(BaseModel):
-    """Configuration for an evaluation session."""
+    """Configuration for an evaluation session (spec §16.2 EvaluationSession)."""
 
     id: str
+    shared_state: bool = True
+    """Session-shared caching for FIXED-mode baselines (spec §16.6.3).
+
+    - ``True`` (default): the fixed-baseline cache key is
+      ``(session_id, baseline_id)`` — a fixed baseline resolves once per
+      session at first relevant use, and later steps reuse the cached value
+      regardless of step-local time changes, frame overrides, or history
+      changes.
+    - ``False``: the cache key is ``(session_id, step_id, baseline_id)`` —
+      each step behaves as a fresh fixed-baseline context, so a fixed
+      baseline may take different values in different steps of the same
+      session.
+
+    ``on_reference`` and ``tracked`` evaluation modes are unaffected by this
+    flag: on_reference baselines resolve each time a referencing claim is
+    evaluated, and tracked baselines resolve as time-indexed objects.
+    """
     base_frame: FrameOrPatternNode | None = None
     base_time: TimeCtxNode | None = None
     steps: list[StepConfig] = Field(default_factory=list)

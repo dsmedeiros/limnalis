@@ -5,18 +5,29 @@ from __future__ import annotations
 import pytest
 
 from limnalis.models.ast import (
+    BaselineNode,
+    BaselineRefTermNode,
     BridgeNode,
     BundleNode,
     ClaimNode,
     ClaimBlockNode,
+    CriterionRefNode,
     EvaluatorNode,
     FramePatternNode,
+    JudgedExprNode,
+    ListTermNode,
+    LogicalExprNode,
     ResolutionPolicyNode,
     FrameNode,
     NoteExprNode,
     PredicateExprNode,
+    SymbolTermNode,
     TimeCtxNode,
     TransportNode,
+)
+from limnalis.runtime.builtins import (
+    _collect_baseline_refs,
+    materialize_referenced_baselines,
 )
 from limnalis.runtime.models import (
     EvaluationEnvironment,
@@ -517,3 +528,407 @@ class TestRunBundle:
 
         assert len(result.session_results) == 1
         assert len(result.session_results[0].step_results) == 2
+
+
+# ---------------------------------------------------------------------------
+# claim_subset (spec §16.2 / §16.2.1) and shared_state (spec §16.6.3) helpers
+# ---------------------------------------------------------------------------
+
+
+def _baseline(baseline_id="bl1", mode="fixed", kind="point"):
+    return BaselineNode(
+        id=baseline_id,
+        kind=kind,
+        criterion=CriterionRefNode(ref="test://baseline/context_v1"),
+        frame=FramePatternNode(facets={"system": "sys"}),
+        evaluationMode=mode,
+    )
+
+
+def _baseline_claim(claim_id="c_bl", baseline_id="bl1"):
+    """A claim whose expression references a baseline via BaselineRefTerm."""
+    return ClaimNode(
+        id=claim_id,
+        kind="atomic",
+        expr=PredicateExprNode(
+            name="matches_baseline",
+            args=[
+                SymbolTermNode(value="sensor_A"),
+                BaselineRefTermNode(id=baseline_id),
+            ],
+        ),
+    )
+
+
+def _multi_block_bundle(blocks, baselines=None):
+    """BundleNode with explicit claim blocks and optional baselines."""
+    return BundleNode(
+        id="test_bundle",
+        frame=_frame(),
+        evaluators=[EvaluatorNode(id="ev1", kind="model", binding="b1")],
+        resolutionPolicy=ResolutionPolicyNode(id="pol", kind="single", members=["ev1"]),
+        baselines=baselines or [],
+        claimBlocks=blocks,
+    )
+
+
+def _counting_context_resolver(counter):
+    """Criterion resolver stub: counts calls, value depends on step context.
+
+    Returns "<baseline_id>@<effective_time.t>" so a context change between
+    steps produces a different value — the discriminating observable for
+    shared_state semantics (spec §16.6.3).
+    """
+    def resolver(baseline_node, step_ctx, services):
+        counter["calls"] += 1
+        t = None
+        if step_ctx is not None and step_ctx.effective_time is not None:
+            t = step_ctx.effective_time.t
+        return f"{baseline_node.id}@{t}"
+    return resolver
+
+
+def _two_step_session(shared_state=True):
+    """Session with two steps under different time contexts."""
+    return SessionConfig(
+        id="sess1",
+        shared_state=shared_state,
+        steps=[
+            StepConfig(id="t0", time=TimeCtxNode(kind="point", t="2026-03-06T09:00:00Z")),
+            StepConfig(id="t1", time=TimeCtxNode(kind="point", t="2026-03-06T09:05:00Z")),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# claim_subset (spec §16.2 / §16.2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestClaimSubset:
+    """EvaluationStep.claim_subset semantics per spec §16.2 / §16.2.1.
+
+    claim_subset limits which claims are evaluated in the step: excluded
+    claims do not appear in per-claim results and are excluded from block
+    folding. It never forces eager baseline materialization.
+    """
+
+    def _claims(self, *ids):
+        return [
+            ClaimNode(id=cid, kind="atomic", expr=PredicateExprNode(name=f"P_{cid}"))
+            for cid in ids
+        ]
+
+    def test_none_claim_subset_evaluates_all_claims(self):
+        """None means no restriction (§16.2: claim_subset is optional)."""
+        bundle = _bundle(claims=self._claims("c1", "c2"))
+
+        result = run_step(bundle, _session(), StepConfig(id="s1"), _env())
+
+        assert set(result.per_claim_classifications.keys()) == {"c1", "c2"}
+        assert set(result.per_claim_per_evaluator.keys()) == {"c1", "c2"}
+        assert [cr.claim_id for cr in result.claim_results] == ["c1", "c2"]
+        assert result.block_results[0].claims == ["c1", "c2"]
+
+    def test_subset_restricts_results_to_named_claims(self):
+        """Only named claims are evaluated; excluded claims are absent
+        from every per-claim result surface (§16.2.1)."""
+        bundle = _bundle(claims=self._claims("c1", "c2", "c3"))
+        step = StepConfig(id="s1", claim_subset=["c2"])
+
+        result = run_step(bundle, _session(), step, _env())
+
+        assert set(result.per_claim_classifications.keys()) == {"c2"}
+        assert set(result.per_claim_per_evaluator.keys()) == {"c2"}
+        assert set(result.per_claim_aggregates.keys()) == {"c2"}
+        assert set(result.per_claim_licenses.keys()) == {"c2"}
+        assert [cr.claim_id for cr in result.claim_results] == ["c2"]
+        assert result.block_results[0].claims == ["c2"]
+
+    def test_excluded_claims_are_excluded_from_block_folding(self):
+        """Block folds over the subset only: a T claim excluded from the
+        subset must not influence the block truth (§16.2.1, §16.6.9)."""
+        def eval_c1_true_c2_false(claim, ev_id, step_ctx, machine, services):
+            truth = "T" if claim.id == "c1" else "F"
+            return TruthCore(truth=truth), machine, []
+
+        bundle = _bundle(claims=self._claims("c1", "c2"))
+        primitives = PrimitiveSet(eval_expr=eval_c1_true_c2_false)
+
+        unrestricted = run_step(bundle, _session(), StepConfig(id="s1"), _env(),
+                                primitives=primitives)
+        assert unrestricted.per_block_aggregates["blk1"].truth == "F"
+
+        subset = run_step(bundle, _session(),
+                          StepConfig(id="s1", claim_subset=["c1"]), _env(),
+                          primitives=primitives)
+        assert subset.per_block_aggregates["blk1"].truth == "T"
+
+    def test_block_with_all_claims_excluded_folds_to_empty_block(self):
+        """If every evaluable claim of a block is excluded the block's
+        evaluable set is empty and folds to N[empty_block] (§16.6.9)."""
+        blocks = [
+            ClaimBlockNode(id="blk_a", stratum="local", claims=self._claims("c1")),
+            ClaimBlockNode(id="blk_b", stratum="local", claims=self._claims("c2")),
+        ]
+        bundle = _multi_block_bundle(blocks)
+        step = StepConfig(id="s1", claim_subset=["c1"])
+
+        result = run_step(bundle, _session(), step, _env())
+
+        assert result.per_block_aggregates["blk_b"].truth == "N"
+        assert result.per_block_aggregates["blk_b"].reason == "empty_block"
+        for ev_node in result.per_block_per_evaluator["blk_b"].values():
+            assert ev_node.truth == "N"
+            assert ev_node.reason == "empty_block"
+        # The non-excluded block still folds normally.
+        assert result.per_block_aggregates["blk_a"].reason != "empty_block"
+        blk_b_result = next(br for br in result.block_results if br.block_id == "blk_b")
+        assert blk_b_result.claims == []
+
+    def test_empty_subset_evaluates_zero_claims(self):
+        """[] evaluates zero claims — the literal reading of §16.2.1's
+        restriction rule. The spec is silent on the empty list; it is
+        deliberately NOT treated as "no restriction" (use None for that).
+        Every block then folds to N[empty_block] (§16.6.9)."""
+        bundle = _bundle(claims=self._claims("c1", "c2"))
+        step = StepConfig(id="s1", claim_subset=[])
+
+        result = run_step(bundle, _session(), step, _env())
+
+        assert result.per_claim_classifications == {}
+        assert result.per_claim_per_evaluator == {}
+        assert result.per_claim_aggregates == {}
+        assert result.claim_results == []
+        assert result.block_results[0].claims == []
+        assert result.per_block_aggregates["blk1"].truth == "N"
+        assert result.per_block_aggregates["blk1"].reason == "empty_block"
+
+    def test_unknown_claim_id_warns_and_is_ignored(self):
+        """Ids naming no bundle claim are ignored with a step-scoped
+        warning diagnostic in the claim phase (§16.2.1 implementation
+        contract)."""
+        bundle = _bundle(claims=self._claims("c1"))
+        step = StepConfig(id="s1", claim_subset=["c1", "ghost"])
+
+        result = run_step(bundle, _session(), step, _env())
+
+        # The known claim is still evaluated; the unknown id is nowhere.
+        assert set(result.per_claim_per_evaluator.keys()) == {"c1"}
+        assert "ghost" not in result.per_claim_aggregates
+
+        warnings = [
+            d for d in result.diagnostics
+            if d.get("code") == "claim_subset_unknown_id"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["severity"] == "warning"
+        assert warnings[0]["phase"] == "claim"
+        assert warnings[0]["subject"] == "ghost"
+        assert warnings[0]["step_id"] == "s1"
+
+    def test_no_unknown_id_diagnostic_without_subset(self):
+        bundle = _bundle(claims=self._claims("c1"))
+
+        result = run_step(bundle, _session(), StepConfig(id="s1"), _env())
+
+        assert not any(
+            d.get("code") == "claim_subset_unknown_id" for d in result.diagnostics
+        )
+
+    def test_subset_does_not_force_eager_baseline_materialization(self):
+        """claim_subset does not itself force eager baseline
+        materialization (§16.2.1): a baseline whose only referencing claim
+        is excluded is never resolved; without the restriction it resolves
+        lazily at first relevant use."""
+        baseline = _baseline("bl1", mode="fixed")
+        blocks = [ClaimBlockNode(
+            id="blk1",
+            stratum="local",
+            claims=[
+                _baseline_claim("c_bl", "bl1"),
+                ClaimNode(id="c_plain", kind="atomic",
+                          expr=PredicateExprNode(name="P")),
+            ],
+        )]
+        bundle = _multi_block_bundle(blocks, baselines=[baseline])
+
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+        run_step(bundle, _session(),
+                 StepConfig(id="s1", claim_subset=["c_plain"]), _env(),
+                 services=services)
+        assert counter["calls"] == 0
+
+        # Control: with no restriction the baseline resolves lazily at the
+        # first evaluation of the referencing claim.
+        counter2 = {"calls": 0}
+        services2 = {"baseline_criterion_resolver": _counting_context_resolver(counter2)}
+        run_step(bundle, _session(), StepConfig(id="s1"), _env(), services=services2)
+        assert counter2["calls"] == 1
+
+
+# ---------------------------------------------------------------------------
+# shared_state (spec §16.6.3)
+# ---------------------------------------------------------------------------
+
+
+class TestSharedStateBaselineCaching:
+    """EvaluationSession.shared_state semantics per spec §16.6.3.
+
+    Fixed-mode baselines cache under (session_id, baseline_id) when
+    shared_state=true (resolve once per session at first use) and under
+    (session_id, step_id, baseline_id) when false (fresh fixed-baseline
+    context per step). on_reference and tracked modes are unaffected.
+    """
+
+    def _bundle_with_baseline(self, mode="fixed", kind="point"):
+        blocks = [ClaimBlockNode(
+            id="blk1", stratum="local", claims=[_baseline_claim("c_bl", "bl1")],
+        )]
+        return _multi_block_bundle(blocks, baselines=[_baseline("bl1", mode=mode, kind=kind)])
+
+    def test_session_config_shared_state_defaults_true(self):
+        """§16.6.3 / §16.2: shared_state: true | false = true."""
+        assert SessionConfig(id="s").shared_state is True
+
+    def test_shared_state_true_reuses_fixed_value_across_steps(self):
+        """shared_state=true: cache key (session_id, baseline_id) — the
+        fixed baseline resolves once per session at first use; the later
+        step reuses the cached value despite its step-local time change
+        (§16.6.3)."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+
+        result = run_session(bundle, _two_step_session(shared_state=True), _env(),
+                             services=services)
+
+        assert counter["calls"] == 1
+        step0_state = result.step_results[0].machine_state.baseline_store["bl1"]
+        step1_state = result.step_results[1].machine_state.baseline_store["bl1"]
+        assert step0_state.status == "ready"
+        assert step0_state.value == "bl1@2026-03-06T09:00:00Z"
+        # Step t1 reuses the session-cached value from t0's context.
+        assert step1_state.value == step0_state.value
+
+    def test_shared_state_false_re_resolves_fixed_value_per_step(self):
+        """shared_state=false: cache key (session_id, step_id, baseline_id)
+        — each step behaves as a fresh fixed-baseline context, so the fixed
+        baseline takes different values in different steps (§16.6.3)."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+
+        result = run_session(bundle, _two_step_session(shared_state=False), _env(),
+                             services=services)
+
+        assert counter["calls"] == 2
+        step0_state = result.step_results[0].machine_state.baseline_store["bl1"]
+        step1_state = result.step_results[1].machine_state.baseline_store["bl1"]
+        assert step0_state.value == "bl1@2026-03-06T09:00:00Z"
+        assert step1_state.value == "bl1@2026-03-06T09:05:00Z"
+        assert step0_state.value != step1_state.value
+
+    @pytest.mark.parametrize("shared_state", [True, False])
+    def test_on_reference_re_resolves_in_both_configurations(self, shared_state):
+        """on_reference is unaffected by shared_state: it resolves each
+        time a referencing claim is evaluated, under the current effective
+        step context (§16.6.3)."""
+        bundle = self._bundle_with_baseline(mode="on_reference")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+
+        result = run_session(bundle, _two_step_session(shared_state=shared_state),
+                             _env(), services=services)
+
+        # One referencing claim x one evaluator x two steps = two resolutions.
+        assert counter["calls"] == 2
+        step0_state = result.step_results[0].machine_state.baseline_store["bl1"]
+        step1_state = result.step_results[1].machine_state.baseline_store["bl1"]
+        assert step0_state.value == "bl1@2026-03-06T09:00:00Z"
+        assert step1_state.value == "bl1@2026-03-06T09:05:00Z"
+
+    def test_tracked_baseline_is_not_materialized(self):
+        """tracked baselines resolve as time-indexed objects and are
+        unaffected by this scaffold's criterion resolver (§16.6.3)."""
+        bundle = self._bundle_with_baseline(mode="tracked", kind="moving")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+
+        result = run_session(bundle, _two_step_session(shared_state=True), _env(),
+                             services=services)
+
+        assert counter["calls"] == 0
+        step0_state = result.step_results[0].machine_state.baseline_store["bl1"]
+        assert step0_state.value is None
+
+    def test_fixed_cache_is_scoped_per_session(self):
+        """The fixed cache key includes session_id: a second session in the
+        same bundle run resolves its own value (§16.6.3: once per
+        *session*)."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+        counter = {"calls": 0}
+        services = {"baseline_criterion_resolver": _counting_context_resolver(counter)}
+        s1 = SessionConfig(id="sess_a", steps=[StepConfig(id="t0")])
+        s2 = SessionConfig(id="sess_b", steps=[StepConfig(id="t0")])
+
+        run_bundle(bundle, [s1, s2], _env(), services=services)
+
+        assert counter["calls"] == 2
+
+    def test_resolver_error_yields_baseline_diagnostic(self):
+        """A failing criterion resolver localizes to an unresolved
+        BaselineState plus a baseline-phase diagnostic."""
+        bundle = self._bundle_with_baseline(mode="fixed")
+
+        def failing_resolver(baseline_node, step_ctx, services):
+            raise RuntimeError("resolver exploded")
+
+        services = {"baseline_criterion_resolver": failing_resolver}
+        result = run_step(bundle, _session(), _step(), _env(), services=services)
+
+        state = result.machine_state.baseline_store["bl1"]
+        assert state.status == "unresolved"
+        errors = [
+            d for d in result.diagnostics
+            if d.get("code") == "baseline_resolution_error"
+        ]
+        assert errors and errors[0]["subject"] == "bl1"
+        assert errors[0]["phase"] == "baseline"
+
+    def test_no_resolver_service_is_a_noop(self):
+        """Without services["baseline_criterion_resolver"] materialization
+        is a no-op — status-only baseline handling is preserved."""
+        claim = _baseline_claim("c_bl", "bl1")
+        machine = MachineState()
+
+        diags = materialize_referenced_baselines(
+            claim, None, machine, {},
+            session_id="s", step_id="t", shared_state=True,
+        )
+
+        assert diags == []
+        assert machine.baseline_store == {}
+
+    def test_collect_baseline_refs_walks_nested_expressions(self):
+        """The reference walker finds BaselineRefTerms in nested logical,
+        judged, and list-term positions, deduplicated in source order."""
+        expr = LogicalExprNode(
+            op="and",
+            args=[
+                PredicateExprNode(name="P", args=[BaselineRefTermNode(id="b1")]),
+                JudgedExprNode(
+                    expr=PredicateExprNode(
+                        name="Q",
+                        args=[ListTermNode(items=[
+                            BaselineRefTermNode(id="b2"),
+                            BaselineRefTermNode(id="b1"),
+                        ])],
+                    ),
+                    criterionRef="test://criterion/x",
+                ),
+            ],
+        )
+
+        assert _collect_baseline_refs(expr) == ["b1", "b2"]

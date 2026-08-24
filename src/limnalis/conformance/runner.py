@@ -548,6 +548,8 @@ def _build_sessions_from_case(case: FixtureCase) -> list[SessionConfig]:
                     frame_override=step_env.get("frame_override"),
                     time=step_time,
                     history_binding=step_env.get("history_binding"),
+                    # §16.2: None => unrestricted; [] => zero claims.
+                    claim_subset=step_env.get("claim_subset"),
                 ))
             if not steps:
                 steps = [StepConfig(id="step0")]
@@ -557,8 +559,15 @@ def _build_sessions_from_case(case: FixtureCase) -> list[SessionConfig]:
             if base_time_data is not None:
                 base_time = TimeCtxNode(**base_time_data)
 
+            # §16.6.3: shared_state defaults to true; read an explicit value
+            # from the fixture environment rather than ignoring it.
+            shared_state = sess_env.get("shared_state")
+            if shared_state is None:
+                shared_state = True
+
             sessions.append(SessionConfig(
                 id=sess_env.get("id", "default"),
+                shared_state=shared_state,
                 base_frame=base_frame,
                 base_time=base_time,
                 steps=steps,

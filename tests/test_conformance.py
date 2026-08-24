@@ -383,6 +383,78 @@ class TestConformanceSessionBuilding:
         assert isinstance(session.base_time, TimeCtxNode)
         assert session.base_time.t == "2025-01-01T00:00:00Z"
 
+    def test_build_sessions_from_environment_preserves_step_claim_subset(self):
+        """Step-level claim_subset (spec §16.2) threads from the fixture
+        environment into StepConfig; a missing key stays None (unrestricted)
+        and an explicit [] stays [] (zero claims, §16.2.1 literal reading)."""
+        case = SimpleNamespace(
+            environment={
+                "sessions": [
+                    {
+                        "id": "s1",
+                        "steps": [
+                            {"id": "step0", "claim_subset": ["c1", "c3"]},
+                            {"id": "step1"},
+                            {"id": "step2", "claim_subset": []},
+                        ],
+                    }
+                ]
+            },
+            expected_sessions=lambda: [],
+        )
+
+        sessions = _build_sessions_from_case(case)
+
+        steps = sessions[0].steps
+        assert steps[0].claim_subset == ["c1", "c3"]
+        assert steps[1].claim_subset is None
+        assert steps[2].claim_subset == []
+
+    def test_build_sessions_from_environment_reads_shared_state_false(self):
+        """Session-level shared_state (spec §16.6.3) threads from the
+        fixture environment into SessionConfig rather than being ignored."""
+        case = SimpleNamespace(
+            environment={
+                "sessions": [
+                    {"id": "s1", "shared_state": False, "steps": [{"id": "step0"}]}
+                ]
+            },
+            expected_sessions=lambda: [],
+        )
+
+        sessions = _build_sessions_from_case(case)
+
+        assert sessions[0].shared_state is False
+
+    def test_build_sessions_shared_state_defaults_true_when_absent(self):
+        """shared_state defaults to true per §16.2 when the fixture
+        environment omits it."""
+        case = SimpleNamespace(
+            environment={
+                "sessions": [{"id": "s1", "steps": [{"id": "step0"}]}]
+            },
+            expected_sessions=lambda: [],
+        )
+
+        sessions = _build_sessions_from_case(case)
+
+        assert sessions[0].shared_state is True
+
+    def test_vendored_a11_session_shared_state_is_read(self, corpus):
+        """The vendored A11 case declares `shared_state: true` in its
+        session environment; the loader must read it (spec §16.6.3). True
+        is the default, so A11's expectations are unchanged — see
+        TestRegressions3A::test_a11_session_baseline_timing."""
+        case = corpus.get_case("A11")
+        assert case is not None
+
+        sessions = _build_sessions_from_case(case)
+
+        assert len(sessions) == 1
+        assert sessions[0].id == "s1"
+        assert sessions[0].shared_state is True
+        assert [s.id for s in sessions[0].steps] == ["s1_t0", "s1_t1"]
+
 
 class TestConformanceStepIndexing:
     """Verify fixture eval indexing can advance independent of callbacks."""
