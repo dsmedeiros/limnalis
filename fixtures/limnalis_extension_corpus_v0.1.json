@@ -1,0 +1,799 @@
+{
+  "version": "v0.1",
+  "meta": {
+    "name": "Limnalis extension corpus (project-authored)",
+    "purpose": "Project-authored coverage extension closing the vendored corpus blind spots listed in spec section 17.4: logical connectives computed LIVE through sub-expression evaluation (atom-level fixture bindings, not claim-id keying), unparenthesized operator precedence per the recovered EBNF A.9, and the session semantics added in milestone 7 wave 2 (EvaluationSession.shared_state per section 16.6.3 and EvaluationStep.claim_subset per section 16.2.1), including the consolidated spec section 17.2 A11 narrative (test://baseline/by_context_v1, sessions s_shared/s_isolated) that the vendored A11 case does not pin. TRACK LABELING CONSTRAINT: the vendored fixture-corpus schema pins ConformanceCase.track to the enum [\"A\", \"B\"], so these extension cases carry track \"A\" (the closest legal value: they are feature-focused cases in the track-A style) while their ids use the reserved \"D\" prefix (D1..D6) to keep them unambiguously separate from the vendored A1..A14/B1..B2 cases.",
+    "phase_order": [
+      "resolve references and policies",
+      "resolve active frame and evaluator panel",
+      "initialize or reuse session baseline service",
+      "evaluate adequacy assessments and joint adequacy groups",
+      "materialize evidence views per evaluator",
+      "evaluate each claim per evaluator",
+      "synthesize support per evaluator",
+      "aggregate claim results under the resolution policy",
+      "fold blocks per evaluator, then aggregate block results",
+      "execute transport queries"
+    ]
+  },
+  "ast_decisions": [
+    {
+      "topic": "Extension corpus track labeling under the vendored schema",
+      "status": "settled",
+      "validation": {
+        "track": "vendored schema enum [\"A\", \"B\"] — track \"D\" is not legal, so extension cases use track \"A\" with id prefix \"D\""
+      },
+      "notes": "The vendored fixture-corpus schema (immutable) constrains ConformanceCase.track to the enum [\"A\", \"B\"]. Extension cases are therefore labeled track \"A\" — they are feature-pinning cases in the track-A style — and are distinguished from vendored cases by the \"D\" id prefix (D1..D6) and by this corpus file itself."
+    },
+    {
+      "topic": "Composed-claim reasons under live sub-expression evaluation",
+      "status": "settled",
+      "notes": "Live LogicalExpr evaluation composes only truth values: atom-local reasons (e.g. source_conflict on b, undefined_term on n) do NOT propagate to the composed claim result. Extension expectations therefore state reasons only for leaf-level (whole-claim atomic) results. This differs from the vendored corpus, whose claim-id-keyed fixture evaluator echoes reasons for composed claims too."
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "test://eval/atoms_v2",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "ATOM-LEVEL evaluator binding: keys on predicate NAMES, never on claim ids. Each zero-arity predicate leaf resolves independently, so any LogicalExpr over these atoms is composed by the live spec section 4 Belnap-Dunn pair algebra (implemented in runtime._eval_logical_expr). This removes the vendored atoms_v1 blindness, where truths are keyed on claim ids and composition is never computed.",
+        "predicates": {
+          "t": {
+            "truth": "T"
+          },
+          "f": {
+            "truth": "F"
+          },
+          "b": {
+            "truth": "B",
+            "reason": "source_conflict"
+          },
+          "n": {
+            "truth": "N",
+            "reason": "undefined_term"
+          }
+        },
+        "unknown_predicate": {
+          "truth": "N",
+          "reason": "undefined_term"
+        }
+      },
+      "used_by": [
+        "D1",
+        "D2",
+        "D3",
+        "D4",
+        "D6"
+      ]
+    },
+    {
+      "id": "test://baseline/by_context_v1",
+      "type": "baseline_source",
+      "behavior": {
+        "description": "Context-sensitive baseline criterion per the consolidated spec section 17.2 A11 narrative. Resolves through the wave-2 services[\"baseline_criterion_resolver\"] path under the effective step context (with the baseline-local frame overlay of section 16.2.1 applied), so fixed-mode caching per section 16.6.3 is exercised for real: cache key (session_id, baseline_id) when the session has shared_state=true, and (session_id, step_id, baseline_id) when shared_state=false; on_reference baselines re-resolve at every referencing-claim evaluation.",
+        "contexts": [
+          {
+            "time": "2026-03-06T09:00:00Z",
+            "regime": "nominal",
+            "value": 10
+          },
+          {
+            "time": "2026-03-06T09:05:00Z",
+            "regime": "stress",
+            "value": 20
+          }
+        ],
+        "unmapped_context": "resolution error (baseline_resolution_error diagnostic, baseline left unresolved)"
+      },
+      "used_by": [
+        "D5"
+      ]
+    },
+    {
+      "id": "test://eval/baseline_match_v1",
+      "type": "evaluator_binding",
+      "behavior": {
+        "description": "Baseline-comparison evaluator per the spec section 17.2 A11 narrative, in which sensor_A is fixed at 10. Returns T when every BaselineRefTerm in the claim expression resolves to a ready baseline whose materialized value equals the expected sensor value; F otherwise (a missing, non-ready, or non-matching baseline, or a claim with no baseline reference, all yield F).",
+        "expected_sensor_value": 10
+      },
+      "used_by": [
+        "D5"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "track": "A",
+      "id": "D1",
+      "name": "Live conjunction over mixed atoms",
+      "focus": [
+        "live_logical_composition",
+        "atom_level_bindings",
+        "pair_algebra_conjunction",
+        "B_and_N_equals_F"
+      ],
+      "source": "bundle D1_live_conjunction {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: (b AND n);\n    c2: (t AND b);\n    c3: (t AND n);\n    c4: (f OR n);\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "t, f, b, n in expression position -> zero-arity PredicateExprNode",
+        "c1..c4 -> LogicalExprNode; truths computed LIVE by the spec section 4 pair algebra over atoms_v2 leaf results, not echoed from claim-id-keyed expectations",
+        "expected values from the spec section 4 tables: B AND N = F (flagship), T AND B = B, T AND N = N, F OR N = N",
+        "composed results carry no reason (atom-local reasons do not propagate through live composition)"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "B",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "B",
+                      "support": "absent"
+                    }
+                  },
+                  "c3": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "N",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "N",
+                      "support": "absent"
+                    }
+                  },
+                  "c4": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "N",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "N",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "c1",
+                      "c2",
+                      "c3",
+                      "c4"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "D2",
+      "name": "Live disjunction and negation",
+      "focus": [
+        "live_logical_composition",
+        "pair_algebra_disjunction",
+        "pair_algebra_negation",
+        "B_or_N_equals_T"
+      ],
+      "source": "bundle D2_live_disjunction_negation {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: (b OR n);\n    c2: (NOT b);\n    c3: (NOT n);\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "c1 -> LogicalExprNode(op=or); c2, c3 -> LogicalExprNode(op=not) with a single argument",
+        "expected values from the spec section 4 tables: B OR N = T, NOT B = B, NOT N = N (negation swaps the pair bits; B and N are fixed points)",
+        "block fold over live results T, B, N hits the B-and-N-present rule: block(local) = F"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "B",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "B",
+                      "support": "absent"
+                    }
+                  },
+                  "c3": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "N",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "N",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "c1",
+                      "c2",
+                      "c3"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "D3",
+      "name": "Derived connectives with canonical spellings",
+      "focus": [
+        "live_logical_composition",
+        "derived_connectives",
+        "canonical_operator_spellings"
+      ],
+      "source": "bundle D3_derived_connectives {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: (b -> n);\n    c2: (b <=> n);\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "the canonical EBNF operator spellings are pinned in source: \"->\" (ImplOp) -> LogicalExprNode(op=implies); \"<=>\" (IffOp) -> LogicalExprNode(op=iff)",
+        "expected values from the spec section 4 derivations: B -> N = (NOT B) OR N = B OR N = T; B <=> N = (B -> N) AND (N -> B) = T AND T = T"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "T"
+                    },
+                    "aggregate": "T",
+                    "claimIds": [
+                      "c1",
+                      "c2"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "D4",
+      "name": "Unparenthesized operator precedence",
+      "focus": [
+        "unparenthesized_precedence",
+        "ebnf_a9_operator_binding",
+        "live_logical_composition"
+      ],
+      "source": "bundle D4_unparenthesized_precedence {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c1: t AND f OR t;\n    c2: f AND t OR t;\n    c3: n OR t AND b;\n  }\n}",
+      "environment": {},
+      "normalized_ast_expectations": [
+        "EBNF A.9 binding tightest-to-loosest is NOT > AND > OR > IMPLIES > IFF; the first-match split order is loosest-first, so OR splits before AND",
+        "c1 -> or(and(t, f), t); computes OR(AND(T,F),T) = OR(F,T) = T. Pins the tree shape; the inverted tree and(t, or(f, t)) happens to compute T as well, so c2/c3 carry the truth-level discrimination",
+        "c2 -> or(and(f, t), t) = OR(F,T) = T; the inverted-precedence tree and(f, or(t, t)) would compute F, so a precedence regression is detectable by truth alone",
+        "c3 -> or(n, and(t, b)) = OR(N,B) = T; the inverted-precedence tree and(or(n, t), b) would compute B, a second truth-level discriminator that also exercises the pair algebra on B/N atoms"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "default",
+            "steps": [
+              {
+                "id": "step0",
+                "claims": {
+                  "c1": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c2": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c3": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "T"
+                    },
+                    "aggregate": "T",
+                    "claimIds": [
+                      "c1",
+                      "c2",
+                      "c3"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "D5",
+      "name": "Shared vs isolated session baseline state (spec A11 narrative)",
+      "focus": [
+        "session_evaluation",
+        "shared_state",
+        "fixed_vs_on_reference",
+        "context_sensitive_baseline"
+      ],
+      "source": "bundle D5_session_shared_state {\n  frame {\n    system Test;\n    namespace Baseline;\n    scale service;\n    task compare;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/baseline_match_v1;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  baseline b_fixed {\n    kind point;\n    criterion ref test://baseline/by_context_v1;\n    frame @{system=Test, namespace=Baseline};\n    evaluation_mode fixed;\n  }\n\n  baseline b_step {\n    kind point;\n    criterion ref test://baseline/by_context_v1;\n    frame @{system=Test, namespace=Baseline};\n    evaluation_mode on_reference;\n  }\n\n  local {\n    c_fixed: matches_baseline(sensor_A, |0:b_fixed|);\n    c_step: matches_baseline(sensor_A, |0:b_step|);\n  }\n}",
+      "environment": {
+        "sessions": [
+          {
+            "id": "s_shared",
+            "shared_state": true,
+            "steps": [
+              {
+                "id": "s1",
+                "time": {
+                  "kind": "point",
+                  "t": "2026-03-06T09:00:00Z"
+                },
+                "frame_override": {
+                  "node": "FramePattern",
+                  "facets": {
+                    "regime": "nominal"
+                  }
+                }
+              },
+              {
+                "id": "s2",
+                "time": {
+                  "kind": "point",
+                  "t": "2026-03-06T09:05:00Z"
+                },
+                "frame_override": {
+                  "node": "FramePattern",
+                  "facets": {
+                    "regime": "stress"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "s_isolated",
+            "shared_state": false,
+            "steps": [
+              {
+                "id": "s1",
+                "time": {
+                  "kind": "point",
+                  "t": "2026-03-06T09:00:00Z"
+                },
+                "frame_override": {
+                  "node": "FramePattern",
+                  "facets": {
+                    "regime": "nominal"
+                  }
+                }
+              },
+              {
+                "id": "s2",
+                "time": {
+                  "kind": "point",
+                  "t": "2026-03-06T09:05:00Z"
+                },
+                "frame_override": {
+                  "node": "FramePattern",
+                  "facets": {
+                    "regime": "stress"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "normalized_ast_expectations": [
+        "|0:b_fixed|, |0:b_step| -> BaselineRefTermNode inside PredicateExprNode args",
+        "baseline frames deliberately omit the regime facet so the baseline-local frame overlay (section 16.2.1) does not mask the step frame_override regime that by_context_v1 dispatches on",
+        "section 16.6.3 cache semantics: fixed-mode cache key is (session_id, baseline_id) under shared_state=true and (session_id, step_id, baseline_id) under shared_state=false; on_reference re-resolves at every referencing-claim evaluation",
+        "spec section 17.2 A11 narrative values: s_shared s2 sees b_fixed=10 (cached) and b_step=20 (re-resolved); s_isolated s2 sees b_fixed=20 (re-initialized) and b_step=20"
+      ],
+      "expected": {
+        "baseline_states": {
+          "b_fixed": "ready",
+          "b_step": "ready"
+        },
+        "sessions": [
+          {
+            "id": "s_shared",
+            "steps": [
+              {
+                "id": "s1",
+                "claims": {
+                  "c_fixed": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c_step": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "T"
+                    },
+                    "aggregate": "T"
+                  }
+                }
+              },
+              {
+                "id": "s2",
+                "claims": {
+                  "c_fixed": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c_step": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "s_isolated",
+            "steps": [
+              {
+                "id": "s1",
+                "claims": {
+                  "c_fixed": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c_step": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "T"
+                    },
+                    "aggregate": "T"
+                  }
+                }
+              },
+              {
+                "id": "s2",
+                "claims": {
+                  "c_fixed": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  },
+                  "c_step": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "track": "A",
+      "id": "D6",
+      "name": "Step claim_subset restriction",
+      "focus": [
+        "claim_subset",
+        "session_evaluation",
+        "block_folding_under_restriction"
+      ],
+      "source": "bundle D6_claim_subset {\n  frame {\n    system Test;\n    namespace Logic;\n    scale unit;\n    task check;\n    regime nominal;\n  }\n\n  evaluator ev0 {\n    kind model;\n    binding test://eval/atoms_v2;\n  }\n\n  resolution_policy rp0 {\n    kind single;\n    members [ev0];\n  }\n\n  local {\n    c_keep: t;\n    c_drop: f;\n  }\n}",
+      "environment": {
+        "sessions": [
+          {
+            "id": "s_subset",
+            "steps": [
+              {
+                "id": "d6_s1"
+              },
+              {
+                "id": "d6_s2",
+                "claim_subset": [
+                  "c_keep"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "normalized_ast_expectations": [
+        "c_keep, c_drop -> zero-arity PredicateExprNode evaluated live through atoms_v2",
+        "step d6_s1 is unrestricted: both claims are evaluated and block(local) folds T AND F = F",
+        "step d6_s2 restricts via claim_subset=[c_keep] (section 16.2.1): c_drop is absent from per-claim results, is excluded from block folding, and the block claim listing contains only c_keep, so block(local) folds to T"
+      ],
+      "expected": {
+        "sessions": [
+          {
+            "id": "s_subset",
+            "steps": [
+              {
+                "id": "d6_s1",
+                "claims": {
+                  "c_keep": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  },
+                  "c_drop": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "F",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "F",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "F"
+                    },
+                    "aggregate": "F",
+                    "claimIds": [
+                      "c_keep",
+                      "c_drop"
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "d6_s2",
+                "claims": {
+                  "c_keep": {
+                    "per_evaluator": {
+                      "ev0": {
+                        "truth": "T",
+                        "support": "absent"
+                      }
+                    },
+                    "aggregate": {
+                      "truth": "T",
+                      "support": "absent"
+                    }
+                  }
+                },
+                "blocks": {
+                  "local": {
+                    "per_evaluator": {
+                      "ev0": "T"
+                    },
+                    "aggregate": "T",
+                    "claimIds": [
+                      "c_keep"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostics": []
+      }
+    }
+  ]
+}

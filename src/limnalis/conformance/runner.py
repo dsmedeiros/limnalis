@@ -805,6 +805,24 @@ def run_case(case: FixtureCase, corpus: FixtureCorpus | None = None) -> CaseRunR
     # Build services dict
     services: dict[str, Any] = {}
 
+    # Live extension fixture pack (project-authored extension corpus, M7 T5):
+    # when EVERY evaluator in the bundle binds to a live-pack URI (e.g.
+    # test://eval/atoms_v2), evaluate through the real builtin primitives —
+    # eval_expr recurses sub-expressions through the §4 pair algebra with leaf
+    # dispatch to the pack's atom-level handlers — and register the pack's
+    # baseline_criterion_resolver so the §16.6.3 shared_state cache machinery
+    # is exercised for real. Vendored corpus cases are unaffected: their
+    # binding URIs (test://eval/atoms_v1 etc.) are not in the live pack, so
+    # this returns None and the claim-id-keyed fixture primitives above stay
+    # in effect. (Local import: conformance.runner loads via the package
+    # __init__, which plugins.fixtures imports from.)
+    from ..plugins.fixtures import build_live_fixture_services
+
+    live_services = build_live_fixture_services(bundle)
+    if live_services is not None:
+        primitives = PrimitiveSet()
+        services.update(live_services)
+
     # Fixture adequacy handlers for method-computed assessments used in corpus
     # cases (e.g., A12 aa2 / aa_circular).
     services["adequacy_handlers"] = {

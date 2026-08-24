@@ -13,11 +13,14 @@ from ..loader import normalize_surface_text
 from . import (
     ADEQUACY_METHOD,
     ADJUDICATOR,
+    BASELINE_HANDLER,
     EVALUATOR_BINDING,
     EVIDENCE_POLICY,
     PluginRegistry,
+    build_services_from_registry,
 )
 from ..conformance.fixtures import FixtureCase
+from ..models.ast import BaselineRefTermNode
 from ..runtime.models import (
     EvalNode,
     MachineState,
@@ -478,13 +481,290 @@ def register_fixture_plugins(
 
 
 # ---------------------------------------------------------------------------
+# Live extension fixture pack (project-authored extension corpus, M7 T5)
+# ---------------------------------------------------------------------------
+#
+# The vendored corpus is evaluated through claim-id-keyed fixture maps built
+# from expectations (see conformance.runner._build_fixture_eval_expr), which
+# never exercises sub-expression evaluation.  The bindings below are LIVE:
+# they key on predicate NAMES (atom level) or on materialized baseline values,
+# so LogicalExpr composition runs through the runtime's spec §4 pair algebra
+# and baseline resolution runs through the wave-2
+# services["baseline_criterion_resolver"] / shared_state cache machinery.
+# Stated behaviors mirror fixtures/limnalis_extension_corpus_v0.1.yaml.
+
+ATOMS_V2_URI = "test://eval/atoms_v2"
+BASELINE_BY_CONTEXT_V1_URI = "test://baseline/by_context_v1"
+BASELINE_MATCH_V1_URI = "test://eval/baseline_match_v1"
+
+# test://eval/atoms_v2 truth table, keyed on predicate NAME (never claim id).
+_ATOMS_V2_TRUTHS: dict[str, tuple[str, str | None]] = {
+    "t": ("T", None),
+    "f": ("F", None),
+    "b": ("B", "source_conflict"),
+    "n": ("N", "undefined_term"),
+}
+
+# test://baseline/by_context_v1 value table, keyed on the effective step
+# context (time point, regime facet) per the spec §17.2 A11 narrative.
+_BY_CONTEXT_V1_VALUES: dict[tuple[str | None, str | None], int] = {
+    ("2026-03-06T09:00:00Z", "nominal"): 10,
+    ("2026-03-06T09:05:00Z", "stress"): 20,
+}
+
+# test://eval/baseline_match_v1: sensor_A is fixed at 10 (spec §17.2 A11).
+_BASELINE_MATCH_V1_EXPECTED_VALUE = 10
+
+
+class AtomTruthEvalHandler:
+    """``test://eval/atoms_v2`` — ATOM-LEVEL evaluator binding.
+
+    Maps predicate NAMES to truths (t→T, f→F, b→B[source_conflict],
+    n→N[undefined_term]; unknown names → N[undefined_term]).  Because the
+    handler resolves individual PredicateExpr leaves, any LogicalExpr over
+    these atoms is composed by the live §4 pair algebra in
+    ``runtime.builtins._eval_logical_expr`` — never keyed on claim ids.
+    """
+
+    def __call__(
+        self,
+        expr: Any,
+        claim: Any,
+        step_ctx: StepContext | None,
+        machine_state: MachineState,
+    ) -> TruthCore:
+        name = getattr(expr, "name", None)
+        entry = _ATOMS_V2_TRUTHS.get(name) if isinstance(name, str) else None
+        if entry is None:
+            return TruthCore(
+                truth="N",
+                reason="undefined_term",
+                provenance=[ATOMS_V2_URI],
+            )
+        truth, reason = entry
+        return TruthCore(
+            truth=truth,
+            reason=reason,
+            provenance=[ATOMS_V2_URI, f"atom:{name}"],
+        )
+
+
+class BaselineMatchEvalHandler:
+    """``test://eval/baseline_match_v1`` — baseline-comparison evaluator.
+
+    Returns T when every BaselineRefTerm in the claim expression resolves to
+    a ready baseline whose materialized value equals the expected sensor
+    value (10 — sensor_A is fixed at 10 per the spec §17.2 A11 narrative);
+    F otherwise (missing, non-ready, or non-matching baselines, or a claim
+    with no baseline reference, all yield F).
+    """
+
+    def __init__(self, expected_value: int = _BASELINE_MATCH_V1_EXPECTED_VALUE) -> None:
+        self._expected_value = expected_value
+
+    @staticmethod
+    def _collect_baseline_ref_ids(expr: Any) -> list[str]:
+        refs: list[str] = []
+
+        def _walk(obj: Any) -> None:
+            if isinstance(obj, BaselineRefTermNode):
+                if obj.id not in refs:
+                    refs.append(obj.id)
+                return
+            for sub in getattr(obj, "args", None) or []:
+                _walk(sub)
+            for sub in getattr(obj, "items", None) or []:
+                _walk(sub)
+
+        _walk(expr)
+        return refs
+
+    def __call__(
+        self,
+        expr: Any,
+        claim: Any,
+        step_ctx: StepContext | None,
+        machine_state: MachineState,
+    ) -> TruthCore:
+        ref_ids = self._collect_baseline_ref_ids(expr)
+        if not ref_ids:
+            return TruthCore(truth="F", provenance=[BASELINE_MATCH_V1_URI])
+        for ref_id in ref_ids:
+            state = machine_state.baseline_store.get(ref_id)
+            if (
+                state is None
+                or state.status != "ready"
+                or state.value != self._expected_value
+            ):
+                return TruthCore(
+                    truth="F",
+                    provenance=sorted({BASELINE_MATCH_V1_URI, *ref_ids}),
+                )
+        return TruthCore(
+            truth="T",
+            provenance=sorted({BASELINE_MATCH_V1_URI, *ref_ids}),
+        )
+
+
+def _frame_regime(frame: Any) -> str | None:
+    """Extract the regime facet from a FrameNode or FramePatternNode."""
+    regime = getattr(frame, "regime", None)
+    if regime is None:
+        facets = getattr(frame, "facets", None)
+        if facets is not None:
+            regime = getattr(facets, "regime", None)
+    return regime
+
+
+def by_context_baseline_resolver(
+    baseline_node: Any,
+    step_ctx: StepContext | None,
+    services: dict[str, Any],
+) -> Any:
+    """``test://baseline/by_context_v1`` — context-sensitive baseline criterion.
+
+    Returns 10 under step context (time t1 2026-03-06T09:00:00Z,
+    regime=nominal) and 20 under (t2 2026-03-06T09:05:00Z, regime=stress),
+    per the spec §17.2 A11 narrative.  Any other context raises, which the
+    baseline materialization scaffold surfaces as a
+    ``baseline_resolution_error`` diagnostic with the baseline unresolved.
+    """
+    time_point: str | None = None
+    regime: str | None = None
+    if step_ctx is not None:
+        if step_ctx.effective_time is not None:
+            time_point = step_ctx.effective_time.t
+        regime = _frame_regime(step_ctx.effective_frame)
+    key = (time_point, regime)
+    if key not in _BY_CONTEXT_V1_VALUES:
+        raise LookupError(
+            f"{BASELINE_BY_CONTEXT_V1_URI}: unmapped step context {key!r}"
+        )
+    return _BY_CONTEXT_V1_VALUES[key]
+
+
+# Live pack registries: binding URI -> handler factory / resolver callable.
+_LIVE_EVALUATOR_HANDLER_FACTORIES: dict[str, Any] = {
+    ATOMS_V2_URI: AtomTruthEvalHandler,
+    BASELINE_MATCH_V1_URI: BaselineMatchEvalHandler,
+}
+_LIVE_BASELINE_RESOLVERS: dict[str, Any] = {
+    BASELINE_BY_CONTEXT_V1_URI: by_context_baseline_resolver,
+}
+
+
+def _dispatching_baseline_resolver(resolvers: dict[str, Any]) -> Any:
+    """Build a ``services["baseline_criterion_resolver"]`` callable that
+    dispatches on the baseline's criterion ref URI."""
+
+    def _resolve(
+        baseline_node: Any,
+        step_ctx: StepContext | None,
+        services: dict[str, Any],
+    ) -> Any:
+        criterion = getattr(baseline_node, "criterion", None)
+        ref = getattr(criterion, "ref", None)
+        resolver = resolvers.get(ref) if isinstance(ref, str) else None
+        if resolver is None:
+            raise LookupError(
+                f"no live baseline resolver registered for criterion {ref!r}"
+            )
+        return resolver(baseline_node, step_ctx, services)
+
+    return _resolve
+
+
+def register_extension_fixture_plugins(
+    registry: PluginRegistry,
+    bundle: Any,
+) -> None:
+    """Register live extension-pack plugins for a bundle's binding URIs.
+
+    Follows the existing register pattern: evaluator handlers are registered
+    under ``EVALUATOR_BINDING`` with ``{evaluator_id}::predicate`` ids (the
+    key shape ``RegistryEvaluatorBindings`` resolves), and baseline criterion
+    resolvers under the registry-only ``BASELINE_HANDLER`` kind keyed by
+    criterion URI.
+    """
+    for evaluator in getattr(bundle, "evaluators", None) or []:
+        binding_uri = getattr(evaluator, "binding", None)
+        factory = _LIVE_EVALUATOR_HANDLER_FACTORIES.get(binding_uri)
+        if factory is None:
+            continue
+        plugin_id = f"{evaluator.id}::predicate"
+        if not registry.has(EVALUATOR_BINDING, plugin_id):
+            registry.register(
+                EVALUATOR_BINDING,
+                plugin_id,
+                factory(),
+                description=f"Live extension binding {binding_uri} for {evaluator.id}",
+            )
+
+    for baseline in getattr(bundle, "baselines", None) or []:
+        criterion = getattr(baseline, "criterion", None)
+        ref = getattr(criterion, "ref", None)
+        resolver = _LIVE_BASELINE_RESOLVERS.get(ref) if isinstance(ref, str) else None
+        if resolver is None:
+            continue
+        if not registry.has(BASELINE_HANDLER, ref):
+            registry.register(
+                BASELINE_HANDLER,
+                ref,
+                resolver,
+                description=f"Live extension baseline criterion {ref}",
+            )
+
+
+def build_live_fixture_services(bundle: Any) -> dict[str, Any] | None:
+    """Build live-evaluation services for a bundle bound to the extension pack.
+
+    Returns ``None`` unless the bundle declares at least one evaluator and
+    EVERY evaluator's binding URI is in the live pack — vendored corpus
+    bundles (``test://eval/atoms_v1`` etc.) therefore never activate the
+    live path.  Otherwise returns a services dict containing
+    ``evaluator_bindings`` (registry-backed atom-level handlers) and, when
+    any bundle baseline criterion ref is in the pack,
+    ``baseline_criterion_resolver`` wired for the §16.6.3 shared_state cache
+    machinery in ``runtime.builtins.materialize_referenced_baselines``.
+    """
+    evaluators = getattr(bundle, "evaluators", None) or []
+    if not evaluators:
+        return None
+    for evaluator in evaluators:
+        if getattr(evaluator, "binding", None) not in _LIVE_EVALUATOR_HANDLER_FACTORIES:
+            return None
+
+    registry = PluginRegistry()
+    register_extension_fixture_plugins(registry, bundle)
+    services = build_services_from_registry(registry)
+
+    resolvers = {
+        meta.plugin_id: meta.handler
+        for meta in registry.list_plugins(BASELINE_HANDLER)
+    }
+    if resolvers:
+        services["baseline_criterion_resolver"] = _dispatching_baseline_resolver(
+            resolvers
+        )
+    return services
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "ATOMS_V2_URI",
+    "BASELINE_BY_CONTEXT_V1_URI",
+    "BASELINE_MATCH_V1_URI",
+    "AtomTruthEvalHandler",
+    "BaselineMatchEvalHandler",
     "FixtureAdequacyHandler",
     "FixtureAdjudicator",
     "FixtureEvalHandlerForEvaluator",
     "FixtureSupportHandler",
+    "build_live_fixture_services",
+    "by_context_baseline_resolver",
+    "register_extension_fixture_plugins",
     "register_fixture_plugins",
 ]
